@@ -1,0 +1,123 @@
+diff --git a/arch/riscv/include/uapi/asm/siginfo.h b/arch/riscv/include/uapi/asm/siginfo.h
+index 29baf87..5db7078 100644
+--- a/arch/riscv/include/uapi/asm/siginfo.h
++++ b/arch/riscv/include/uapi/asm/siginfo.h
+@@ -17,7 +17,11 @@
+ #ifndef __ASM_SIGINFO_H
+ #define __ASM_SIGINFO_H
+ 
++#if __riscv_xlen == 64
+ #define __ARCH_SI_PREAMBLE_SIZE	(4 * sizeof(int))
++#else
++#define __ARCH_SI_PREAMBLE_SIZE	(3 * sizeof(int))
++#endif
+ 
+ #include <asm-generic/siginfo.h>
+ 
+diff --git a/arch/riscv/kernel/irq.c b/arch/riscv/kernel/irq.c
+index cf2b496..a16552f 100644
+--- a/arch/riscv/kernel/irq.c
++++ b/arch/riscv/kernel/irq.c
+@@ -12,6 +12,7 @@ struct plic_context {
+ 	volatile int claim;
+ };
+ 
++static int plic_irqs;
+ static DEFINE_PER_CPU(struct plic_context *, plic_context);
+ static DEFINE_PER_CPU(unsigned int, irq_in_progress);
+ 
+@@ -24,11 +25,11 @@ static void riscv_software_interrupt(void)
+ 	if (ret != IRQ_NONE)
+ 		return;
+ #endif
+-
++#ifdef CONFIG_SBI_CONSOLE
+ 	ret = sbi_console_isr();
+ 	if (ret != IRQ_NONE)
+ 		return;
+-
++#endif
+ 	BUG();
+ }
+ 
+@@ -37,11 +38,12 @@ static void plic_interrupt(void)
+ 	unsigned int cpu = smp_processor_id();
+ 	unsigned int irq = per_cpu(plic_context, cpu)->claim;
+ 
+-	BUG_ON(per_cpu(irq_in_progress, cpu) != 0);
++        //	BUG_ON(per_cpu(irq_in_progress, cpu) != 0);
+ 
+ 	if (irq) {
+ 		per_cpu(irq_in_progress, cpu) = irq;
+-		generic_handle_irq(irq);
++		generic_handle_irq(irq - 1);
++                per_cpu(plic_context, cpu)->claim = irq;
+ 	}
+ }
+ 
+@@ -73,19 +75,23 @@ asmlinkage void __irq_entry do_IRQ(unsigned int cause, struct pt_regs *regs)
+ 
+ static void plic_irq_mask(struct irq_data *d)
+ {
++#if 0
+ 	unsigned int cpu = smp_processor_id();
+ 
+ 	BUG_ON(d->irq != per_cpu(irq_in_progress, cpu));
++#endif
+ }
+ 
+ static void plic_irq_unmask(struct irq_data *d)
+ {
++#if 0
+ 	unsigned int cpu = smp_processor_id();
+ 
+ 	BUG_ON(d->irq != per_cpu(irq_in_progress, cpu));
+ 
+ 	per_cpu(plic_context, cpu)->claim = per_cpu(irq_in_progress, cpu);
+ 	per_cpu(irq_in_progress, cpu) = 0;
++#endif
+ }
+ 
+ struct irq_chip plic_irq_chip = {
+@@ -97,6 +103,24 @@ struct irq_chip plic_irq_chip = {
+ 
+ void __init init_IRQ(void)
+ {
++        int irq;
++        
++	/* Allocate our IRQs */
++	plic_irqs = /* config_string_u64(pdev, "ndevs") */ 32;
++	irq = irq_alloc_descs(0, 0, plic_irqs, 0);
++
++	if (irq != 0) {
++		printk("could not allocate %d PLIC IRQs at 0!\n", plic_irqs);
++		return;
++	}
++
++	for (irq = 0; irq < plic_irqs; ++irq) {
++		irq_set_chip_and_handler(irq, &plic_irq_chip, handle_simple_irq);
++	}
++
++        per_cpu(plic_context, 0) = ioremap(0x40002000, 8);
++        
+ 	/* Enable software interrupts (and disable the others) */
+-	csr_write(sie, SIE_SSIE);
++        /* enable external interrupts */
++        csr_write(sie, SIE_SSIE | 0x200);
+ }
+diff --git a/arch/riscv/kernel/sbi-con.c b/arch/riscv/kernel/sbi-con.c
+index 10e499d..677417e 100644
+--- a/arch/riscv/kernel/sbi-con.c
++++ b/arch/riscv/kernel/sbi-con.c
+@@ -88,9 +88,8 @@ static int __init sbi_console_init(void)
+ 	int ret;
+ 
+ 	register_console(&sbi_console);
+-
+-	sbi_tty_driver = tty_alloc_driver(1,
+-		TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV);
++        
++	sbi_tty_driver = tty_alloc_driver(1, TTY_DRIVER_REAL_RAW);
+ 	if (unlikely(IS_ERR(sbi_tty_driver)))
+ 		return PTR_ERR(sbi_tty_driver);
+ 

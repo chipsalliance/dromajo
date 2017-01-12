@@ -1,0 +1,86 @@
+diff --git a/bbl/bbl.lds b/bbl/bbl.lds
+index 6833e47..8aaeac6 100644
+--- a/bbl/bbl.lds
++++ b/bbl/bbl.lds
+@@ -40,14 +40,13 @@ SECTIONS
+   PROVIDE( etext = . );
+   _etext = .;
+ 
++
+   /*--------------------------------------------------------------------*/
+-  /* HTIF, isolated onto separate page                                  */
++  /* HTIF at a known address */
+   /*--------------------------------------------------------------------*/
+-  . = ALIGN(0x1000);
+-  htif :
+-  {
+-    *(htif)
+-  }
++  tohost = 0x40008000;
++  fromhost = 0x40008008;
++
+   . = ALIGN(0x1000);
+ 
+   /*--------------------------------------------------------------------*/
+diff --git a/machine/htif.h b/machine/htif.h
+index 7107ddb..398b1e1 100644
+--- a/machine/htif.h
++++ b/machine/htif.h
+@@ -3,7 +3,8 @@
+ 
+ #include <stdint.h>
+ 
+-#if __riscv_xlen == 64
++/* fix for 32 bit HTIF */
++#if 1
+ # define TOHOST_CMD(dev, cmd, payload) \
+   (((uint64_t)(dev) << 56) | ((uint64_t)(cmd) << 48) | (uint64_t)(payload))
+ #else
+diff --git a/machine/mtrap.c b/machine/mtrap.c
+index 07f7d10..a9e63be 100644
+--- a/machine/mtrap.c
++++ b/machine/mtrap.c
+@@ -7,8 +7,9 @@
+ #include <stdarg.h>
+ #include <stdio.h>
+ 
+-volatile uint64_t tohost __attribute__((aligned(64))) __attribute__((section("htif")));
+-volatile uint64_t fromhost __attribute__((aligned(64))) __attribute__((section("htif")));
++volatile extern uint64_t tohost;
++volatile extern uint64_t fromhost;
++
+ static spinlock_t htif_lock = SPINLOCK_INIT;
+ 
+ void __attribute__((noreturn)) bad_trap()
+@@ -100,8 +101,13 @@ void poweroff()
+ 
+ void putstring(const char* s)
+ {
+-  while (*s)
+-    mcall_console_putchar(*s++);
++    int c;
++    while (*s) {
++        c = *s++;
++        if (c == '\n')
++            mcall_console_putchar('\r');
++        mcall_console_putchar(c);
++    }
+ }
+ 
+ void printm(const char* s, ...)
+diff --git a/pk/pk.lds b/pk/pk.lds
+index 1bc9adf..2a5687a 100644
+--- a/pk/pk.lds
++++ b/pk/pk.lds
+@@ -46,7 +46,10 @@ SECTIONS
+   . = ALIGN(0x1000);
+   htif :
+   {
+-    *(htif)
++    tohost = . ;
++    . = . + 64;
++    fromhost = . ;
++    . = . + 64;
+   }
+   . = ALIGN(0x1000);
+ 
