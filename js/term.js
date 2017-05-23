@@ -23,13 +23,15 @@
  */
 "use strict";
 
-function Term(width, height, handler)
+function Term(width, height, handler, tot_height)
 {
     this.w = width;
     this.h = height;
 
     this.cur_h = height; /* current height of the scroll back buffer */
-    this.tot_h = 1000; /* total height of the scroll back buffer */
+    if (!tot_height || tot_height < height)
+        tot_height = height;
+    this.tot_h = tot_height; /* maximum height of the scroll back buffer */
     this.y_base = 0; /* position of the current top screen line in the
                       * scroll back buffer */
     this.y_disp = 0; /* position of the top displayed line in the
@@ -39,7 +41,6 @@ function Term(width, height, handler)
     this.y = 0;
     this.cursorstate = 0;
     this.handler = handler;
-    this.convert_lf_to_crlf = false;
     this.state = 0;
     this.output_queue = "";
     this.bg_colors = [
@@ -69,9 +70,9 @@ function Term(width, height, handler)
     this.key_rep_str = "";
 }
 
-Term.prototype.open = function()
+Term.prototype.open = function(parent_el, textarea_el)
 {
-    var y, line, i, term, c;
+    var y, line, i, term, c, row_el;
 
     /* set initial content */
     this.lines = new Array();
@@ -83,13 +84,56 @@ Term.prototype.open = function()
         this.lines[y] = line;
     }
 
-    /* create terminal window */
-    document.writeln('<table border="0" cellspacing="0" cellpadding="0">');
-    for(y=0;y<this.h;y++) {
-        document.writeln('<tr><td class="term" id="tline' + y + '"></td></tr>');
-    }
-    document.writeln('</table>');
+    /* create the terminal window */
+    this.term_el = document.createElement("div");
+    this.term_el.className = "term";
+    this.term_el.style.lineHeight = "1.2em";
+    /* XXX: could compute the font metrics */
+    this.term_el.style.width = "calc(" + this.w + "ch + 16px)";
+    this.term_el.style.height = (this.h * 1.2) + "em";
     
+    /* scroll bar */
+    this.scrollbar_el = document.createElement("div");
+    this.scrollbar_el.className = "term_scrollbar";
+    this.term_el.appendChild(this.scrollbar_el);
+
+    this.track_el = document.createElement("div");
+    this.track_el.className = "term_track";
+    this.track_el.onmousedown = this.mouseMoveHandler.bind(this);
+    this.scrollbar_el.appendChild(this.track_el);
+    
+    this.thumb_el = document.createElement("div");
+    this.thumb_el.className = "term_thumb";
+    this.thumb_el.onmousedown = this.mouseDownHandler.bind(this);
+    this.track_el.appendChild(this.thumb_el);
+
+    this.end_el = document.createElement("div");
+    this.end_el.className = "term_end";
+    this.thumb_el.appendChild(this.end_el);
+
+    /* current scrollbar position */
+    this.thumb_size = -1;
+    this.thumb_pos = -1;
+    
+    /* terminal content */
+    this.content_el = document.createElement("div");
+    this.content_el.className = "term_content";
+    this.content_el.style.width = (this.w) + "ch";
+    this.term_el.appendChild(this.content_el);
+    
+    this.rows_el = [];
+    for(y=0;y<this.h;y++) {
+        row_el = document.createElement("div");
+        this.rows_el.push(row_el);
+        this.content_el.appendChild(row_el);
+    }
+    
+    this.parent_el = parent_el;
+    parent_el.appendChild(this.term_el);
+
+    /* dummy text area for copy paste & mobile devices */
+    this.textarea_el = textarea_el;
+
     this.refresh(0, this.h - 1);
     
     // key handler
@@ -97,16 +141,62 @@ Term.prototype.open = function()
                               this.keyDownHandler.bind(this), true);
     document.addEventListener("keypress", 
                               this.keyPressHandler.bind(this), true);
-
+    // wheel
+    document.addEventListener("wheel", 
+                              this.wheelHandler.bind(this), false);
+    // paste
+    document.defaultView.addEventListener("paste", 
+                                          this.pasteHandler.bind(this), false);
+    
     // cursor blinking
     term = this;
     setInterval(function() { term.cursor_timer_cb(); }, 1000);
 };
 
+Term.prototype.refresh_scrollbar = function ()
+{
+    var total_size, thumb_pos, thumb_size, y, y0;
+    total_size = this.term_el.clientHeight;
+    thumb_size = Math.ceil(this.h * total_size / this.cur_h);
+    /* position of the first line of the scroll back buffer */
+    y0 = (this.y_base + this.h) % this.cur_h;
+    y = this.y_disp - y0;
+    if (y < 0)
+        y += this.cur_h;
+    thumb_pos = Math.floor(y * total_size / this.cur_h);
+    thumb_size = Math.max(thumb_size, 30);
+    thumb_size = Math.min(thumb_size, total_size);
+    thumb_pos = Math.min(thumb_pos, total_size - thumb_size);
+//    console.log("pos=" + thumb_pos + " size=" + thumb_size);
+    if (thumb_pos != this.thumb_pos || thumb_size != this.thumb_size) {
+        this.thumb_pos = thumb_pos;
+        this.thumb_size = thumb_size;
+        this.thumb_el.style.top = thumb_pos + "px";
+        this.thumb_el.style.height = thumb_size + "px";
+    }
+}
+
 Term.prototype.refresh = function(ymin, ymax)
 {
-    var el, y, line, outline, c, w, i, cx, attr, last_attr, fg, bg, y1;
+    var el, y, line, outline, c, w, i, j, cx, attr, last_attr, fg, bg, y1;
+    var http_link_len, http_link_str;
+    
+    function is_http_link_char(c)
+    {
+        var str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=`.";
+        return str.indexOf(String.fromCharCode(c)) >= 0;
+    }
 
+    function right_trim(str, a)
+    {
+        var i, n;
+        n = a.length;
+        i = str.length;
+        while (i >= n && str.substr(i - n, n) == a)
+            i -= n;
+        return str.substr(0, i);
+    }
+    
     for(y = ymin; y <= ymax; y++) {
         /* convert to HTML string */
         y1 = y + this.y_disp;
@@ -122,10 +212,39 @@ Term.prototype.refresh = function(ymin, ymax)
             cx = -1;
         }
         last_attr = this.def_attr;
+        http_link_len = 0;
         for(i = 0; i < w; i++) {
             c = line[i];
             attr = c >> 16;
             c &= 0xffff;
+            /* test for http link */
+            if (c == 0x68 && (w - i) >= 8 && http_link_len == 0) {
+                /* test http:// or https:// */
+                if ((line[i + 1] & 0xffff) == 0x74 &&
+                    (line[i + 2] & 0xffff) == 0x74 &&
+                    (line[i + 3] & 0xffff) == 0x70 &&
+                    (((line[i + 4] & 0xffff) == 0x3a &&
+                      (line[i + 5] & 0xffff) == 0x2f &&
+                      (line[i + 6] & 0xffff) == 0x2f) ||
+                     ((line[i + 4] & 0xffff) == 0x73 &&
+                      (line[i + 5] & 0xffff) == 0x3a &&
+                      (line[i + 6] & 0xffff) == 0x2f &&
+                      (line[i + 7] & 0xffff) == 0x2f))) {
+                    http_link_str = "";
+                    j = 0;
+                    while ((i + j) < w &&
+                           is_http_link_char(line[i + j] & 0xffff)) {
+                        http_link_str += String.fromCharCode(line[i + j] & 0xffff);
+                        j++;
+                    }
+                    http_link_len = j;
+                    if (last_attr != this.def_attr) {
+                        outline += '</span>';
+                        last_attr = this.def_attr;
+                    }
+                    outline += "<a href='" + http_link_str + "'>";
+                }
+            }
             if (i == cx)  {
                 attr = -1; /* cursor */
             }
@@ -135,7 +254,7 @@ Term.prototype.refresh = function(ymin, ymax)
                 if (attr != this.def_attr) {
                     if (attr == -1) {
                         /* cursor */
-                        outline += '<span class="termReverse">';
+                        outline += '<span class="term_cursor">';
                     } else {
                         outline += '<span style="';
                         fg = (attr >> 3) & 7;
@@ -173,14 +292,30 @@ Term.prototype.refresh = function(ymin, ymax)
                 break;
             }
             last_attr = attr;
+            if (http_link_len != 0) {
+                http_link_len--;
+                if (http_link_len == 0) {
+                    if (last_attr != this.def_attr) {
+                        outline += '</span>';
+                        last_attr = this.def_attr;
+                    }
+                    outline += "</a>";
+                }
+            }
         }
         if (last_attr != this.def_attr) {
-                    outline += '</span>';
+            outline += '</span>';
         }
 
-        el = document.getElementById("tline" + y);
-        el.innerHTML = outline;
+        /* trim trailing spaces for copy/paste */
+        outline = right_trim(outline, "&nbsp;");
+        if (outline == "")
+            outline = "&nbsp;";
+        
+        this.rows_el[y].innerHTML = outline;
     }
+
+    this.refresh_scrollbar();
 };
 
 Term.prototype.cursor_timer_cb = function()
@@ -314,9 +449,6 @@ Term.prototype.write = function(str)
         case TTY_STATE_NORM:
             switch(c) {
             case 10:
-                if (this.convert_lf_to_crlf) {
-                    this.x = 0; // emulates '\r'
-                }
                 this.y++;
                 if (this.y >= this.h) {
                     this.y--;
@@ -615,6 +747,69 @@ Term.prototype.keyPressHandler = function (ev)
         return true;
     }
 };
+
+Term.prototype.wheelHandler = function (ev)
+{
+    if (ev.deltaY < 0)
+        this.scroll_disp(-3);
+    else if (ev.deltaY > 0)
+        this.scroll_disp(3);
+    ev.stopPropagation();
+}
+
+Term.prototype.mouseDownHandler = function (ev)
+{
+    this.thumb_el.onmouseup = this.mouseUpHandler.bind(this);
+    document.onmousemove = this.mouseMoveHandler.bind(this);
+    document.onmouseup = this.mouseUpHandler.bind(this);
+
+    /* disable potential selection */
+    document.body.className += " noSelect";
+    
+    this.mouseMoveHandler(ev);
+}
+
+Term.prototype.mouseMoveHandler = function (ev)
+{
+    var total_size, pos, new_y_disp, y, y0;
+    total_size = this.term_el.clientHeight;
+    y = ev.clientY - this.track_el.getBoundingClientRect().top;
+    pos = Math.floor((y - (this.thumb_size / 2)) * this.cur_h / total_size);
+    new_y_disp = Math.min(Math.max(pos, 0), this.cur_h - this.h);
+    /* position of the first line of the scroll back buffer */
+    y0 = (this.y_base + this.h) % this.cur_h;
+    new_y_disp += y0;
+    if (new_y_disp >= this.cur_h)
+        new_y_disp -= this.cur_h;
+    if (new_y_disp != this.y_disp) {
+        this.y_disp = new_y_disp;
+        this.refresh(0, this.h - 1);
+    }
+}
+
+Term.prototype.mouseUpHandler = function (ev)
+{
+    this.thumb_el.onmouseup = null;
+    document.onmouseup = null;
+    document.onmousemove = null;
+    document.body.className = document.body.className.replace(" noSelect", "");
+}
+
+Term.prototype.pasteHandler = function (ev)
+{
+    var c = ev.clipboardData;
+    if (c) {
+        this.queue_chars(c.getData("text/plain"));
+        setTimeout(this.textAreaReset.bind(this), 10);
+        return false;
+    }
+}
+
+Term.prototype.textAreaReset = function(ev)
+{
+    /* reset text */
+    this.textarea_el.value = "Paste Here";
+}
 
 /* output queue to send back asynchronous responses */
 Term.prototype.queue_chars = function (str)

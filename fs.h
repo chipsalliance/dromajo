@@ -139,6 +139,8 @@ typedef struct {
 #define P9_LOCK_ERROR   2
 #define P9_LOCK_GRACE   3
 
+#define FSCMD_NAME ".fscmd"
+
 typedef struct {
     uint8_t type;
     uint32_t flags;
@@ -152,12 +154,13 @@ typedef void FSOpenCompletionFunc(FSDevice *fs, FSQID *qid, int err,
                                   void *opaque);
 
 struct FSDevice {
-    FSFile *(*fid_find)(FSDevice *s, uint32_t fid);
-    void (*fid_delete)(FSDevice *s, uint32_t fid);
+    void (*fs_end)(FSDevice *s);
+    void (*fs_delete)(FSDevice *s, FSFile *f);
     void (*fs_statfs)(FSDevice *fs, FSStatFS *st);
-    int (*fs_attach)(FSDevice *fs, FSQID *qid, uint32_t fid, uint32_t uid);
-    int (*fs_walk)(FSDevice *fs, FSQID *qids, FSFile *f, uint32_t newfid, 
-                   int n, char **names);
+    int (*fs_attach)(FSDevice *fs, FSFile **pf, FSQID *qid, uint32_t uid,
+                     const char *uname, const char *aname);
+    int (*fs_walk)(FSDevice *fs, FSFile **pf, FSQID *qids,
+                   FSFile *f, int n, char **names);
     int (*fs_mkdir)(FSDevice *fs, FSQID *qid, FSFile *f,
                     const char *name, uint32_t mode, uint32_t gid);
     int (*fs_open)(FSDevice *fs, FSQID *qid, FSFile *f, uint32_t flags,
@@ -190,12 +193,24 @@ struct FSDevice {
     int (*fs_getlock)(FSDevice *fs, FSFile *f, FSLock *lock);
 };
 
-FSDevice *fs_init(const char *root_path);
+FSDevice *fs_disk_init(const char *root_path);
+FSDevice *fs_mem_init(void);
 FSDevice *fs_net_init(const char *url, void (*start)(void *opaque), void *opaque);
-#ifndef EMSCRIPTEN
+void fs_net_set_pwd(FSDevice *fs, const char *pwd);
+#ifdef EMSCRIPTEN
+void fs_import_file(const char *filename, uint8_t *buf, int buf_len);
+#else
+typedef BOOL FSNetEventLoopCompletionFunc(void *opaque);
 void fs_net_set_fdset(int *pfd_max, fd_set *rfds, fd_set *wfds, fd_set *efds,
                       int *ptimeout);
-void fs_net_event_loop(void);
+void fs_net_event_loop(FSNetEventLoopCompletionFunc *cb, void *opaque);
 #endif
-int fs_net_get_kernel(FSDevice *fs1, uint8_t **pkernel);
-void fs_net_free_kernel(FSDevice *fs1);
+void fs_export_file(const char *filename,
+                    const uint8_t *buf, int buf_len);
+int fs_net_get_file(FSDevice *fs1, uint8_t **pbuf, const char *path);
+void fs_end(FSDevice *fs);
+
+FSFile *fs_dup(FSDevice *fs, FSFile *f);
+FSFile *fs_walk_path1(FSDevice *fs, FSFile *f, const char *path,
+                      char **pname);
+FSFile *fs_walk_path(FSDevice *fs, FSFile *f, const char *path);

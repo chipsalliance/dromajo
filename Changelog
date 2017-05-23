@@ -1,0 +1,11 @@
+2017-05-23:
+
+- RISCV: faster emulation (1.4x)
+- Support of user level ISA version 2.2 and priviledged architecture
+  version 1.10
+- added small x86 emulator (x86emu) based on KVM
+- modified the fs_net network protocol to match the vfsync protocol
+- JS emulator:
+  - added scrollbar in terminal
+  - added file import and export
+  - added copy/paste support

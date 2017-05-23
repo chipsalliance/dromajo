@@ -1,123 +1,172 @@
+diff --git a/arch/riscv/Makefile b/arch/riscv/Makefile
+index dbae4cd..ba59390 100644
+--- a/arch/riscv/Makefile
++++ b/arch/riscv/Makefile
+@@ -62,6 +62,7 @@ KBUILD_AFLAGS += -march=$(KBUILD_MARCH)$(KBUILD_RV_ATOMIC)fd$(KBUILD_RVC)
+ 
+ KBUILD_CFLAGS += -march=$(KBUILD_MARCH)$(KBUILD_RV_ATOMIC)$(KBUILD_RVC)
+ KBUILD_CFLAGS += -mno-save-restore
++KBUILD_CFLAGS += -mstrict-align
+ 
+ head-y := arch/riscv/kernel/head.o
+ 
+diff --git a/arch/riscv/include/asm/processor.h b/arch/riscv/include/asm/processor.h
+index 59e54ed..5412744 100644
+--- a/arch/riscv/include/asm/processor.h
++++ b/arch/riscv/include/asm/processor.h
+@@ -14,6 +14,7 @@
+ #ifdef __KERNEL__
+ #define STACK_TOP		TASK_SIZE
+ #define STACK_TOP_MAX		STACK_TOP
++#define STACK_ALIGN		16
+ #endif /* __KERNEL__ */
+ 
+ #ifndef __ASSEMBLY__
+@@ -45,8 +46,9 @@ struct thread_struct {
+ #define thread_saved_sp(t)	((t)->thread.sp)
+ #define thread_saved_fp(t)	((t)->thread.s[0])
+ 
+-#define task_pt_regs(tsk) \
+-	((struct pt_regs *)(task_stack_page(tsk) + THREAD_SIZE) - 1)
++#define task_pt_regs(tsk)						\
++	((struct pt_regs *)(task_stack_page(tsk) + THREAD_SIZE		\
++			    - ALIGN(sizeof(struct pt_regs), STACK_ALIGN)))
+ 
+ #define KSTK_EIP(tsk)		(task_pt_regs(tsk)->sepc)
+ #define KSTK_ESP(tsk)		(task_pt_regs(tsk)->sp)
+diff --git a/arch/riscv/include/asm/sbi.h b/arch/riscv/include/asm/sbi.h
+index 8f050f4..f69ede8 100644
+--- a/arch/riscv/include/asm/sbi.h
++++ b/arch/riscv/include/asm/sbi.h
+@@ -40,7 +40,7 @@ static inline int sbi_console_getchar(void)
+ 	return SBI_CALL_0(SBI_CONSOLE_GETCHAR);
+ }
+ 
+-static inline void sbi_set_timer(unsigned long stime_value)
++static inline void sbi_set_timer(uint64_t stime_value)
+ {
+ #if __riscv_xlen == 32
+ 	SBI_CALL_2(SBI_SET_TIMER, stime_value, stime_value >> 32);
 diff --git a/arch/riscv/include/uapi/asm/siginfo.h b/arch/riscv/include/uapi/asm/siginfo.h
-index 29baf87..5db7078 100644
+index 29baf87..f96849a 100644
 --- a/arch/riscv/include/uapi/asm/siginfo.h
 +++ b/arch/riscv/include/uapi/asm/siginfo.h
-@@ -17,7 +17,11 @@
+@@ -17,7 +17,7 @@
  #ifndef __ASM_SIGINFO_H
  #define __ASM_SIGINFO_H
  
-+#if __riscv_xlen == 64
- #define __ARCH_SI_PREAMBLE_SIZE	(4 * sizeof(int))
-+#else
-+#define __ARCH_SI_PREAMBLE_SIZE	(3 * sizeof(int))
-+#endif
+-#define __ARCH_SI_PREAMBLE_SIZE	(4 * sizeof(int))
++#define __ARCH_SI_PREAMBLE_SIZE	(__SIZEOF_POINTER__ == 4 ? 12 : 16)
  
  #include <asm-generic/siginfo.h>
  
-diff --git a/arch/riscv/kernel/irq.c b/arch/riscv/kernel/irq.c
-index cf2b496..a16552f 100644
---- a/arch/riscv/kernel/irq.c
-+++ b/arch/riscv/kernel/irq.c
-@@ -12,6 +12,7 @@ struct plic_context {
- 	volatile int claim;
- };
+diff --git a/arch/riscv/kernel/entry.S b/arch/riscv/kernel/entry.S
+index 4bf69a7..b87cb6e 100644
+--- a/arch/riscv/kernel/entry.S
++++ b/arch/riscv/kernel/entry.S
+@@ -22,7 +22,7 @@
+ _restore_kernel_sp:
+ 	csrr sp, sscratch
+ _save_context:
+-	addi sp, sp, -(PT_SIZE)
++	addi sp, sp, -((PT_SIZE + 15) & ~15)
+ 	REG_S x1,  PT_RA(sp)
+ 	REG_S x3,  PT_GP(sp)
+ 	REG_S x4,  PT_TP(sp)
+@@ -196,7 +196,7 @@ resume_userspace:
+ 	bnez s1, work_pending
  
-+static int plic_irqs;
- static DEFINE_PER_CPU(struct plic_context *, plic_context);
- static DEFINE_PER_CPU(unsigned int, irq_in_progress);
+ 	/* Save unwound kernel stack pointer in sscratch */
+-	addi s0, sp, PT_SIZE
++	addi s0, sp, (PT_SIZE + 15) & ~15
+ 	csrw sscratch, s0
+ restore_all:
+ 	RESTORE_ALL
+diff --git a/arch/riscv/kernel/head.S b/arch/riscv/kernel/head.S
+index b0d8225..932a1bc 100644
+--- a/arch/riscv/kernel/head.S
++++ b/arch/riscv/kernel/head.S
+@@ -67,8 +67,8 @@ relocate:
+ 	la a0, trampoline_pg_dir
+ 	srl a0, a0, PAGE_SHIFT
+ 	or a0, a0, a1
+-	sfence.vma
+ 	csrw sptbr, a0
++	sfence.vma
+ 1:
+ 	/* Set trap vector to spin forever to help debug */
+ 	la a0, .Lsecondary_park
+diff --git a/arch/riscv/kernel/plic.c b/arch/riscv/kernel/plic.c
+index 30c3eb3..7eac094 100644
+--- a/arch/riscv/kernel/plic.c
++++ b/arch/riscv/kernel/plic.c
+@@ -164,10 +164,14 @@ static int plic_init(struct device_node *node, struct device_node *parent)
  
-@@ -24,11 +25,11 @@ static void riscv_software_interrupt(void)
- 	if (ret != IRQ_NONE)
- 		return;
- #endif
--
-+#ifdef CONFIG_SBI_CONSOLE
- 	ret = sbi_console_isr();
- 	if (ret != IRQ_NONE)
- 		return;
--
-+#endif
- 	BUG();
- }
+ 	for (i = 0; i < data->handlers; ++i) {
+ 		struct plic_handler *handler = &data->handler[i];
+-		int parent_irq = irq_of_parse_and_map(node, i);
+-		int hwirq;
++		struct of_phandle_args parent;
++		int parent_irq, hwirq;
  
-@@ -37,11 +38,12 @@ static void plic_interrupt(void)
- 	unsigned int cpu = smp_processor_id();
- 	unsigned int irq = per_cpu(plic_context, cpu)->claim;
- 
--	BUG_ON(per_cpu(irq_in_progress, cpu) != 0);
-+        //	BUG_ON(per_cpu(irq_in_progress, cpu) != 0);
- 
- 	if (irq) {
- 		per_cpu(irq_in_progress, cpu) = irq;
--		generic_handle_irq(irq);
-+		generic_handle_irq(irq - 1);
-+                per_cpu(plic_context, cpu)->claim = irq;
- 	}
- }
- 
-@@ -73,19 +75,23 @@ asmlinkage void __irq_entry do_IRQ(unsigned int cause, struct pt_regs *regs)
- 
- static void plic_irq_mask(struct irq_data *d)
- {
-+#if 0
- 	unsigned int cpu = smp_processor_id();
- 
- 	BUG_ON(d->irq != per_cpu(irq_in_progress, cpu));
-+#endif
- }
- 
- static void plic_irq_unmask(struct irq_data *d)
- {
-+#if 0
- 	unsigned int cpu = smp_processor_id();
- 
- 	BUG_ON(d->irq != per_cpu(irq_in_progress, cpu));
- 
- 	per_cpu(plic_context, cpu)->claim = per_cpu(irq_in_progress, cpu);
- 	per_cpu(irq_in_progress, cpu) = 0;
-+#endif
- }
- 
- struct irq_chip plic_irq_chip = {
-@@ -97,6 +103,24 @@ struct irq_chip plic_irq_chip = {
- 
- void __init init_IRQ(void)
- {
-+        int irq;
-+        
-+	/* Allocate our IRQs */
-+	plic_irqs = /* config_string_u64(pdev, "ndevs") */ 32;
-+	irq = irq_alloc_descs(0, 0, plic_irqs, 0);
+-		if (WARN_ON(!parent_irq)) continue; // skip bad
++		if (of_irq_parse_one(node, i, &parent)) continue;
++		if (parent.args[0] == -1) continue; // skip context holes
 +
-+	if (irq != 0) {
-+		printk("could not allocate %d PLIC IRQs at 0!\n", plic_irqs);
-+		return;
-+	}
-+
-+	for (irq = 0; irq < plic_irqs; ++irq) {
-+		irq_set_chip_and_handler(irq, &plic_irq_chip, handle_simple_irq);
-+	}
-+
-+        per_cpu(plic_context, 0) = ioremap(0x40002000, 8);
-+        
- 	/* Enable software interrupts (and disable the others) */
--	csr_write(sie, SIE_SSIE);
-+        /* enable external interrupts */
-+        csr_write(sie, SIE_SSIE | 0x200);
- }
-diff --git a/arch/riscv/kernel/sbi-con.c b/arch/riscv/kernel/sbi-con.c
-index 10e499d..677417e 100644
---- a/arch/riscv/kernel/sbi-con.c
-+++ b/arch/riscv/kernel/sbi-con.c
-@@ -88,9 +88,8 @@ static int __init sbi_console_init(void)
- 	int ret;
++		parent_irq = irq_create_of_mapping(&parent);
++		if (!parent_irq) continue;
  
- 	register_console(&sbi_console);
+ 		handler->context = PLIC_HART_CONTEXT(data, i);
+ 		handler->data = data;
+diff --git a/arch/riscv/kernel/process.c b/arch/riscv/kernel/process.c
+index 06be32d..e6f9da9 100644
+--- a/arch/riscv/kernel/process.c
++++ b/arch/riscv/kernel/process.c
+@@ -54,6 +54,9 @@ void start_thread(struct pt_regs *regs, unsigned long pc,
+ 	unsigned long sp)
+ {
+ 	regs->sstatus = SR_PIE /* User mode, irqs on */ | SR_FS_INITIAL;
++#ifndef CONFIG_RV_PUM
++        regs->sstatus |= SR_SUM;
++#endif
+ 	regs->sepc = pc;
+ 	regs->sp = sp;
+ 	set_fs(USER_DS);
+diff --git a/arch/riscv/kernel/time.c b/arch/riscv/kernel/time.c
+index 29d5905..140ab6c 100644
+--- a/arch/riscv/kernel/time.c
++++ b/arch/riscv/kernel/time.c
+@@ -94,8 +94,7 @@ static unsigned long __init of_timebase(void)
+ void __init time_init(void)
+ {
+ 	timebase = of_timebase();
+-	lpj_fine = timebase;
+-	do_div(lpj_fine, HZ);
++        lpj_fine = timebase / HZ;
+ 
+ 	clocksource_register_hz(&riscv_clocksource, timebase);
+ 	init_clockevent();
+diff --git a/arch/riscv/lib/delay.c b/arch/riscv/lib/delay.c
+index 29097b6..8aca418 100644
+--- a/arch/riscv/lib/delay.c
++++ b/arch/riscv/lib/delay.c
+@@ -12,13 +12,16 @@ void __delay(unsigned long cycles)
+ 
+ void udelay(unsigned long usecs)
+ {
+-	__delay((unsigned long)(((u64)usecs * timebase) / 1000000UL));
 -
--	sbi_tty_driver = tty_alloc_driver(1,
--		TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV);
-+        
-+	sbi_tty_driver = tty_alloc_driver(1, TTY_DRIVER_REAL_RAW);
- 	if (unlikely(IS_ERR(sbi_tty_driver)))
- 		return PTR_ERR(sbi_tty_driver);
++	u64 ucycles = (u64)usecs * timebase;
++	do_div(ucycles, 1000000U);
++	__delay((unsigned long)ucycles);
+ }
+ EXPORT_SYMBOL(udelay);
  
+ void ndelay(unsigned long nsecs)
+ {
+-	__delay((unsigned long)(((u64)nsecs * timebase) / 1000000000UL));
++	u64 ncycles = (u64)nsecs * timebase;
++	do_div(ncycles, 1000000000U);
++	__delay((unsigned long)ncycles);
+ }
+ EXPORT_SYMBOL(ndelay);

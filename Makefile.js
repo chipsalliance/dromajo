@@ -24,18 +24,34 @@
 
 # Build Javascript version of riscvemu
 EMCC=emcc
-EMCFLAGS=-O2 -Wall -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -MMD -fno-strict-aliasing
+EMCFLAGS=-O2 --llvm-opts 2 -Wall -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -MMD -fno-strict-aliasing
 #EMCFLAGS+=-Werror
-EMCFLAGS+=-DMAX_XLEN=64 -DDEFAULT_RAM_SIZE=128
-EMLDFLAGS=-g -O3 -s TOTAL_MEMORY=201326592 --memory-init-file 0 --closure 0 -s NO_EXIT_RUNTIME=1 -s "EXPORTED_FUNCTIONS=['_console_queue_char','_main']"
+EMLDFLAGS=-O3 --memory-init-file 0 --closure 0 -s NO_EXIT_RUNTIME=1 -s NO_FILESYSTEM=1 -s "EXPORTED_FUNCTIONS=['_console_queue_char','_vm_start','_fs_import_file']" --js-library js/lib.js
 
-all: js/riscvemu.js
+PROGS=js/riscvemu32.js js/riscvemu64.js
 
-JS_OBJS=riscvemu.js.o softfp.js.o virtio.js.o fs_net.js.o
+all: $(PROGS)
 
-js/riscvemu.js: $(JS_OBJS)
-	$(EMCC) $(EMLDFLAGS) -o $@ $(JS_OBJS)
+JS_OBJS=jsemu.js.o softfp.js.o virtio.js.o fs.js.o fs_net.js.o fs_wget.js.o fs_utils.js.o 
+JS_OBJS+=iomem.js.o cutils.js.o aes.js.o sha256.js.o
+
+RISCVEMU64_OBJS=$(JS_OBJS) riscv_cpu64.js.o riscv_machine.js.o
+RISCVEMU32_OBJS=$(JS_OBJS) riscv_cpu32.js.o riscv_machine.js.o
+
+js/riscvemu64.js: $(RISCVEMU64_OBJS) js/lib.js
+	$(EMCC) $(EMLDFLAGS) -o $@ $(RISCVEMU64_OBJS)
+
+js/riscvemu32.js: $(RISCVEMU32_OBJS) js/lib.js
+	$(EMCC) $(EMLDFLAGS) -o $@ $(RISCVEMU32_OBJS)
+
+riscv_cpu32.js.o: riscv_cpu.c
+	$(EMCC) $(EMCFLAGS) -DMAX_XLEN=32 -c -o $@ $<
+
+riscv_cpu64.js.o: riscv_cpu.c
+	$(EMCC) $(EMCFLAGS) -DMAX_XLEN=64 -c -o $@ $<
+
 
 %.js.o: %.c
 	$(EMCC) $(EMCFLAGS) -c -o $@ $<
 
+-include $(wildcard *.d)

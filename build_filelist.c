@@ -21,8 +21,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
-#include <sys/sysmacros.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -36,19 +34,8 @@
 #include <dirent.h>
 #include <errno.h>
 
-static char *compose_path(const char *path, const char *name)
-{
-    int path_len, name_len;
-    char *d;
-
-    path_len = strlen(path);
-    name_len = strlen(name);
-    d = malloc(path_len + 1 + name_len + 1);
-    memcpy(d, path, path_len);
-    d[path_len] = '/';
-    memcpy(d + path_len + 1, name, name_len + 1);
-    return d;
-}
+#include "cutils.h"
+#include "fs_utils.h"
 
 void print_str(FILE *f, const char *str)
 {
@@ -79,15 +66,61 @@ void print_str(FILE *f, const char *str)
     fputc('"', f);
 }
 
+#define COPY_BUF_LEN (1024 * 1024)
 
-void scan_dir(FILE *f, const char *path)
+static void copy_file(const char *src_filename, const char *dst_filename)
 {
+    uint8_t *buf;
+    FILE *fi, *fo;
+    int len;
+    
+    buf = malloc(COPY_BUF_LEN);
+    fi = fopen(src_filename, "rb");
+    if (!fi) {
+        perror(src_filename);
+        exit(1);
+    }
+    fo = fopen(dst_filename, "wb");
+    if (!fo) {
+        perror(dst_filename);
+        exit(1);
+    }
+    for(;;) {
+        len = fread(buf, 1, COPY_BUF_LEN, fi);
+        if (len == 0)
+            break;
+        fwrite(buf, 1, len, fo);
+    }
+    fclose(fo);
+    fclose(fi);
+}
+
+typedef struct {
+    char *files_path;
+    uint64_t next_inode_num;
+    uint64_t fs_size;
+    uint64_t fs_max_size;
+    FILE *f;
+} ScanState;
+
+static void add_file_size(ScanState *s, uint64_t size)
+{
+    s->fs_size += block_align(size, FS_BLOCK_SIZE);
+    if (s->fs_size > s->fs_max_size) {
+        fprintf(stderr, "Filesystem Quota exceeded (%" PRId64 " bytes)\n", s->fs_max_size);
+        exit(1);
+    }
+}
+
+void scan_dir(ScanState *s, const char *path)
+{
+    FILE *f = s->f;
     DIR *dirp;
     struct dirent *de;
     const char *name;
     struct stat st;
-    char *path1, type, xu, xg, xo;
-    uint32_t mode;
+    char *path1;
+    uint32_t mode, v;
 
     dirp = opendir(path);
     if (!dirp) {
@@ -107,57 +140,9 @@ void scan_dir(FILE *f, const char *path)
             exit(1);
         }
 
-        mode = st.st_mode;
-        switch(mode & S_IFMT) {
-        case S_IFIFO:
-            type = 'p';
-            break;
-        case S_IFCHR:
-            type = 'c';
-            break;
-        case S_IFDIR:
-            type = 'd';
-            break;
-        case S_IFBLK:
-            type = 'b';
-            break;
-        case S_IFREG:
-            type = '-';
-            break;
-        case S_IFLNK:
-            type = 'l';
-            break;
-        case S_IFSOCK:
-            type = 's';
-            break;
-        default:
-            abort();
-        }
-
-        if (mode & S_ISUID)
-            xu = mode & 0100 ? 's' : 'S';
-        else
-            xu = mode & 0100 ? 'x' : '-';
-        if (mode & S_ISGID)
-            xg = mode & 0010 ? 's' : 'S';
-        else
-            xg = mode & 0010 ? 'x' : '-';
-        if (mode & S_ISVTX)
-            xo = mode & 0001 ? 't' : 'T';
-        else
-            xo = mode & 0001 ? 'x' : '-';
-                
-        fprintf(f, "%c%c%c%c%c%c%c%c%c%c %u %u", 
-                type, 
-                mode & 0400 ? 'r' : '-',
-                mode & 0200 ? 'w' : '-',
-                xu,
-                mode & 0040 ? 'r' : '-',
-                mode & 0020 ? 'w' : '-',
-                xg,
-                mode & 0004 ? 'r' : '-',
-                mode & 0002 ? 'w' : '-',
-                xo,
+        mode = st.st_mode & 0xffff;
+        fprintf(f, "%06o %u %u", 
+                mode, 
                 (int)st.st_uid,
                 (int)st.st_gid);
         if (S_ISCHR(mode) || S_ISBLK(mode)) {
@@ -170,9 +155,13 @@ void scan_dir(FILE *f, const char *path)
         }
         /* modification time (at most ms resolution) */
         fprintf(f, " %u", (int)st.st_mtim.tv_sec);
-        if (st.st_mtim.tv_nsec != 0) {
-            fprintf(f, ".%03u", 
-                    (int)(st.st_mtim.tv_nsec / 1000000));
+        v = st.st_mtim.tv_nsec;
+        if (v != 0) {
+            fprintf(f, ".");
+            while (v != 0) {
+                fprintf(f, "%u", v / 100000000);
+                v = (v % 100000000) * 10;
+            }
         }
         
         fprintf(f, " ");
@@ -188,11 +177,20 @@ void scan_dir(FILE *f, const char *path)
             buf[len] = '\0';
             fprintf(f, " ");
             print_str(f, buf);
+        } else if (S_ISREG(mode) && st.st_size > 0) {
+            char buf1[FILEID_SIZE_MAX], *fname;
+            FSFileID file_id;
+            file_id = s->next_inode_num++;
+            fprintf(f, " %" PRIx64, file_id);
+            file_id_to_filename(buf1, file_id);
+            fname = compose_path(s->files_path, buf1);
+            copy_file(path1, fname);
+            add_file_size(s, st.st_size);
         }
 
         fprintf(f, "\n");
         if (S_ISDIR(mode)) {
-            scan_dir(f, path1);
+            scan_dir(s, path1);
         }
         free(path1);
     }
@@ -203,27 +201,86 @@ void scan_dir(FILE *f, const char *path)
 
 void help(void)
 {
-    printf("usage: build_filelist filelist path\n");
+    printf("usage: build_filelist source_path dest_path\n");
     exit(1);
 }
 
+#define LOCK_FILENAME "lock"
+
 int main(int argc, char **argv)
 {
-    const char *filename, *path;
+    const char *dst_path, *src_path;
+    ScanState s_s, *s = &s_s;
     FILE *f;
-
+    char *filename;
+    FSFileID root_id;
+    char fname[FILEID_SIZE_MAX];
+    struct stat st;
+    
     if (argc < 3)
         help();
-    filename = argv[1];
-    path = argv[2];
+    src_path = argv[1];
+    dst_path = argv[2];
+    
+    mkdir(dst_path, 0755);
+
+    s->files_path = compose_path(dst_path, ROOT_FILENAME);
+    s->next_inode_num = 1;
+    s->fs_size = 0;
+    /* dummy value */
+    s->fs_max_size = (uint64_t)1 << 30;
+        
+    mkdir(s->files_path, 0755);
+
+    root_id = s->next_inode_num++;
+    file_id_to_filename(fname, root_id);
+    filename = compose_path(s->files_path, fname);
     f = fopen(filename, "wb");
-    fprintf(f, "Version: 1\n");
-    fprintf(f, "\n");
     if (!f) {
         perror(filename);
         exit(1);
     }
-    scan_dir(f, path);
+    fprintf(f, "Version: 1\n");
+    fprintf(f, "Revision: 1\n");
+    fprintf(f, "\n");
+    s->f = f;
+    scan_dir(s, src_path);
     fclose(f);
+
+    /* take into account the filelist size */
+    if (stat(filename, &st) < 0) {
+        perror(filename);
+        exit(1);
+    }
+    add_file_size(s, st.st_size);
+    
+    free(filename);
+    
+    filename = compose_path(dst_path, HEAD_FILENAME);
+    f = fopen(filename, "wb");
+    if (!f) {
+        perror(filename);
+        exit(1);
+    }
+    fprintf(f, "Version: 1\n");
+    fprintf(f, "Revision: 1\n");
+    fprintf(f, "NextFileID: %" PRIx64 "\n", s->next_inode_num);
+    fprintf(f, "FSFileCount: %" PRIu64 "\n", s->next_inode_num - 1);
+    fprintf(f, "FSSize: %" PRIu64 "\n", s->fs_size);
+    fprintf(f, "FSMaxSize: %" PRIu64 "\n", s->fs_max_size);
+    fprintf(f, "Key:\n"); /* not encrypted */
+    fprintf(f, "RootID: %" PRIx64 "\n", root_id);
+    fclose(f);
+    free(filename);
+    
+    filename = compose_path(dst_path, LOCK_FILENAME);
+    f = fopen(filename, "wb");
+    if (!f) {
+        perror(filename);
+        exit(1);
+    }
+    fclose(f);
+    free(filename);
+
     return 0;
 }

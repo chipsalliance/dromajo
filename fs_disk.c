@@ -21,7 +21,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include <sys/sysmacros.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -30,6 +29,7 @@
 #include <stdarg.h>
 #include <sys/statfs.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -42,14 +42,11 @@
 typedef struct {
     FSDevice common;
     char *root_path;
-    struct list_head file_list; /* list of FSFile */
 } FSDeviceDisk;
 
 static void fs_close(FSDevice *fs, FSFile *f);
 
 struct FSFile {
-    struct list_head link;
-    uint32_t fid;
     uint32_t uid;
     char *path; /* complete path */
     BOOL is_opened;
@@ -60,45 +57,21 @@ struct FSFile {
     } u;
 };
 
-static FSFile *fid_find(FSDevice *s1, uint32_t fid)
+static void fs_delete(FSDevice *fs, FSFile *f)
 {
-    FSDeviceDisk *s = (FSDeviceDisk *)s1;
-    struct list_head *el;
-    FSFile *f;
-
-    list_for_each(el, &s->file_list) {
-        f = list_entry(el, FSFile, link);
-        if (f->fid == fid)
-            return f;
-    }
-    return NULL;
-}
-
-static void fid_delete(FSDevice *fs, uint32_t fid)
-{
-    FSFile *f;
-    f = fid_find(fs, fid);
-    if (!f)
-        return;
     if (f->is_opened)
         fs_close(fs, f);
     free(f->path);
-    list_del(&f->link);
     free(f);
 }
 
 /* warning: path belong to fid_create() */
-static FSFile *fid_create(FSDevice *s1, uint32_t fid, char *path,
-                          uint32_t uid)
+static FSFile *fid_create(FSDevice *s1, char *path, uint32_t uid)
 {
-    FSDeviceDisk *s = (FSDeviceDisk *)s1;
     FSFile *f;
-    fid_delete(s1, fid);
     f = mallocz(sizeof(*f));
-    f->fid = fid;
     f->path = path;
     f->uid = uid;
-    list_add(&f->link, &s->file_list);
     return f;
 }
 
@@ -107,7 +80,9 @@ static int errno_table[][2] = {
     { P9_EPERM, EPERM },
     { P9_ENOENT, ENOENT },
     { P9_EIO, EIO },
+    { P9_EEXIST, EEXIST },
     { P9_EINVAL, EINVAL },
+    { P9_ENOSPC, ENOSPC },
     { P9_ENOTEMPTY, ENOTEMPTY },
     { P9_EPROTO, EPROTO },
     { P9_ENOTSUP, ENOTSUP },
@@ -194,20 +169,26 @@ static char *compose_path(const char *path, const char *name)
     return d;
 }
 
-static int fs_attach(FSDevice *fs1, FSQID *qid, uint32_t fid, uint32_t uid)
+static int fs_attach(FSDevice *fs1, FSFile **pf,
+                     FSQID *qid, uint32_t uid,
+                     const char *uname, const char *aname)
 {
     FSDeviceDisk *fs = (FSDeviceDisk *)fs1;
     struct stat st;
-
-    if (lstat(fs->root_path, &st) != 0)
+    FSFile *f;
+    
+    if (lstat(fs->root_path, &st) != 0) {
+        *pf = NULL;
         return -errno_to_p9(errno);
-    fid_create(fs1, fid, strdup(fs->root_path), uid);
+    }
+    f = fid_create(fs1, strdup(fs->root_path), uid);
     stat_to_qid(qid, &st);
+    *pf = f;
     return 0;
 }
 
-static int fs_walk(FSDevice *fs, FSQID *qids, FSFile *f, uint32_t newfid, 
-            int n, char **names)
+static int fs_walk(FSDevice *fs, FSFile **pf, FSQID *qids,
+                   FSFile *f, int n, char **names)
 {
     char *path, *path1;
     struct stat st;
@@ -224,7 +205,7 @@ static int fs_walk(FSDevice *fs, FSQID *qids, FSFile *f, uint32_t newfid,
         path = path1;
         stat_to_qid(&qids[i], &st);
     }
-    fid_create(fs, newfid, path, f->uid);
+    *pf = fid_create(fs, path, f->uid);
     return i;
 }
 
@@ -419,12 +400,12 @@ static int fs_stat(FSDevice *fs, FSFile *f, FSStat *st)
     st->st_size = st1.st_size;
     st->st_blksize = st1.st_blksize;
     st->st_blocks = st1.st_blocks;
-    st->st_atime_sec = st1.st_atime;
-    st->st_atime_nsec = 0;
-    st->st_mtime_sec = st1.st_mtime;
-    st->st_mtime_nsec = 0;
-    st->st_ctime_sec = st1.st_ctime;
-    st->st_ctime_nsec = 0;
+    st->st_atime_sec = st1.st_atim.tv_sec;
+    st->st_atime_nsec = st1.st_atim.tv_nsec;
+    st->st_mtime_sec = st1.st_mtim.tv_sec;
+    st->st_mtime_nsec = st1.st_mtim.tv_nsec;
+    st->st_ctime_sec = st1.st_ctim.tv_sec;
+    st->st_ctime_nsec = st1.st_ctim.tv_nsec;
     return 0;
 }
 
@@ -477,7 +458,7 @@ static int fs_setattr(FSDevice *fs, FSFile *f, uint32_t mask,
             ts[1].tv_sec = 0;
             ts[1].tv_nsec = UTIME_OMIT;
         }
-        if (utimensat(-1, f->path, ts, AT_SYMLINK_NOFOLLOW) < 0)
+        if (utimensat(AT_FDCWD, f->path, ts, AT_SYMLINK_NOFOLLOW) < 0)
             return -errno_to_p9(errno);
         ctime_updated = TRUE;
     }
@@ -628,12 +609,17 @@ static int fs_getlock(FSDevice *fs, FSFile *f, FSLock *lock)
         lock->type = fl.l_type;
         lock->start = fl.l_start;
         lock->length = fl.l_len;
-        lock->proc_id = 0; /* XXX */
     }
     return ret;
 }
 
-FSDevice *fs_init(const char *root_path)
+static void fs_disk_end(FSDevice *fs1)
+{
+    FSDeviceDisk *fs = (FSDeviceDisk *)fs1;
+    free(fs->root_path);
+}
+
+FSDevice *fs_disk_init(const char *root_path)
 {
     FSDeviceDisk *fs;
     struct stat st;
@@ -644,8 +630,8 @@ FSDevice *fs_init(const char *root_path)
 
     fs = mallocz(sizeof(*fs));
 
-    fs->common.fid_find = fid_find;
-    fs->common.fid_delete = fid_delete;
+    fs->common.fs_end = fs_disk_end;
+    fs->common.fs_delete = fs_delete;
     fs->common.fs_statfs = fs_statfs;
     fs->common.fs_attach = fs_attach;
     fs->common.fs_walk = fs_walk;
@@ -668,6 +654,5 @@ FSDevice *fs_init(const char *root_path)
     fs->common.fs_getlock = fs_getlock;
     
     fs->root_path = strdup(root_path);
-    init_list_head(&fs->file_list);
     return (FSDevice *)fs;
 }

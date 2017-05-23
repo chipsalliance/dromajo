@@ -185,26 +185,86 @@ static inline uintx_t glue(mulhsu, XLEN)(intx_t a, uintx_t b)
     case n+(24 << 2): case n+(25 << 2): case n+(26 << 2): case n+(27 << 2): \
     case n+(28 << 2): case n+(29 << 2): case n+(30 << 2): case n+(31 << 2): 
 
+#define GET_PC() (target_ulong)((uintptr_t)code_ptr + code_to_pc_addend)
+#define GET_INSN_COUNTER() (insn_counter_addend - n_cycles)
+
+/* we do it without a jump to keep a simple control flow for emcripten */
+#define C_NEXT_INSN code_ptr -= 2; break
+
 static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                                                    int n_cycles)
 {
     uint32_t opcode, insn, rd, rs1, rs2, funct3;
     int32_t imm, cond, err;
-    target_ulong addr, pc_next, val, val2;
+    target_ulong addr, val, val2;
+    uint8_t *code_ptr, *code_end;
+    target_ulong code_to_pc_addend;
+    uint64_t insn_counter_addend;
 #if FLEN > 0
     uint32_t rs3;
     int32_t rm;
 #endif
+
+    if (n_cycles == 0)
+        return;
+    insn_counter_addend = s->insn_counter + n_cycles;
+
+    /* check pending interrupts */
+    if (unlikely((s->mip & s->mie) != 0)) {
+        if (raise_interrupt(s))
+            goto done_interp;
+    }
+
+    s->pending_exception = -1;
     
-    while (n_cycles != 0) {
-        if (unlikely((s->mip & s->mie) != 0)) {
-                raise_interrupt(s);
+    for(;;) {
+        code_ptr = NULL;
+        code_end = NULL;
+        code_to_pc_addend = s->pc; /* Note: we assume NULL is represented as a
+                                      zero number */
+    for(;;) {
+        if (unlikely(code_ptr >= code_end)) {
+            uint32_t tlb_idx;
+            uint16_t insn_high;
+            uintptr_t mem_addend;
+            target_ulong addr;
+
+            addr = s->pc = GET_PC();
+            tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
+            if (likely(s->tlb_code[tlb_idx].vaddr == (addr & ~PG_MASK))) {
+                /* TLB match */ 
+                mem_addend = s->tlb_code[tlb_idx].mem_addend;
+            } else {
+                if (unlikely(target_read_insn_slow(s, &mem_addend, addr)))
+                    goto mmu_exception;
+            }
+            code_ptr = (uint8_t *)(mem_addend + (uintptr_t)addr);
+            code_end = (uint8_t *)(mem_addend +
+                                   (uintptr_t)((addr & ~PG_MASK) + PG_MASK - 1));
+            code_to_pc_addend = addr - (uintptr_t)code_ptr;
+            if (unlikely(code_ptr >= code_end)) {
+                /* instruction is potentially half way between two
+                   pages ? */
+                insn = *(uint16_t *)code_ptr;
+                if ((insn & 3) == 3) {
+                    /* instruction is half way between two pages */
+                    if (unlikely(target_read_insn_u16(s, &insn_high, addr + 2)))
+                        goto mmu_exception;
+                    insn |= insn_high << 16;
+                }
+            } else {
+                insn = get_insn32(code_ptr);
+            }
+        } else {
+            /* fast path */
+            insn = get_insn32(code_ptr);
         }
-        //        dump_regs(s);
-        //        printf("pc=0x"); print_target_ulong(s->pc); printf("\n");
-        if (target_read_insn(s, &insn, s->pc))
-            goto mmu_exception;
-        pc_next = (intx_t)(s->pc + 4);
+#if 0
+        if (1) {
+            printf("pc=0x"); print_target_ulong(GET_PC()); printf(" insn=%08x\n", insn);
+            //            dump_regs(s);
+        }
+#endif
         opcode = insn & 0x7f;
         rd = (insn >> 7) & 0x1f;
         rs1 = (insn >> 15) & 0x1f;
@@ -212,7 +272,6 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
         switch(opcode) {
 #ifdef CONFIG_EXT_C
         C_QUADRANT(0)
-            pc_next = (intx_t)(s->pc + 2);
             funct3 = (insn >> 13) & 7;
             rd = ((insn >> 2) & 7) | 8;
             switch(funct3) {
@@ -248,7 +307,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     addr = (intx_t)(s->reg[rs1] + imm);
                     if (target_read_u64(s, &rval, addr))
                         goto mmu_exception;
-                    s->fp_reg[rd] = rval;
+                    s->fp_reg[rd] = rval | F64_HIGH;
                     s->fs = 3;
                 }
                 break;
@@ -292,7 +351,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     addr = (intx_t)(s->reg[rs1] + imm);
                     if (target_read_u32(s, &rval, addr))
                         goto mmu_exception;
-                    s->fp_reg[rd] = rval;
+                    s->fp_reg[rd] = rval | F32_HIGH;
                     s->fs = 3;
                 }
                 break;
@@ -316,8 +375,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     get_field1(insn, 5, 6, 7);
                 rs1 = ((insn >> 7) & 7) | 8;
                 addr = (intx_t)(s->reg[rs1] + imm);
-                val = s->fp_reg[rd];
-                if (target_write_u64(s, addr, val))
+                if (target_write_u64(s, addr, s->fp_reg[rd]))
                     goto mmu_exception;
                 break;
 #endif
@@ -350,17 +408,15 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     get_field1(insn, 5, 6, 6);
                 rs1 = ((insn >> 7) & 7) | 8;
                 addr = (intx_t)(s->reg[rs1] + imm);
-                val = s->fp_reg[rd];
-                if (target_write_u32(s, addr, val))
+                if (target_write_u32(s, addr, s->fp_reg[rd]))
                     goto mmu_exception;
                 break;
 #endif
             default:
                 goto illegal_insn;
             }
-            break;
+            C_NEXT_INSN;
         C_QUADRANT(1)
-            pc_next = (intx_t)(s->pc + 2);
             funct3 = (insn >> 13) & 7;
             switch(funct3) {
             case 0: /* c.addi/c.nop */
@@ -380,9 +436,9 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                            get_field1(insn, 6, 7, 7) |
                            get_field1(insn, 3, 1, 3) |
                            get_field1(insn, 2, 5, 5), 12);
-                s->reg[1] = pc_next;
-                pc_next = (intx_t)(s->pc + imm);
-                break;
+                s->reg[1] = GET_PC() + 2;
+                s->pc = (intx_t)(GET_PC() + imm);
+                goto jump_insn;
 #else
             case 1: /* c.addiw */
                 if (rd != 0) {
@@ -484,8 +540,8 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                            get_field1(insn, 6, 7, 7) |
                            get_field1(insn, 3, 1, 3) |
                            get_field1(insn, 2, 5, 5), 12);
-                pc_next = (intx_t)(s->pc + imm);
-                break;
+                s->pc = (intx_t)(GET_PC() + imm);
+                goto jump_insn;
             case 6: /* c.beqz */
                 rs1 = ((insn >> 7) & 7) | 8;
                 imm = sext(get_field1(insn, 12, 8, 8) | 
@@ -493,8 +549,10 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                            get_field1(insn, 5, 6, 7) |
                            get_field1(insn, 3, 1, 2) |
                            get_field1(insn, 2, 5, 5), 9);
-                if (s->reg[rs1] == 0)
-                    pc_next = (intx_t)(s->pc + imm);
+                if (s->reg[rs1] == 0) {
+                    s->pc = (intx_t)(GET_PC() + imm);
+                    goto jump_insn;
+                }
                 break;
             case 7: /* c.bnez */
                 rs1 = ((insn >> 7) & 7) | 8;
@@ -503,15 +561,16 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                            get_field1(insn, 5, 6, 7) |
                            get_field1(insn, 3, 1, 2) |
                            get_field1(insn, 2, 5, 5), 9);
-                if (s->reg[rs1] != 0)
-                    pc_next = (intx_t)(s->pc + imm);
+                if (s->reg[rs1] != 0) {
+                    s->pc = (intx_t)(GET_PC() + imm);
+                    goto jump_insn;
+                }
                 break;
             default:
                 goto illegal_insn;
             }
-            break;
+            C_NEXT_INSN;
         C_QUADRANT(2)
-            pc_next = (intx_t)(s->pc + 2);
             funct3 = (insn >> 13) & 7;
             rs2 = (insn >> 2) & 0x1f;
             switch(funct3) {
@@ -550,7 +609,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     addr = (intx_t)(s->reg[2] + imm);
                     if (target_read_u64(s, &rval, addr))
                         goto mmu_exception;
-                    s->fp_reg[rd] = rval;
+                    s->fp_reg[rd] = rval | F64_HIGH;
                     s->fs = 3;
                 }
                 break;
@@ -594,7 +653,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     addr = (intx_t)(s->reg[2] + imm);
                     if (target_read_u32(s, &rval, addr))
                         goto mmu_exception;
-                    s->fp_reg[rd] = rval;
+                    s->fp_reg[rd] = rval | F32_HIGH;
                     s->fs = 3;
                 }
                 break;
@@ -605,7 +664,8 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                         /* c.jr */
                         if (rd == 0)
                             goto illegal_insn;
-                        pc_next = s->reg[rd] & ~1;
+                        s->pc = s->reg[rd] & ~1;
+                        goto jump_insn;
                     } else {
                         /* c.mv */
                         if (rd != 0)
@@ -615,12 +675,14 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     if (rs2 == 0) {
                         if (rd == 0) {
                             /* c.ebreak */
-                            raise_exception(s, CAUSE_BREAKPOINT);
-                            goto done_interp;
+                            s->pending_exception = CAUSE_BREAKPOINT;
+                            goto exception;
                         } else {
                             /* c.jalr */
-                            s->reg[1] = pc_next;
-                            pc_next = s->reg[rd] & ~1;
+                            val = GET_PC() + 2;
+                            s->pc = s->reg[rd] & ~1;
+                            s->reg[1] = val;
+                            goto jump_insn;
                         }
                     } else {
                         if (rd != 0) {
@@ -677,7 +739,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
             default:
                 goto illegal_insn;
             }
-            break;
+            C_NEXT_INSN;
 #endif /* CONFIG_EXT_C */
 
         case 0x37: /* lui */
@@ -686,7 +748,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
             break;
         case 0x17: /* auipc */
             if (rd != 0)
-                s->reg[rd] = (intx_t)(s->pc + (int32_t)(insn & 0xfffff000));
+                s->reg[rd] = (intx_t)(GET_PC() + (int32_t)(insn & 0xfffff000));
             break;
         case 0x6f: /* jal */
             imm = ((insn >> (31 - 20)) & (1 << 20)) |
@@ -695,15 +757,16 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                 (insn & 0xff000);
             imm = (imm << 11) >> 11;
             if (rd != 0)
-                s->reg[rd] = pc_next;
-            pc_next = (intx_t)(s->pc + imm);
-            break;
+                s->reg[rd] = GET_PC() + 4;
+            s->pc = (intx_t)(GET_PC() + imm);
+            goto jump_insn;
         case 0x67: /* jalr */
             imm = (int32_t)insn >> 20;
+            val = GET_PC() + 4;
+            s->pc = (intx_t)(s->reg[rs1] + imm) & ~1;
             if (rd != 0)
-                s->reg[rd] = pc_next;
-            pc_next = (intx_t)(s->reg[rs1] + imm) & ~1;
-            break;
+                s->reg[rd] = val;
+            goto jump_insn;
         case 0x63:
             funct3 = (insn >> 12) & 7;
             switch(funct3 >> 1) {
@@ -726,7 +789,8 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     ((insn >> (8 - 1)) & 0x1e) |
                     ((insn << (11 - 7)) & (1 << 11));
                 imm = (imm << 19) >> 19;
-                pc_next = (intx_t)(s->pc + imm);
+                s->pc = (intx_t)(GET_PC() + imm);
+                goto jump_insn;
             }
             break;
         case 0x03: /* load */
@@ -1135,6 +1199,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
             funct3 &= 3;
             switch(funct3) {
             case 1: /* csrrw */
+                s->insn_counter = GET_INSN_COUNTER();
                 if (csr_read(s, &val2, imm, TRUE))
                     goto illegal_insn;
                 val2 = (intx_t)val2;
@@ -1144,12 +1209,13 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                 if (rd != 0)
                     s->reg[rd] = val2;
                 if (err > 0) {
-                    s->pc = pc_next;
+                    s->pc = GET_PC() + 4;
                     goto done_interp;
                 }
                 break;
             case 2: /* csrrs */
             case 3: /* csrrc */
+                s->insn_counter = GET_INSN_COUNTER();
                 if (csr_read(s, &val2, imm, (rs1 != 0)))
                     goto illegal_insn;
                 val2 = (intx_t)val2;
@@ -1167,7 +1233,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                 if (rd != 0)
                     s->reg[rd] = val2;
                 if (err > 0) {
-                    s->pc = pc_next;
+                    s->pc = GET_PC() + 4;
                     goto done_interp;
                 }
                 break;
@@ -1176,19 +1242,20 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                 case 0x000: /* ecall */
                     if (insn & 0x000fff80)
                         goto illegal_insn;
-                    raise_exception(s, CAUSE_USER_ECALL + s->priv);
-                    goto done_interp;
+                    s->pending_exception = CAUSE_USER_ECALL + s->priv;
+                    goto exception;
                 case 0x001: /* ebreak */
                     if (insn & 0x000fff80)
                         goto illegal_insn;
-                    raise_exception(s, CAUSE_BREAKPOINT);
-                    goto done_interp;
+                    s->pending_exception = CAUSE_BREAKPOINT;
+                    goto exception;
                 case 0x102: /* sret */
                     {
                         if (insn & 0x000fff80)
                             goto illegal_insn;
                         if (s->priv < PRV_S)
                             goto illegal_insn;
+                        s->pc = GET_PC();
                         handle_sret(s);
                         goto done_interp;
                     }
@@ -1199,34 +1266,43 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                             goto illegal_insn;
                         if (s->priv < PRV_M)
                             goto illegal_insn;
+                        s->pc = GET_PC();
                         handle_mret(s);
                         goto done_interp;
-                    }
-                    break;
-                case 0x104: /* sfence.vm */
-                    if (insn & 0x00007f80)
-                        goto illegal_insn;
-                    if (s->priv == PRV_U)
-                        goto illegal_insn;
-                    if (rs1 == 0) {
-                        tlb_flush_all(s);
-                    } else {
-                        tlb_flush_vaddr(s, s->reg[rs1]);
                     }
                     break;
                 case 0x105: /* wfi */
                     if (insn & 0x00007f80)
                         goto illegal_insn;
+                    if (s->priv == PRV_U)
+                        goto illegal_insn;
                     /* go to power down if no enabled interrupts are
                        pending */
                     if ((s->mip & s->mie) == 0) {
                         s->power_down_flag = TRUE;
-                        s->pc = pc_next;
+                        s->pc = GET_PC() + 4;
                         goto done_interp;
                     }
                     break;
                 default:
-                    goto illegal_insn;
+                    if ((imm >> 5) == 0x09) {
+                        /* sfence.vma */
+                        if (insn & 0x00007f80)
+                            goto illegal_insn;
+                        if (s->priv == PRV_U)
+                            goto illegal_insn;
+                        if (rs1 == 0) {
+                            tlb_flush_all(s);
+                        } else {
+                            tlb_flush_vaddr(s, s->reg[rs1]);
+                        }
+                        /* the current code TLB may have been flushed */
+                        s->pc = GET_PC() + 4;
+                        goto jump_insn;
+                    } else {
+                        goto illegal_insn;
+                    }
+                    break;
                 }
                 break;
             default:
@@ -1373,7 +1449,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     uint32_t rval;
                     if (target_read_u32(s, &rval, addr))
                         goto mmu_exception;
-                    s->fp_reg[rd] = rval;
+                    s->fp_reg[rd] = rval | F32_HIGH;
                 }
                 break;
 #if FLEN >= 64
@@ -1382,7 +1458,7 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                     uint64_t rval;
                     if (target_read_u64(s, &rval, addr))
                         goto mmu_exception;
-                    s->fp_reg[rd] = rval;
+                    s->fp_reg[rd] = rval | F64_HIGH;
                 }
                 break;
 #endif 
@@ -1408,21 +1484,20 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
             imm = rd | ((insn >> (25 - 5)) & 0xfe0);
             imm = (imm << 20) >> 20;
             addr = s->reg[rs1] + imm;
-            val = s->fp_reg[rs2];
             switch(funct3) {
             case 2: /* fsw */
-                if (target_write_u32(s, addr, val))
+                if (target_write_u32(s, addr, s->fp_reg[rs2]))
                     goto mmu_exception;
                 break;
 #if FLEN >= 64
             case 3: /* fsd */
-                if (target_write_u64(s, addr, val))
+                if (target_write_u64(s, addr, s->fp_reg[rs2]))
                     goto mmu_exception;
                 break;
 #endif
 #if FLEN >= 128
             case 4: /* fsq */
-                if (target_write_u128(s, addr, val))
+                if (target_write_u128(s, addr, s->fp_reg[rs2]))
                     goto mmu_exception;
                 break;
 #endif
@@ -1441,12 +1516,12 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
             switch(funct3) {
             case 0:
                 s->fp_reg[rd] = fma_sf32(s->fp_reg[rs1], s->fp_reg[rs2],
-                                         s->fp_reg[rs3], rm, &s->fflags);
+                                         s->fp_reg[rs3], rm, &s->fflags) | F32_HIGH;
                 break;
 #if FLEN >= 64
             case 1:
                 s->fp_reg[rd] = fma_sf64(s->fp_reg[rs1], s->fp_reg[rs2],
-                                         s->fp_reg[rs3], rm, &s->fflags);
+                                         s->fp_reg[rs3], rm, &s->fflags) | F64_HIGH;
                 break;
 #endif
 #if FLEN >= 128
@@ -1473,14 +1548,14 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                 s->fp_reg[rd] = fma_sf32(s->fp_reg[rs1],
                                          s->fp_reg[rs2],
                                          s->fp_reg[rs3] ^ FSIGN_MASK32,
-                                         rm, &s->fflags);
+                                         rm, &s->fflags) | F32_HIGH;
                 break;
 #if FLEN >= 64
             case 1:
                 s->fp_reg[rd] = fma_sf64(s->fp_reg[rs1],
                                          s->fp_reg[rs2],
                                          s->fp_reg[rs3] ^ FSIGN_MASK64,
-                                         rm, &s->fflags);
+                                         rm, &s->fflags) | F64_HIGH;
                 break;
 #endif
 #if FLEN >= 128
@@ -1509,14 +1584,14 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                 s->fp_reg[rd] = fma_sf32(s->fp_reg[rs1] ^ FSIGN_MASK32,
                                          s->fp_reg[rs2],
                                          s->fp_reg[rs3],
-                                         rm, &s->fflags);
+                                         rm, &s->fflags) | F32_HIGH;
                 break;
 #if FLEN >= 64
             case 1:
                 s->fp_reg[rd] = fma_sf64(s->fp_reg[rs1] ^ FSIGN_MASK64,
                                          s->fp_reg[rs2],
                                          s->fp_reg[rs3],
-                                         rm, &s->fflags);
+                                         rm, &s->fflags) | F64_HIGH;
                 break;
 #endif
 #if FLEN >= 128
@@ -1545,14 +1620,14 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
                 s->fp_reg[rd] = fma_sf32(s->fp_reg[rs1] ^ FSIGN_MASK32,
                                          s->fp_reg[rs2],
                                          s->fp_reg[rs3] ^ FSIGN_MASK32,
-                                         rm, &s->fflags);
+                                         rm, &s->fflags) | F32_HIGH;
                 break;
 #if FLEN >= 64
             case 1:
                 s->fp_reg[rd] = fma_sf64(s->fp_reg[rs1] ^ FSIGN_MASK64,
                                          s->fp_reg[rs2],
                                          s->fp_reg[rs3] ^ FSIGN_MASK64,
-                                         rm, &s->fflags);
+                                         rm, &s->fflags) | F64_HIGH;
                 break;
 #endif
 #if FLEN >= 128
@@ -1592,20 +1667,46 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
             break;
 #endif
         default:
-        illegal_insn:
-            /* Note: we exit the interrupt loop after an exception
-               because xlen may have been changed */
-            raise_exception(s, CAUSE_ILLEGAL_INSTRUCTION);
-        done_interp:
-        mmu_exception:
-            s->insn_counter++;
-            goto done;
+            goto illegal_insn;
         }
-        s->pc = pc_next;
-        n_cycles--;
-        s->insn_counter++;
+        /* update PC for next instruction */
+        code_ptr += 4;
+        if (unlikely(!--n_cycles)) {
+            s->pc = GET_PC();
+            goto the_end;
+        }
+    } /* fast main loop */
+ jump_insn:
+    /* PC was modified */
+    if (unlikely(!--n_cycles))
+        goto the_end;
+    /* as an optimization, we only check the interrupts after a
+       jump */
+    if (unlikely((s->mip & s->mie) != 0)) {
+        if (raise_interrupt(s))
+            goto the_end;
     }
- done: ;
+    
+    } /* end for slower main loop */
+ illegal_insn:
+    s->pending_exception = CAUSE_ILLEGAL_INSTRUCTION;
+    s->pending_tval = insn;
+ mmu_exception:
+ exception:
+    s->pc = GET_PC();
+    if (s->pending_exception >= 0) {
+        raise_exception2(s, s->pending_exception, s->pending_tval);
+    }
+    /* we exit because XLEN may have changed */
+ done_interp:
+    n_cycles--;
+the_end:
+    s->insn_counter = GET_INSN_COUNTER();
+#if 0
+    printf("done interp %lx int=%x mstatus=%lx prv=%d\n",
+           (uint64_t)s->insn_counter, s->mip & s->mie, (uint64_t)s->mstatus,
+           s->priv);
+#endif
 }
 
 #undef uintx_t

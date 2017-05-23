@@ -23,10 +23,13 @@
  */
 #if F_SIZE == 32
 #define OPID 0
+#define F_HIGH F32_HIGH
 #elif F_SIZE == 64
 #define OPID 1
+#define F_HIGH F64_HIGH
 #elif F_SIZE == 128
 #define OPID 3
+#define F_HIGH 0
 #else
 #error unsupported F_SIZE
 #endif
@@ -39,7 +42,7 @@
                     goto illegal_insn;
                 s->fp_reg[rd] = glue(add_sf, F_SIZE)(s->fp_reg[rs1],
                                          s->fp_reg[rs2],
-                                         rm, &s->fflags);
+                                         rm, &s->fflags) | F_HIGH;
                 s->fs = 3;                                             
                 break;
             case (0x01 << 2) | OPID:
@@ -48,7 +51,7 @@
                     goto illegal_insn;
                 s->fp_reg[rd] = glue(sub_sf, F_SIZE)(s->fp_reg[rs1],
                                                s->fp_reg[rs2],
-                                               rm, &s->fflags);
+                                               rm, &s->fflags) | F_HIGH;
                 s->fs = 3;                                             
                 break;
             case (0x02 << 2) | OPID:
@@ -57,7 +60,7 @@
                     goto illegal_insn;
                 s->fp_reg[rd] = glue(mul_sf, F_SIZE)(s->fp_reg[rs1],
                                                s->fp_reg[rs2],
-                                               rm, &s->fflags);
+                                               rm, &s->fflags) | F_HIGH;
                 s->fs = 3;                                             
                 break;
             case (0x03 << 2) | OPID:
@@ -66,7 +69,7 @@
                     goto illegal_insn;
                 s->fp_reg[rd] = glue(div_sf, F_SIZE)(s->fp_reg[rs1],
                                                s->fp_reg[rs2],
-                                               rm, &s->fflags);
+                                               rm, &s->fflags) | F_HIGH;
                 s->fs = 3;                                             
                 break;
             case (0x0b << 2) | OPID:
@@ -74,7 +77,7 @@
                 if (rm < 0 || rs2 != 0)
                     goto illegal_insn;
                 s->fp_reg[rd] = glue(sqrt_sf, F_SIZE)(s->fp_reg[rs1],
-                                                rm, &s->fflags);
+                                                rm, &s->fflags) | F_HIGH;
                 s->fs = 3;                                             
                 break;
             case (0x04 << 2) | OPID:
@@ -101,12 +104,12 @@
                 case 0: /* fmin */
                     s->fp_reg[rd] = glue(min_sf, F_SIZE)(s->fp_reg[rs1],
                                                    s->fp_reg[rs2],
-                                                   &s->fflags);
+                                                   &s->fflags) | F_HIGH;
                     break;
                 case 1: /* fmax */
                     s->fp_reg[rd] = glue(max_sf, F_SIZE)(s->fp_reg[rs1],
                                                    s->fp_reg[rs2],
-                                                   &s->fflags);
+                                                   &s->fflags) | F_HIGH;
                     break;
                 default:
                     goto illegal_insn;
@@ -180,31 +183,31 @@
                 switch(rs2) {
                 case 0: /* fcvt.[sdq].w */
                     s->fp_reg[rd] = glue(cvt_i32_sf, F_SIZE)(s->reg[rs1], rm,
-                                                       &s->fflags);
+                                                       &s->fflags) | F_HIGH;
                     break;
                 case 1: /* fcvt.[sdq].wu */
                     s->fp_reg[rd] = glue(cvt_u32_sf, F_SIZE)(s->reg[rs1], rm,
-                                                       &s->fflags);
+                                                       &s->fflags) | F_HIGH;
                     break;
 #if XLEN >= 64
                 case 2: /* fcvt.[sdq].l */
                     s->fp_reg[rd] = glue(cvt_i64_sf, F_SIZE)(s->reg[rs1], rm,
-                                                       &s->fflags);
+                                                       &s->fflags) | F_HIGH;
                     break;
                 case 3: /* fcvt.[sdq].lu */
                     s->fp_reg[rd] = glue(cvt_u64_sf, F_SIZE)(s->reg[rs1], rm,
-                                                            &s->fflags);
+                                                            &s->fflags) | F_HIGH;
                     break;
 #endif
 #if XLEN >= 128
                 /* XXX: the index is not defined in the spec */
                 case 4: /* fcvt.[sdq].t */
                     s->fp_reg[rd] = glue(cvt_i128_sf, F_SIZE)(s->reg[rs1], rm,
-                                                       &s->fflags);
+                                                       &s->fflags) | F_HIGH;
                     break;
                 case 5: /* fcvt.[sdq].tu */
                     s->fp_reg[rd] = glue(cvt_u128_sf, F_SIZE)(s->reg[rs1], rm,
-                                                            &s->fflags);
+                                                            &s->fflags) | F_HIGH;
                     break;
 #endif
                 default:
@@ -220,21 +223,21 @@
                 switch(rs2) {
 #if F_SIZE == 32 && FLEN >= 64
                 case 1: /* cvt.s.d */
-                    s->fp_reg[rd] = cvt_sf64_sf32(s->fp_reg[rs1], rm, &s->fflags);
+                    s->fp_reg[rd] = cvt_sf64_sf32(s->fp_reg[rs1], rm, &s->fflags) | F32_HIGH;
                     break;
 #if FLEN >= 128
                 case 3: /* cvt.s.q */
-                    s->fp_reg[rd] = cvt_sf128_sf32(s->fp_reg[rs1], rm, &s->fflags);
+                    s->fp_reg[rd] = cvt_sf128_sf32(s->fp_reg[rs1], rm, &s->fflags) | F32_HIGH;
                     break;
 #endif
 #endif /* F_SIZE == 32 */
 #if F_SIZE == 64
                 case 0: /* cvt.d.s */
-                    s->fp_reg[rd] = cvt_sf32_sf64(s->fp_reg[rs1], &s->fflags);
+                    s->fp_reg[rd] = cvt_sf32_sf64(s->fp_reg[rs1], &s->fflags) | F64_HIGH;
                     break;
 #if FLEN >= 128
                 case 1: /* cvt.d.q */
-                    s->fp_reg[rd] = cvt_sf128_sf64(s->fp_reg[rs1], rm, &s->fflags);
+                    s->fp_reg[rd] = cvt_sf128_sf64(s->fp_reg[rs1], rm, &s->fflags) | F64_HIGH;
                     break;
 #endif
 #endif /* F_SIZE == 64 */
@@ -283,17 +286,17 @@
                 if (rs2 != 0 || rm != 0)
                     goto illegal_insn;
 #if F_SIZE == 32
-                s->fp_reg[rd] = (uint32_t)s->reg[rs1];
+                s->fp_reg[rd] = (int32_t)s->reg[rs1];
 #elif F_SIZE == 64
-                s->fp_reg[rd] = (uint64_t)s->reg[rs1];
+                s->fp_reg[rd] = (int64_t)s->reg[rs1];
 #else
-                s->fp_reg[rd] = (uint128_t)s->reg[rs1];
+                s->fp_reg[rd] = (int128_t)s->reg[rs1];
 #endif
                 s->fs = 3;
                 break;
 #endif /* F_SIZE <= XLEN */
 
 #undef F_SIZE
+#undef F_HIGH
 #undef OPID
 #undef FSIGN_MASK
-

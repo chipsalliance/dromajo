@@ -29,6 +29,7 @@
 #include <stdarg.h>
 
 #include "cutils.h"
+#include "list.h"
 #include "virtio.h"
 
 #define DEBUG_VIRTIO
@@ -926,11 +927,69 @@ VIRTIODevice *virtio_console_init(VIRTIOSetIrqFunc *set_irq, int irq_num,
 /*********************************************************************/
 /* 9p filesystem device */
 
+typedef struct {
+    struct list_head link;
+    uint32_t fid;
+    FSFile *fd;
+} FIDDesc;
+
 typedef struct VIRTIO9PDevice {
     VIRTIODevice common;
     FSDevice *fs;
     int msize; /* maximum message size */
+    struct list_head fid_list; /* list of FIDDesc */
 } VIRTIO9PDevice;
+
+static FIDDesc *fid_find1(VIRTIO9PDevice *s, uint32_t fid)
+{
+    struct list_head *el;
+    FIDDesc *f;
+
+    list_for_each(el, &s->fid_list) {
+        f = list_entry(el, FIDDesc, link);
+        if (f->fid == fid)
+            return f;
+    }
+    return NULL;
+}
+
+static FSFile *fid_find(VIRTIO9PDevice *s, uint32_t fid)
+{
+    FIDDesc *f;
+
+    f = fid_find1(s, fid);
+    if (!f)
+        return NULL;
+    return f->fd;
+}
+
+static void fid_delete(VIRTIO9PDevice *s, uint32_t fid)
+{
+    FIDDesc *f;
+
+    f = fid_find1(s, fid);
+    if (f) {
+        s->fs->fs_delete(s->fs, f->fd);
+        list_del(&f->link);
+        free(f);
+    }
+}
+
+static void fid_set(VIRTIO9PDevice *s, uint32_t fid, FSFile *fd)
+{
+    FIDDesc *f;
+
+    f = fid_find1(s, fid);
+    if (f) {
+        s->fs->fs_delete(s->fs, f->fd);
+        f->fd = fd;
+    } else {
+        f = malloc(sizeof(*f));
+        f->fid = fid;
+        f->fd = fd;
+        list_add(&f->link, &s->fid_list);
+    }
+}
 
 static int marshall(VIRTIO9PDevice *s, 
                     uint8_t *buf1, int max_len, const char *fmt, ...)
@@ -1228,7 +1287,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "ww", &fid, &flags))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 goto fid_not_found;
             oi = malloc(sizeof(*oi));
@@ -1252,7 +1311,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wswww", &fid, &name, &flags, &mode, &gid))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f) {
                 err = -P9_EPROTO;
             } else {
@@ -1276,7 +1335,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wssw", &fid, &name, &symgt, &gid))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f) {
                 err = -P9_EPROTO;
             } else {
@@ -1301,7 +1360,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wswwww", &fid, &name, &mode, &major, &minor, &gid))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f) {
                 err = -P9_EPROTO;
             } else {
@@ -1324,7 +1383,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "w", &fid))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f) {
                 err = -P9_EPROTO;
             } else {
@@ -1346,7 +1405,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wd", &fid, &mask))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 goto fid_not_found;
             err = fs->fs_stat(fs, f, &st);
@@ -1378,7 +1437,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
                            &size, &atime_sec, &atime_nsec, 
                            &mtime_sec, &mtime_nsec))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 goto fid_not_found;
             err = fs->fs_setattr(fs, f, mask, mode, uid, gid, size, atime_sec,
@@ -1406,7 +1465,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wdw", &fid, &offs, &count))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 goto fid_not_found;
             buf = malloc(count + 4);
@@ -1441,7 +1500,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
                            &lock.start, &lock.length,
                            &lock.proc_id, &lock.client_id))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 err = -P9_EPROTO;
             else
@@ -1464,7 +1523,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
                            &lock.start, &lock.length,
                            &lock.proc_id, &lock.client_id))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 err = -P9_EPROTO;
             else
@@ -1490,8 +1549,8 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wws", &dfid, &fid, &name))
                 goto protocol_error;
-            df = fs->fid_find(fs, dfid);
-            f = fs->fid_find(fs, fid);
+            df = fid_find(s, dfid);
+            f = fid_find(s, fid);
             if (!df || !f) {
                 err = -P9_EPROTO;
             } else {
@@ -1513,7 +1572,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wsww", &fid, &name, &mode, &gid))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 goto fid_not_found;
             err = fs->fs_mkdir(fs, &qid, f, name, mode, gid);
@@ -1532,8 +1591,8 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wsws", &fid, &name, &new_fid, &new_name))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
-            new_f = fs->fid_find(fs, new_fid);
+            f = fid_find(s, fid);
+            new_f = fid_find(s, new_fid);
             if (!f || !new_f) {
                 err = -P9_EPROTO;
             } else {
@@ -1555,7 +1614,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wsw", &fid, &name, &flags))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f) {
                 err = -P9_EPROTO;
             } else {
@@ -1586,13 +1645,15 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             uint32_t fid, afid, uid;
             char *uname, *aname;
             FSQID qid;
-
+            FSFile *f;
+            
             if (unmarshall(s, queue_idx, desc_idx, &offset, 
                            "wwssw", &fid, &afid, &uname, &aname, &uid))
                 goto protocol_error;
-            err = fs->fs_attach(fs, &qid, fid, uid);
+            err = fs->fs_attach(fs, &f, &qid, uid, uname, aname);
             if (err != 0)
                 goto error;
+            fid_set(s, fid, f);
             free(uname);
             free(aname);
             buf_len = marshall(s, buf, sizeof(buf), "Q", &qid);
@@ -1621,7 +1682,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset, 
                            "wwh", &fid, &newfid, &nwname))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 goto fid_not_found;
             names = mallocz(sizeof(names[0]) * nwname);
@@ -1633,7 +1694,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
                     goto walk_done;
                 }
             }
-            err = fs->fs_walk(fs, qids, f, newfid, nwname, names);
+            err = fs->fs_walk(fs, &f, qids, f, nwname, names);
         walk_done:
             for(i = 0; i < nwname; i++) {
                 free(names[i]);
@@ -1649,6 +1710,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
                                     "Q", &qids[i]);
             }
             free(qids);
+            fid_set(s, newfid, f);
             virtio_9p_send_reply(s, queue_idx, desc_idx, id, tag, buf, buf_len);
         }
         break;
@@ -1663,7 +1725,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wdw", &fid, &offs, &count))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 goto fid_not_found;
             buf = malloc(count + 4);
@@ -1689,7 +1751,7 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
             if (unmarshall(s, queue_idx, desc_idx, &offset,
                            "wdw", &fid, &offs, &count))
                 goto protocol_error;
-            f = fs->fid_find(fs, fid);
+            f = fid_find(s, fid);
             if (!f)
                 goto fid_not_found;
             buf1 = malloc(count);
@@ -1711,11 +1773,11 @@ static void virtio_9p_recv_request(VIRTIODevice *s1, int queue_idx,
     case 120: /* clunk */
         {
             uint32_t fid;
-
+            
             if (unmarshall(s, queue_idx, desc_idx, &offset, 
                            "w", &fid))
                 goto protocol_error;
-            fs->fid_delete(fs, fid);
+            fid_delete(s, fid);
             virtio_9p_send_reply(s, queue_idx, desc_idx, id, tag, NULL, 0);
         }
         break;
@@ -1757,6 +1819,8 @@ VIRTIODevice *virtio_9p_init(VIRTIOSetIrqFunc *set_irq, int irq_num,
 
     s->fs = fs;
     s->msize = 8192;
+    init_list_head(&s->fid_list);
+    
     return (VIRTIODevice *)s;
 }
 
