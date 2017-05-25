@@ -37,6 +37,7 @@
 #include <net/if.h>
 #include <linux/if_tun.h>
 #include <sys/stat.h>
+#include <signal.h>
 
 #include "cutils.h"
 #include "iomem.h"
@@ -50,8 +51,16 @@
 #define DEFAULT_RAM_SIZE 256
 #endif
 
+
+typedef struct {
+    int stdin_fd;
+    int console_esc_state;
+    BOOL resize_pending;
+} STDIODevice;
+
 static struct termios oldtty;
 static int old_fd0_flags;
+static STDIODevice *global_stdio_device;
 
 static void term_exit(void)
 {
@@ -82,8 +91,6 @@ static void term_init(BOOL allow_ctrlc)
     tcsetattr (0, TCSANOW, &tty);
 
     atexit(term_exit);
-
-    fcntl(0, F_SETFL, O_NONBLOCK);
 }
 
 static void console_write(void *opaque, const uint8_t *buf, int len)
@@ -92,17 +99,16 @@ static void console_write(void *opaque, const uint8_t *buf, int len)
     fflush(stdout);
 }
 
-int console_esc_state;
-
 static int console_read(void *opaque, uint8_t *buf, int len)
 {
+    STDIODevice *s = opaque;
     int ret, i, j;
     uint8_t ch;
     
     if (len <= 0)
         return 0;
 
-    ret = read(0, buf, len);
+    ret = read(s->stdin_fd, buf, len);
     if (ret < 0)
         return 0;
     if (ret == 0) {
@@ -113,8 +119,8 @@ static int console_read(void *opaque, uint8_t *buf, int len)
     j = 0;
     for(i = 0; i < ret; i++) {
         ch = buf[i];
-        if (console_esc_state) {
-            console_esc_state = 0;
+        if (s->console_esc_state) {
+            s->console_esc_state = 0;
             switch(ch) {
             case 'x':
                 printf("Terminated\n");
@@ -132,7 +138,7 @@ static int console_read(void *opaque, uint8_t *buf, int len)
             }
         } else {
             if (ch == 1) {
-                console_esc_state = 1;
+                s->console_esc_state = 1;
             } else {
             output_char:
                 buf[j++] = ch;
@@ -142,11 +148,53 @@ static int console_read(void *opaque, uint8_t *buf, int len)
     return j;
 }
 
+static void term_resize_handler(int sig)
+{
+    if (global_stdio_device)
+        global_stdio_device->resize_pending = TRUE;
+}
+
+static void console_get_size(STDIODevice *s, int *pw, int *ph)
+{
+    struct winsize ws;
+    int width, height;
+    /* default values */
+    width = 80;
+    height = 25;
+    if (ioctl(s->stdin_fd, TIOCGWINSZ, &ws) == 0 &&
+        ws.ws_col >= 4 && ws.ws_row >= 4) {
+        width = ws.ws_col;
+        height = ws.ws_row;
+    }
+    *pw = width;
+    *ph = height;
+}
+
 CharacterDevice *console_init(BOOL allow_ctrlc)
 {
     CharacterDevice *dev;
+    STDIODevice *s;
+    struct sigaction sig;
+
     term_init(allow_ctrlc);
+
     dev = mallocz(sizeof(*dev));
+    s = mallocz(sizeof(*s));
+    s->stdin_fd = 0;
+    /* Note: the glibc does not properly tests the return value of
+       write() in printf, so some messages on stdout may be lost */
+    fcntl(s->stdin_fd, F_SETFL, O_NONBLOCK);
+
+    s->resize_pending = TRUE;
+    global_stdio_device = s;
+    
+    /* use a signal to get the host terminal resize events */
+    sig.sa_handler = term_resize_handler;
+    sigemptyset(&sig.sa_mask);
+    sig.sa_flags = 0;
+    sigaction(SIGWINCH, &sig, NULL);
+    
+    dev->opaque = s;
     dev->write_data = console_write;
     dev->read_data = console_read;
     return dev;
@@ -312,7 +360,7 @@ static BlockDevice *block_device_init(const char *filename,
 void virt_machine_run(VirtMachine *m)
 {
     fd_set rfds, wfds, efds;
-    int fd_max, ret, delay, net_fd;
+    int fd_max, ret, delay, net_fd, stdin_fd;
     struct timeval tv;
     
     delay = virt_machine_get_sleep_duration(m, MAX_SLEEP_TIME);
@@ -323,8 +371,17 @@ void virt_machine_run(VirtMachine *m)
     FD_ZERO(&efds);
     fd_max = -1;
     if (m->console_dev && virtio_console_can_write_data(m->console_dev)) {
-        FD_SET(0, &rfds);
-        fd_max = 0;
+        STDIODevice *s = m->console->opaque;
+        stdin_fd = s->stdin_fd;
+        FD_SET(stdin_fd, &rfds);
+        fd_max = stdin_fd;
+
+        if (s->resize_pending) {
+            int width, height;
+            console_get_size(s, &width, &height);
+            virtio_console_resize_event(m->console_dev, width, height);
+            s->resize_pending = FALSE;
+        }
     }
     if (m->net_dev && virtio_net_can_write_packet(m->net_dev)) {
         net_fd = (intptr_t)m->net->opaque;
@@ -340,14 +397,15 @@ void virt_machine_run(VirtMachine *m)
     tv.tv_usec = delay % 1000;
     ret = select(fd_max + 1, &rfds, &wfds, &efds, &tv);
     if (ret > 0) {
-        if (m->console_dev && FD_ISSET(0, &rfds)) {
+        if (m->console_dev && FD_ISSET(stdin_fd, &rfds)) {
             uint8_t buf[128];
             int ret, len;
             len = virtio_console_get_write_len(m->console_dev);
             len = min_int(len, sizeof(buf));
             ret = m->console->read_data(m->console->opaque, buf, len);
-            if (ret > 0)
+            if (ret > 0) {
                 virtio_console_write_data(m->console_dev, buf, ret);
+            }
         }
         if (net_fd >= 0 && FD_ISSET(net_fd, &rfds)) {
             uint8_t buf[2048];

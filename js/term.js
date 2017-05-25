@@ -405,7 +405,7 @@ Term.prototype.write = function(str)
 
     function csi_colors(s, esc_params)
     {
-        var j, n;
+        var j, n, fg, bg;
 
         if (esc_params.length == 0) {
             s.cur_attr= s.def_attr;
@@ -414,10 +414,20 @@ Term.prototype.write = function(str)
                 n = esc_params[j];
                 if (n >= 30 && n <= 37) {
                     /* foreground */
-                    s.cur_attr = (s.cur_attr & ~(7 << 3)) | ((n - 30) << 3);
+                    fg = n - 30;
+                    s.cur_attr = (s.cur_attr & ~(7 << 3)) | (fg << 3);
                 } else if (n >= 40 && n <= 47) {
                     /* background */
-                    s.cur_attr = (s.cur_attr & ~7) | (n - 40);
+                    bg = n - 40;
+                    s.cur_attr = (s.cur_attr & ~7) | bg;
+                } else if (n >= 90 && n <= 97) {
+                    /* foreground (XXX: 16 color table) */
+                    fg = n - 90;
+                    s.cur_attr = (s.cur_attr & ~(7 << 3)) | (fg << 3);
+                } else if (n >= 100 && n <= 107) {
+                    /* background (XXX: 16 color table) */
+                    bg = n - 100;
+                    s.cur_attr = (s.cur_attr & ~7) | bg;
                 } else if (n == 0) {
                     /* default attr */
                     s.cur_attr = s.def_attr;
@@ -429,6 +439,7 @@ Term.prototype.write = function(str)
     var TTY_STATE_NORM = 0;
     var TTY_STATE_ESC = 1;
     var TTY_STATE_CSI = 2;
+    var TTY_STATE_CHARSET = 3;
 
     var i, c, ymin, ymax, l, n, j, y1;
 
@@ -498,12 +509,19 @@ Term.prototype.write = function(str)
             }
             break;
         case TTY_STATE_ESC:
-            if (c == 91) { // '['
+            switch(c) {
+            case 91: // '['
                 this.esc_params = new Array();
                 this.cur_param = 0;
                 this.state = TTY_STATE_CSI;
-            } else {
+                break;
+            case 40: // '('
+            case 41: // ')'
+                this.state = TTY_STATE_CHARSET;
+                break;
+            default:
                 this.state = TTY_STATE_NORM;
+                break;
             }
             break;
         case TTY_STATE_CSI:
@@ -511,6 +529,8 @@ Term.prototype.write = function(str)
                 /* numeric */
                 this.cur_param = this.cur_param * 10 + c - 48;
             } else {
+                if (c == 63) // '?'
+                    break; /* ignore prefix */
                 /* add parsed parameter */
                 this.esc_params[this.esc_params.length] = this.cur_param;
                 this.cur_param = 0;
@@ -591,6 +611,10 @@ Term.prototype.write = function(str)
                     break;
                 }
             }
+            break;
+        case TTY_STATE_CHARSET:
+            /* just ignore */
+            this.state = TTY_STATE_NORM;
             break;
         }
     }
@@ -827,3 +851,7 @@ Term.prototype.outputHandler = function ()
     }
 };
 
+Term.prototype.getSize = function ()
+{
+    return [this.w, this.h];
+};

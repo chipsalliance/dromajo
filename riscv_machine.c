@@ -782,6 +782,11 @@ VirtMachine *virt_machine_init(const VirtMachineParams *p)
     s->ram_size = p->ram_size;
     s->phys_mem_size = p->ram_size + LOW_RAM_SIZE;
     s->phys_mem = mallocz(s->phys_mem_size);
+    if (!s->phys_mem) {
+        fprintf(stderr, "Could not allocate VM memory\n");
+        exit(1);
+    }
+        
     s->mem_map = phys_mem_map_init();
 
     s->cpu_state = riscv_cpu_init(s->mem_map, s->phys_mem);

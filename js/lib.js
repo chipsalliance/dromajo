@@ -8,6 +8,14 @@ mergeInto(LibraryManager.library, {
         term.write(str);
     },
 
+    console_get_size: function(pw, ph)
+    {
+        var w, h, r;
+        r = term.getSize();
+        HEAPU32[pw >> 2] = r[0];
+        HEAPU32[ph >> 2] = r[1];
+    },
+
     fs_export_file: function(filename, buf, buf_len)
     {
         var _filename = Pointer_stringify(filename);

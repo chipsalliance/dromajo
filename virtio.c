@@ -336,7 +336,7 @@ static void virtio_consume_desc(VIRTIODevice *s,
     virtio_write32(s, addr, desc_idx);
     virtio_write32(s, addr + 4, desc_len);
 
-    s->int_status = 1;
+    s->int_status |= 1;
     s->set_irq(s->host_opaque, s->irq_num, 1);
 }
 
@@ -909,6 +909,18 @@ int virtio_console_write_data(VIRTIODevice *s, const uint8_t *buf, int buf_len)
     return buf_len;
 }
 
+/* send a resize event */
+void virtio_console_resize_event(VIRTIODevice *s, int width, int height)
+{
+    /* indicate the console size */
+    put_le16(s->config_space + 0, width);
+    put_le16(s->config_space + 2, height);
+
+    /* INT_CONFIG interrupt */
+    s->int_status |= 2;
+    s->set_irq(s->host_opaque, s->irq_num, 1);
+}
+
 VIRTIODevice *virtio_console_init(VIRTIOSetIrqFunc *set_irq, int irq_num,
                                   VIRTIOGetRAMPtrFunc *get_ram_ptr,
                                   void *host_opaque, CharacterDevice *cs)
@@ -917,9 +929,10 @@ VIRTIODevice *virtio_console_init(VIRTIOSetIrqFunc *set_irq, int irq_num,
 
     s = mallocz(sizeof(*s));
     virtio_init(&s->common, set_irq, irq_num, get_ram_ptr, host_opaque,
-                3, -1, 0, virtio_console_recv_request);
-    s->common.device_features = 0;
+                3, -1, 4, virtio_console_recv_request);
+    s->common.device_features = (1 << 0); /* VIRTIO_CONSOLE_F_SIZE */
     s->common.queue[0].manual_recv = TRUE;
+    
     s->cs = cs;
     return (VIRTIODevice *)s;
 }

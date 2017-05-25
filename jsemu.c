@@ -44,9 +44,11 @@ static uint8_t console_fifo[1024];
 static int console_fifo_windex;
 static int console_fifo_rindex;
 static int console_fifo_count;
+static BOOL console_resize_pending;
 
-/* provided in post.js */
+/* provided in lib.js */
 extern void console_write(void *opaque, const uint8_t *buf, int len);
+extern void console_get_size(int *pw, int *ph);
 
 static int console_read(void *opaque, uint8_t *buf, int len)
 {
@@ -79,6 +81,7 @@ void console_queue_char(int c)
 CharacterDevice *console_init(void)
 {
     CharacterDevice *dev;
+    console_resize_pending = TRUE;
     dev = mallocz(sizeof(*dev));
     dev->write_data = console_write;
     dev->read_data = console_read;
@@ -151,6 +154,12 @@ void virt_machine_run(void *opaque)
         ret = m->console->read_data(m->console->opaque, buf, len);
         if (ret > 0)
             virtio_console_write_data(m->console_dev, buf, ret);
+        if (console_resize_pending) {
+            int w, h;
+            console_get_size(&w, &h);
+            virtio_console_resize_event(m->console_dev, w, h);
+            console_resize_pending = FALSE;
+        }
     }
 
     for(i = 0; i < MAX_EXEC_TOTAL_CYCLE / MAX_EXEC_CYCLE; i++) {
