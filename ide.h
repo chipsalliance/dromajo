@@ -1,7 +1,7 @@
 /*
- * RV128I test
+ * IDE emulation
  * 
- * Copyright (c) 2016 Fabrice Bellard
+ * Copyright (c) 2003-2016 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,27 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-OUTPUT_ARCH("riscv")
+#include "virtio.h"
+#include "iomem.h"
+#include "pci.h"
 
-ENTRY(_start)
+typedef struct IDEIFState IDEIFState;
 
-SECTIONS
-{
-  . = 0x80000000;
-  .text :
-  {
-    *(.text)
-  }
-
-  . = ALIGN(64);
-  .rodata :
-  {
-    *(.rodata)
-  }
-
-  . = ALIGN(64);
-  .data :
-  {
-    *(.data)
-  }
-}
+IDEIFState *ide_init(PhysMemoryMap *port_map, uint32_t addr, uint32_t addr2,
+                     IRQSignal *irq, BlockDevice **tab_bs);
+PCIDevice *piix3_ide_init(PCIBus *pci_bus, int devfn);

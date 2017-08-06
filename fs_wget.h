@@ -33,6 +33,9 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 #endif
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 
 #define LOG() printf("%s:%d\n", __func__, __LINE__)
 
@@ -46,14 +49,19 @@ typedef void WGetWriteCallback(void *opaque, int err, void *data, size_t size);
 typedef size_t WGetReadCallback(void *opaque, void *data, size_t size);
 typedef struct XHRState XHRState;
 
-typedef void FSWGetFileCB(FSDevice *fs, FSFile *f, int64_t size, void *opaque);
-
 XHRState *fs_wget(const char *url, const char *user, const char *password,
-                  void *opaque, WGetWriteCallback *cb);
+                  void *opaque, WGetWriteCallback *cb, BOOL single_write);
 void fs_wget_free(XHRState *s);
 
 void fs_wget_init(void);
 void fs_wget_end(void);
+
+#ifndef EMSCRIPTEN
+typedef BOOL FSNetEventLoopCompletionFunc(void *opaque);
+void fs_net_set_fdset(int *pfd_max, fd_set *rfds, fd_set *wfds, fd_set *efds,
+                      int *ptimeout);
+void fs_net_event_loop(FSNetEventLoopCompletionFunc *cb, void *opaque);
+#endif
 
 /* crypto */
 
@@ -75,6 +83,8 @@ void pbkdf2_hmac_sha256(const uint8_t *pwd, int pwd_len,
                         int iter, int key_len, uint8_t *out);
 
 /* XHR file */
+
+typedef void FSWGetFileCB(FSDevice *fs, FSFile *f, int64_t size, void *opaque);
 
 void fs_wget_file2(FSDevice *fs, FSFile *f, const char *url,
                    const char *user, const char *password,

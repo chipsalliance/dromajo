@@ -80,7 +80,7 @@ extern int emscripten_async_wget3_data(const char* url, const char* requesttype,
 
 XHRState *fs_wget2(const char *url, const char *user, const char *password,
                    WGetReadCallback *read_cb, uint64_t post_data_len,
-                   void *opaque, WGetWriteCallback *cb)
+                   void *opaque, WGetWriteCallback *cb, BOOL single_write)
 {
     XHRState *s;
     const char *request;
@@ -121,6 +121,9 @@ struct XHRState {
     void *opaque;
     WGetWriteCallback *write_cb;
     WGetReadCallback *read_cb;
+
+    BOOL single_write;
+    DynBuf dbuf; /* used if single_write */
 };
 
 typedef struct {
@@ -153,7 +156,12 @@ static size_t fs_wget_write_cb(char *ptr, size_t size, size_t nmemb,
 {
     XHRState *s = userdata;
     size *= nmemb;
-    s->write_cb(s->opaque, 1, ptr, size);
+
+    if (s->single_write) {
+        dbuf_write(&s->dbuf, s->dbuf.size, (void *)ptr, size);
+    } else {
+        s->write_cb(s->opaque, 1, ptr, size);
+    }
     return size;
 }
 
@@ -167,7 +175,7 @@ static size_t fs_wget_read_cb(char *ptr, size_t size, size_t nmemb,
 
 XHRState *fs_wget2(const char *url, const char *user, const char *password,
                    WGetReadCallback *read_cb, uint64_t post_data_len,
-                   void *opaque, WGetWriteCallback *write_cb)
+                   void *opaque, WGetWriteCallback *write_cb, BOOL single_write)
 {
     XHRState *s;
     s = mallocz(sizeof(*s));
@@ -175,6 +183,8 @@ XHRState *fs_wget2(const char *url, const char *user, const char *password,
     s->opaque = opaque;
     s->write_cb = write_cb;
     s->read_cb = read_cb;
+    s->single_write = single_write;
+    dbuf_init(&s->dbuf);
     
     curl_easy_setopt(s->eh, CURLOPT_PRIVATE, s);
     curl_easy_setopt(s->eh, CURLOPT_WRITEDATA, s);
@@ -205,6 +215,7 @@ XHRState *fs_wget2(const char *url, const char *user, const char *password,
 
 void fs_wget_free(XHRState *s)
 {
+    dbuf_free(&s->dbuf);
     curl_easy_cleanup(s->eh);
     list_del(&s->link);
     free(s);
@@ -236,12 +247,17 @@ void fs_net_set_fdset(int *pfd_max, fd_set *rfds, fd_set *wfds, fd_set *efds,
                               &http_code);
             /* signal the end of the transfer or error */
             if (http_code == 200) {
-                s->write_cb(s->opaque, 0, NULL, 0);
+                if (s->single_write) {
+                    s->write_cb(s->opaque, 0, s->dbuf.buf, s->dbuf.size);
+                } else {
+                    s->write_cb(s->opaque, 0, NULL, 0);
+                }
             } else {
                 s->write_cb(s->opaque, -http_code, NULL, 0);
             }
             curl_multi_remove_handle(curl_multi_ctx, s->eh);
             curl_easy_cleanup(s->eh);
+            dbuf_free(&s->dbuf);
             list_del(&s->link);
             free(s);
         }
@@ -286,9 +302,9 @@ void fs_net_event_loop(FSNetEventLoopCompletionFunc *cb, void *opaque)
 #endif /* !EMSCRIPTEN */
 
 XHRState *fs_wget(const char *url, const char *user, const char *password,
-                  void *opaque, WGetWriteCallback *cb)
+                  void *opaque, WGetWriteCallback *cb, BOOL single_write)
 {
-    return fs_wget2(url, user, password, NULL, 0, opaque, cb);
+    return fs_wget2(url, user, password, NULL, 0, opaque, cb, single_write);
 }
 
 /***********************************************/
@@ -493,7 +509,7 @@ void fs_wget_file2(FSDevice *fs, FSFile *f, const char *url,
     }
     
     fs_wget2(url, user, password, fs_wget_file_read_cb, post_data_len,
-             s, fs_wget_file_on_load);
+             s, fs_wget_file_on_load, FALSE);
 }
 
 /***********************************************/

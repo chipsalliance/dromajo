@@ -24,6 +24,9 @@
 #ifndef VIRTIO_H
 #define VIRTIO_H
 
+#include "iomem.h"
+#include "pci.h"
+
 #define VIRTIO_PAGE_SIZE 4096
 
 #if defined(EMSCRIPTEN)
@@ -38,9 +41,14 @@ typedef uint64_t virtio_phys_addr_t;
 typedef uint32_t virtio_phys_addr_t;
 #endif
 
-typedef void VIRTIOSetIrqFunc(void *opaque, int irq_num, int state);
-/* return NULL if no RAM at this address. The mapping is valid for one page */
-typedef uint8_t *VIRTIOGetRAMPtrFunc(void *opaque, virtio_phys_addr_t paddr);
+typedef struct {
+    /* PCI only: */
+    PCIBus *pci_bus;
+    /* MMIO only: */
+    PhysMemoryMap *mem_map;
+    uint64_t addr;
+    IRQSignal *irq;
+} VIRTIOBusDef;
 
 typedef struct VIRTIODevice VIRTIODevice; 
 
@@ -48,12 +56,10 @@ typedef struct VIRTIODevice VIRTIODevice;
 #define VIRTIO_DEBUG_9P (1 << 1)
 
 void virtio_set_debug(VIRTIODevice *s, int debug_flags);
-uint32_t virtio_mmio_read(VIRTIODevice *s, uint32_t offset, int size_log2);
-void virtio_mmio_write(VIRTIODevice *s, uint32_t offset, uint32_t val, int size_log2);
 
 /* block device */
 
-typedef void BlockDeviceCompletionFunc(void *opaque);
+typedef void BlockDeviceCompletionFunc(void *opaque, int ret);
 
 typedef struct BlockDevice BlockDevice;
 
@@ -68,25 +74,34 @@ struct BlockDevice {
     void *opaque;
 };
 
-VIRTIODevice *virtio_block_init(VIRTIOSetIrqFunc *set_irq, int irq_num,
-                                VIRTIOGetRAMPtrFunc *get_ram_ptr,
-                                void *host_opaque, BlockDevice *bs);
+VIRTIODevice *virtio_block_init(VIRTIOBusDef *bus, BlockDevice *bs);
 
 /* network device */
 
 typedef struct EthernetDevice EthernetDevice; 
 
 struct EthernetDevice {
-    void (*write_packet)(EthernetDevice *bs,
+    uint8_t mac_addr[6]; /* mac address of the interface */
+    void (*write_packet)(EthernetDevice *net,
                          const uint8_t *buf, int len);
     void *opaque;
+#if !defined(EMSCRIPTEN)
+    void (*select_fill)(EthernetDevice *net, int *pfd_max,
+                        fd_set *rfds, fd_set *wfds, fd_set *efds,
+                        int *pdelay);
+    void (*select_poll)(EthernetDevice *net, 
+                        fd_set *rfds, fd_set *wfds, fd_set *efds,
+                        int select_ret);
+#endif
+    /* the following is set by the device */
+    void *device_opaque;
+    BOOL (*device_can_write_packet)(EthernetDevice *net);
+    void (*device_write_packet)(EthernetDevice *net,
+                                const uint8_t *buf, int len);
+    void (*device_set_carrier)(EthernetDevice *net, BOOL carrier_state);
 };
 
-VIRTIODevice *virtio_net_init(VIRTIOSetIrqFunc *set_irq, int irq_num,
-                              VIRTIOGetRAMPtrFunc *get_ram_ptr,
-                              void *host_opaque, EthernetDevice *es);
-BOOL virtio_net_can_write_packet(VIRTIODevice *s);
-void virtio_net_write_packet(VIRTIODevice *s, const uint8_t *buf, int buf_len);
+VIRTIODevice *virtio_net_init(VIRTIOBusDef *bus, EthernetDevice *es);
 
 /* console device */
 
@@ -96,21 +111,34 @@ typedef struct {
     int (*read_data)(void *opaque, uint8_t *buf, int len);
 } CharacterDevice;
 
-VIRTIODevice *virtio_console_init(VIRTIOSetIrqFunc *set_irq, int irq_num,
-                                  VIRTIOGetRAMPtrFunc *get_ram_ptr,
-                                  void *host_opaque, CharacterDevice *cs);
+VIRTIODevice *virtio_console_init(VIRTIOBusDef *bus, CharacterDevice *cs);
 BOOL virtio_console_can_write_data(VIRTIODevice *s);
 int virtio_console_get_write_len(VIRTIODevice *s);
 int virtio_console_write_data(VIRTIODevice *s, const uint8_t *buf, int buf_len);
 void virtio_console_resize_event(VIRTIODevice *s, int width, int height);
 
+/* input device */
+
+typedef enum {
+    VIRTIO_INPUT_TYPE_KEYBOARD,
+    VIRTIO_INPUT_TYPE_MOUSE,
+    VIRTIO_INPUT_TYPE_TABLET,
+} VirtioInputTypeEnum;
+
+#define VIRTIO_INPUT_ABS_SCALE 32768
+
+int virtio_input_send_key_event(VIRTIODevice *s, BOOL is_down,
+                                uint16_t key_code);
+int virtio_input_send_mouse_event(VIRTIODevice *s, int dx, int dy, int dz,
+                                  unsigned int buttons);
+
+VIRTIODevice *virtio_input_init(VIRTIOBusDef *bus, VirtioInputTypeEnum type);
+
 /* 9p filesystem device */
 
 #include "fs.h"
 
-VIRTIODevice *virtio_9p_init(VIRTIOSetIrqFunc *set_irq, int irq_num,
-                             VIRTIOGetRAMPtrFunc *get_ram_ptr,
-                             void *host_opaque, FSDevice *fs,
+VIRTIODevice *virtio_9p_init(VIRTIOBusDef *bus, FSDevice *fs,
                              const char *mount_tag);
 
 #endif /* VIRTIO_H */

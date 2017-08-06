@@ -416,14 +416,15 @@ static int fs_setattr(FSDevice *fs, FSFile *f, uint32_t mask,
 {
     BOOL ctime_updated = FALSE;
 
-    if (mask & P9_SETATTR_MODE) {
-        if (chmod(f->path, mode) < 0)
-            return -errno_to_p9(errno);
-        ctime_updated = TRUE;
-    }
     if (mask & (P9_SETATTR_UID | P9_SETATTR_GID)) {
         if (lchown(f->path, (mask & P9_SETATTR_UID) ? uid : -1,
                    (mask & P9_SETATTR_GID) ? gid : -1) < 0)
+            return -errno_to_p9(errno);
+        ctime_updated = TRUE;
+    }
+    /* must be done after uid change for suid */
+    if (mask & P9_SETATTR_MODE) {
+        if (chmod(f->path, mode) < 0)
             return -errno_to_p9(errno);
         ctime_updated = TRUE;
     }

@@ -25,59 +25,90 @@
 # if set, network filesystem is enabled. libcurl and libcrypto
 # (openssl) must be installed.
 CONFIG_FS_NET=y
+# SDL support (optional)
+CONFIG_SDL=y
 # if set, compile the 128 bit emulator. Note: the 128 bit target does
 # not compile if gcc does not support the int128 type (32 bit hosts).
 CONFIG_INT128=y
 # build x86emu
 CONFIG_X86EMU=y
+# win32 build (not usable yet)
+#CONFIG_WIN32=y
+# user space network redirector
+CONFIG_SLIRP=y
 
+ifdef CONFIG_WIN32
+CROSS_PREFIX=i686-w64-mingw32-
+EXE=.exe
+else
 CROSS_PREFIX=
+EXE=
+endif
 CC=$(CROSS_PREFIX)gcc
 STRIP=$(CROSS_PREFIX)strip
 CFLAGS=-O2 -Wall -g -Werror -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -MMD
 CFLAGS+=-D_GNU_SOURCE -DCONFIG_VERSION=\"$(shell cat VERSION)\"
 LDFLAGS=
 
-# only used to build rv128test.bin
-RISCV_CROSS_PREFIX=riscv64-unknown-linux-gnu-
-
 bindir=/usr/local/bin
 INSTALL=install
 
-PROGS+= riscvemu32 riscvemu64 riscvemu
+PROGS+= riscvemu32$(EXE) riscvemu64$(EXE)
 ifdef CONFIG_INT128
-PROGS+=riscvemu128
+PROGS+=riscvemu128$(EXE)
 endif
 ifdef CONFIG_X86EMU
-PROGS+=x86emu
+PROGS+=x86emu$(EXE)
 endif
-# compile rv128test.bin if a RISCV toolchain is available
-#PROGS+=rv128test.bin
+ifndef CONFIG_WIN32
+PROGS+=riscvemu
 ifdef CONFIG_FS_NET
-PROGS+=build_filelist
+PROGS+=build_filelist splitimg
+endif
 endif
 
 all: $(PROGS)
 
-EMU_OBJS:=virtio.o fs.o fs_disk.o cutils.o iomem.o
-EMU_LIBS=-lrt
-ifdef CONFIG_FS_NET
-CFLAGS+=-DCONFIG_FS_NET
-EMU_OBJS+=fs_net.o fs_wget.o fs_utils.o
-EMU_LIBS+=-lcurl -lcrypto
+EMU_OBJS:=virtio.o pci.o fs.o cutils.o iomem.o simplefb.o \
+    json.o machine.o
+
+ifdef CONFIG_SLIRP
+CFLAGS+=-DCONFIG_SLIRP
+EMU_OBJS+=$(addprefix slirp/, bootp.o ip_icmp.o mbuf.o slirp.o tcp_output.o cksum.o ip_input.o misc.o socket.o tcp_subr.o udp.o if.o ip_output.o sbuf.o tcp_input.o tcp_timer.o)
 endif
 
-RISCVEMU_OBJS:=$(EMU_OBJS) riscvemu.o riscv_machine.o softfp.o 
+ifndef CONFIG_WIN32
+EMU_OBJS+=fs_disk.o
+EMU_LIBS=-lrt
+endif
+ifdef CONFIG_FS_NET
+CFLAGS+=-DCONFIG_FS_NET
+EMU_OBJS+=fs_net.o fs_wget.o fs_utils.o block_net.o
+EMU_LIBS+=-lcurl -lcrypto
+ifdef CONFIG_WIN32
+EMU_LIBS+=-lwsock32
+endif # CONFIG_WIN32
+endif # CONFIG_FS_NET
+ifdef CONFIG_SDL
+EMU_LIBS+=-lSDL
+EMU_OBJS+=sdl.o
+CFLAGS+=-DCONFIG_SDL
+ifdef CONFIG_WIN32
+LDFLAGS+=-mwindows
+endif
+endif
 
-X86EMU_OBJS:=$(EMU_OBJS) x86emu.o x86_cpu.o x86_machine.o
+RISCVEMU_OBJS:=$(EMU_OBJS) riscvemu.o riscv_machine.o softfp.o
 
-riscvemu32: riscv_cpu32.o $(RISCVEMU_OBJS)
+X86EMU_OBJS:=$(EMU_OBJS) x86emu.o x86_cpu.o x86_machine.o ide.o ps2.o vmmouse.o pckbd.o vga.o
+
+riscvemu32$(EXE): riscv_cpu32.o $(RISCVEMU_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(EMU_LIBS)
 
-riscvemu64: riscv_cpu64.o $(RISCVEMU_OBJS)
+riscvemu64$(EXE): riscv_cpu64.o $(RISCVEMU_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(EMU_LIBS)
 
-riscvemu128: riscv_cpu128.o $(RISCVEMU_OBJS)
+riscvemu128$(EXE): riscv_cpu128.o $(RISCVEMU_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(EMU_LIBS)
 
 riscvemu.o: riscvemu.c
@@ -95,14 +126,17 @@ riscv_cpu128.o: riscv_cpu.c
 riscvemu:
 	ln -sf riscvemu64 riscvemu
 
-x86emu: $(X86EMU_OBJS)
+x86emu$(EXE): $(X86EMU_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(EMU_LIBS)
 
 x86emu.o: riscvemu.c
 	$(CC) $(CFLAGS) -DCONFIG_CPU_X86 -c -o $@ $<
 
-build_filelist: build_filelist.o fs_utils.o
+build_filelist: build_filelist.o fs_utils.o cutils.o
 	$(CC) $(LDFLAGS) -o $@ $^ -lm
+
+splitimg: splitimg.o
+	$(CC) $(LDFLAGS) -o $@ $^
 
 install: $(PROGS)
 	$(STRIP) $(PROGS)
@@ -112,15 +146,7 @@ install: $(PROGS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f *.o *.d *~ $(PROGS)
-
-rv128test: rv128test.o rv128test.lds
-	$(RISCV_CROSS_PREFIX)ld -T rv128test.lds -o $@ rv128test.o
-
-rv128test.bin: rv128test
-	$(RISCV_CROSS_PREFIX)objcopy -O binary $< $@
-
-rv128test.o: rv128test.S
-	$(RISCV_CROSS_PREFIX)gcc -c -o $@ $<
+	rm -f *.o *.d *~ $(PROGS) slirp/*.o slirp/*.d slirp/*~
 
 -include $(wildcard *.d)
+-include $(wildcard slirp/*.d)

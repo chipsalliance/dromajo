@@ -86,6 +86,7 @@ int parse_file_id(FSFileID *pval, const char **pp);
 char *file_id_to_filename(char *buf, FSFileID file_id);
 void encode_hex(char *str, const uint8_t *buf, int len);
 int decode_hex(uint8_t *buf, const char *str, int len);
+BOOL is_url(const char *path);
 
 const char *skip_header(const char *p);
 int parse_tag(char *buf, int buf_size, const char *str, const char *tag);

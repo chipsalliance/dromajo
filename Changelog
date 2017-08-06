@@ -1,3 +1,16 @@
+2017-08-06:
+
+- added JSON configuration file
+- added graphical display with SDL
+- added VirtIO input support
+- added PCI bus and VirtIO PCI support
+- x86: added IDE, PS/2, vmmouse and VGA devices
+
+2017-06-10:
+
+- RISCV: avoid unnecessary kernel patches
+- x86: accept standard kernel images
+
 2017-05-25:
 
 - RISCV: faster emulation (1.4x)

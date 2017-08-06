@@ -13,24 +13,28 @@ RISCV Emulator by Fabrice Bellard
   - Compressed instructions
   - dynamic XLEN change
 
-- VirtIO console, network, block device and 9P filesystem
+- VirtIO console, network, block device, input and 9P filesystem
+
+- Graphical display with SDL
+
+- JSON configuration file
 
 - x86 system emulator based on KVM
 
 - small code, easy to modify, no external dependancies
 
-- Javascript demo version running 64 bit Linux
+- Javascript demo version
 
 2) Installation
 ---------------
 
-- The libraries libcurl and OpenSSL should be installed. On a Fedora
+- The libraries libcurl, OpenSSL and SDL should be installed. On a Fedora
   system you can do it with:
 
-  sudo yum install openssl-devel libcurl-devel
+  sudo yum install openssl-devel libcurl-devel SDL-devel
 
   It is possible to compile the programs without these libraries by
-  commenting CONFIG_FS_NET in the Makefile.
+  commenting CONFIG_FS_NET and/or CONFIG_SDL in the Makefile.
 
 - Edit the Makefile to disable the 128 bit target if you compile on a
   32 bit host (for the 128 bit RISCV target the compiler must support
@@ -48,48 +52,44 @@ RISCV Emulator by Fabrice Bellard
 3.1 Quick examples
 ------------------
 
-- Test the compiled binaries with:
+- Use the VM images available from https://bellard.org/jslinux (no
+  need to download them):
 
-  ./riscvemu -b 32 rv128test.bin
-  
-  ./riscvemu -b 64 rv128test.bin
-  
-  ./riscvemu -b 128 rv128test.bin
+  Terminal:
 
-  [rv128test.bin is a small program working with the 32/64/128 bit ISA]
+  ./riscvemu https://bellard.org/jslinux/buildroot-riscv64.cfg
 
-- Use Linux images available from https://vfsync.org (no need to
-  download them):
+  Graphical (with SDL):
 
-  ./riscvemu https://vfsync.org/u/os/riscv-poky
+  ./x86emu https://bellard.org/jslinux/buildroot-x86-xwin.cfg
 
-  ./x86emu https://vfsync.org/u/os/buildroot-x86
+  ./x86emu https://bellard.org/jslinux/win2k.cfg
 
-- Download the example Linux image and use it:
+- Download the example RISC-V Linux image and use it:
 
-  ./riscvemu bbl.bin root.bin
+  ./riscvemu root-riscv64.cfg
+
+  ./riscvemu128 rv128test/rv128test.cfg
 
 - Access to your local hard disk (/tmp directory) in the guest:
 
-  ./riscvemu https://vfsync.org/u/os/riscv-poky /tmp
+  ./riscvemu root_9p-riscv64.cfg
 
 then type:
-
-mount -t 9p -o trans=virtio /dev/root1 /mnt
+mount -t 9p /dev/root /mnt
 
 in the guest. The content of the host '/tmp' directory is visible in '/mnt'.
 
 3.2 Invocation
 --------------
 
-usage: riscvemu [options] [kernel.bin|url] [hdimage.bin|filesystem_path]...
+usage: riscvemu [options] config_file
 options are:
 -b [32|64|128]    set the integer register width in bits
 -m ram_size       set the RAM size in MB (default=256)
 -rw               allow write access to the disk image (default=snapshot)
 -ctrlc            the C-c key stops the emulator instead of being sent to the
                   emulated software
--net ifname       set virtio network tap device
 -append cmdline   append cmdline to the kernel command line
 
 Console keys:
@@ -98,7 +98,10 @@ Press C-a x to exit the emulator, C-a h to get some help.
 3.3 Network usage
 -----------------
 
-RISCVEMU uses a "tap" network interface to redirect the network
+The easiest way is to use the "user" mode network driver. No specific
+configuration is necessary.
+
+RISCVEMU also supports a "tap" network driver to redirect the network
 traffic from a VirtIO network adapter.
 
 You can look at the netinit.sh script to create the tap network
@@ -106,9 +109,9 @@ interface and to redirect the virtual traffic to Internet thru a
 NAT. The exact configuration may depend on the Linux distribution and
 local firewall configuration.
 
-Then start RISCVEMU with:
+The VM configuration file must include:
 
-./riscvemu -net tap0 bbl.bin root.bin
+eth0: { driver: "tap", ifname: "tap0" }
 
 and configure the network in the guest system with:
 
@@ -118,18 +121,24 @@ route add -net 0.0.0.0 gw 192.168.3.1 eth0
 3.4 Network filesystem
 ----------------------
 
-When using a URL as parameter, RISCVEMU instanciates the VirtIO 9P
-filesystem and does HTTP requests to download the files. The protocol
-is compatible with the vfsync utility. In the "mount" command,
-"/dev/rootN" must be used as device name where N is the index of the
-filesystem. When N=0 is it omitted.
+RISCVEMU supports the VirtIO 9P filesystem to access local or remote
+filesystems. For remote filesystems, it does HTTP requests to download
+the files. The protocol is compatible with the vfsync utility. In the
+"mount" command, "/dev/rootN" must be used as device name where N is
+the index of the filesystem. When N=0 it is omitted.
 
 The build_filelist tool builds the file list from a root directory. A
 simple web server is enough to serve the files.
 
-The emulator loads the Linux kernel from the '/kernel.bin' file if it
-is present. The '.preload' file gives a list of files to preload when
-opening a given file.
+The '.preload' file gives a list of files to preload when opening a
+given file.
+
+3.5 Network block device
+------------------------
+
+RISCVEMU supports an HTTP block device. The disk image is split into
+small files. Use the 'splitimg' utility to generate images. The URL of
+the JSON blk.txt file must be provided as disk image filename.
 
 4) Technical notes
 ------------------
@@ -140,7 +149,7 @@ The RISC-V specification does not define all the instruction encodings
 for the 128 bit integer and floating point operations. The missing
 ones were interpolated from the 32 and 64 ones.
 
-Unfortunately there is no RISC-V 128 bit tool chain nor OS now
+Unfortunately there is no RISC-V 128 bit toolchain nor OS now
 (volunteers for the Linux port ?), so rv128test.bin may be the first
 128 bit code for RISC-V !
 
@@ -156,38 +165,39 @@ The standard HTIF console uses registers at variable addresses which
 are deduced by loading specific ELF symbols. RISCVEMU does not rely on
 an ELF loader, so it is much simpler to use registers at fixed
 addresses (0x40008000). A small modification was made in the
-"riscv-pk" boot loader to support it. The HTIF console is only use a
+"riscv-pk" boot loader to support it. The HTIF console is only used to
 display boot messages and to power off the virtual system. The OS
 should use the VirtIO console.
 
 4.4) Javascript version
 
-A RISC-V 64 bit Javascript demo is provided using emscripten. A 32 bit
-version would be much faster, but it is less fun because there are
-already plenty of other Javascript 32 bit emulators such as JSLinux or
-JOR1K.
+A Javascript demo is provided using emscripten.
 
 4.5) x86 emulator
 
-A very small x86 emulator is included. It is not really an emulator
-because it uses the Linux KVM API to run the x86 code at near native
+A small x86 emulator is included. It is not really an emulator because
+it uses the Linux KVM API to run the x86 code at near native
 performance. The x86 emulator uses the same set of VirtIO devices as
-the RISCV emulator and is able to run a Linux kernel.
+the RISCV emulator and is able to run many operating systems.
 
-The x86 emulator only accepts a flat kernel binary image which is
-loaded at 0x00200000 and started in protected mode. It can be easily
-generated from a compiled kernel tree with:
-
-objcopy -O binary vmlinux kernel.bin
-
-No BIOS image is necessary.
+The x86 emulator accepts a Linux kernel image (bzImage). No BIOS image
+is necessary.
 
 The x86 emulator comes from my JS/Linux project (2011) which was one
 of the first emulator running Linux fully implemented in
 Javascript. It is provided to allow easy access to the x86 images
-hosted at https://vfsync.org .
+hosted at https://bellard.org/jslinux .
 
-5) License
-----------
 
-riscvemu and x86emu are released under the MIT license.
+5) License / Credits
+--------------------
+
+riscvemu and x86emu are released under the MIT license. If there is no
+explicit license in a file, the license from MIT-LICENSE.txt applies.
+
+The scrollbar images and scrollbar CSS styles originally came from
+'tinyscrollbar' by Maarten Baijs
+(https://github.com/wieringen/tinyscrollbar) and are released under
+the MIT license.
+
+The SLIRP library has its own license (two clause BSD license).

@@ -38,7 +38,7 @@ typedef struct RISCVCPUState RISCVCPUState;
 
 int riscv_cpu_get_max_xlen(void);
 
-RISCVCPUState *riscv_cpu_init(PhysMemoryMap *mem_map, uint8_t *phys_mem);
+RISCVCPUState *riscv_cpu_init(PhysMemoryMap *mem_map);
 void riscv_cpu_end(RISCVCPUState *s);
 void riscv_cpu_interp(RISCVCPUState *s, int n_cycles);
 uint64_t riscv_cpu_get_cycles(RISCVCPUState *s);
@@ -47,3 +47,5 @@ void riscv_cpu_reset_mip(RISCVCPUState *s, uint32_t mask);
 uint32_t riscv_cpu_get_mip(RISCVCPUState *s);
 BOOL riscv_cpu_get_power_down(RISCVCPUState *s);
 uint32_t riscv_cpu_get_misa(RISCVCPUState *s);
+void riscv_cpu_flush_tlb_write_range_ram(RISCVCPUState *s,
+                                         uint8_t *ram_ptr, size_t ram_size);

@@ -24,7 +24,7 @@
 #
 
 # host network interface connected to Internet (change it)
-internet_ifname="enp3s0"
+internet_ifname="enp0s20f0u1"
 
 # setup bridge interface
 ip link add br0 type bridge

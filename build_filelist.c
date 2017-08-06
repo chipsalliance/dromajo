@@ -47,7 +47,7 @@ void print_str(FILE *f, const char *str)
             goto use_quote;
         s++;
     }
-    fprintf(f, str);
+    fputs(str, f);
     return;
  use_quote:
     s = str;
@@ -216,16 +216,34 @@ int main(int argc, char **argv)
     FSFileID root_id;
     char fname[FILEID_SIZE_MAX];
     struct stat st;
+    uint64_t first_inode;
+    int c;
     
-    if (argc < 3)
+    first_inode = 1;
+    for(;;) {
+        c = getopt(argc, argv, "hi:");
+        if (c == -1)
+            break;
+        switch(c) {
+        case 'h':
+            help();
+        case 'i':
+            first_inode = strtoul(optarg, NULL, 0);
+            break;
+        default:
+            exit(1);
+        }
+    }
+
+    if (optind + 1 >= argc)
         help();
-    src_path = argv[1];
-    dst_path = argv[2];
+    src_path = argv[optind];
+    dst_path = argv[optind + 1];
     
     mkdir(dst_path, 0755);
 
     s->files_path = compose_path(dst_path, ROOT_FILENAME);
-    s->next_inode_num = 1;
+    s->next_inode_num = first_inode;
     s->fs_size = 0;
     /* dummy value */
     s->fs_max_size = (uint64_t)1 << 30;

@@ -43,8 +43,6 @@
 typedef struct RISCVMachine {
     VirtMachine common;
     PhysMemoryMap *mem_map;
-    uint8_t *phys_mem;
-    size_t phys_mem_size;
     RISCVCPUState *cpu_state;
     uint64_t ram_size;
     /* RTC */
@@ -53,13 +51,14 @@ typedef struct RISCVMachine {
     uint64_t timecmp;
     /* PLIC */
     uint32_t plic_pending_irq, plic_served_irq;
+    IRQSignal plic_irq[32]; /* IRQ 0 is not used */
     /* HTIF */
     uint64_t htif_tohost, htif_fromhost;
 
+    VIRTIODevice *keyboard_dev;
+    VIRTIODevice *mouse_dev;
+
     int virtio_count;
-    
-    /* kernel command line */
-    char cmd_line[512];
 } RISCVMachine;
 
 #define LOW_RAM_SIZE   0x00010000 /* 64KB */
@@ -73,6 +72,7 @@ typedef struct RISCVMachine {
 #define VIRTIO_IRQ       1
 #define PLIC_BASE_ADDR 0x40100000
 #define PLIC_SIZE      0x00400000
+#define FRAMEBUFFER_BASE_ADDR 0x41000000
 
 #define RTC_FREQ 10000000
 #define RTC_FREQ_DIV 16 /* arbitrary, relative to CPU freq to have a
@@ -98,7 +98,7 @@ static uint64_t rtc_get_time(RISCVMachine *m)
     return val;
 }
 
-static uint64_t htif_read(void *opaque, uint64_t offset,
+static uint32_t htif_read(void *opaque, uint32_t offset,
                           int size_log2)
 {
     RISCVMachine *s = opaque;
@@ -149,7 +149,7 @@ static void htif_handle_cmd(RISCVMachine *s)
     }
 }
 
-static void htif_write(void *opaque, uint64_t offset, uint64_t val,
+static void htif_write(void *opaque, uint32_t offset, uint32_t val,
                        int size_log2)
 {
     RISCVMachine *s = opaque;
@@ -191,7 +191,7 @@ static void htif_poll(RISCVMachine *s)
 }
 #endif
 
-static uint64_t clint_read(void *opaque, uint64_t offset, int size_log2)
+static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
 {
     RISCVMachine *m = opaque;
     uint32_t val;
@@ -217,7 +217,7 @@ static uint64_t clint_read(void *opaque, uint64_t offset, int size_log2)
     return val;
 }
  
-static void clint_write(void *opaque, uint64_t offset, uint64_t val,
+static void clint_write(void *opaque, uint32_t offset, uint32_t val,
                       int size_log2)
 {
     RISCVMachine *m = opaque;
@@ -252,7 +252,7 @@ static void plic_update_mip(RISCVMachine *s)
 #define PLIC_HART_BASE 0x200000
 #define PLIC_HART_SIZE 0x1000
 
-static uint64_t plic_read(void *opaque, uint64_t offset, int size_log2)
+static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2)
 {
     RISCVMachine *s = opaque;
     uint32_t val, mask;
@@ -280,7 +280,7 @@ static uint64_t plic_read(void *opaque, uint64_t offset, int size_log2)
     return val;
 }
 
-static void plic_write(void *opaque, uint64_t offset, uint64_t val,
+static void plic_write(void *opaque, uint32_t offset, uint32_t val,
                        int size_log2)
 {
     RISCVMachine *s = opaque;
@@ -299,8 +299,9 @@ static void plic_write(void *opaque, uint64_t offset, uint64_t val,
     }
 }
 
-static void plic_set_irq(RISCVMachine *s, int irq_num, int state)
+static void plic_set_irq(void *opaque, int irq_num, int state)
 {
+    RISCVMachine *s = opaque;
     uint32_t mask;
 
     mask = 1 << (irq_num - 1);
@@ -314,9 +315,9 @@ static void plic_set_irq(RISCVMachine *s, int irq_num, int state)
 static uint8_t *get_ram_ptr(RISCVMachine *s, uint64_t paddr)
 {
     PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
-    if (!pr)
+    if (!pr || !pr->is_ram)
         return NULL;
-    return s->phys_mem + pr->phys_mem_offset + (uintptr_t)(paddr - pr->addr);
+    return pr->phys_mem + (uintptr_t)(paddr - pr->addr);
 }
 
 /* FDT machine description */
@@ -576,14 +577,15 @@ void fdt_end(FDTState *s)
     free(s);
 }
 
-static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst)
+static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
 {
     FDTState *s;
     int size, max_xlen, i, cur_phandle, intc_phandle, plic_phandle;
     char isa_string[128], *q;
     uint32_t misa;
     uint32_t tab[4];
-
+    FBDevice *fb_dev;
+    
     s = fdt_init();
 
     cur_phandle = 1;
@@ -692,11 +694,23 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst)
         fdt_end_node(s); /* virtio */
     }
 
-
+    fb_dev = m->common.fb_dev;
+    if (fb_dev) {
+        fdt_begin_node_num(s, "framebuffer", FRAMEBUFFER_BASE_ADDR);
+        fdt_prop_str(s, "compatible", "simple-framebuffer");
+        fdt_prop_tab_u64_2(s, "reg", FRAMEBUFFER_BASE_ADDR, fb_dev->fb_size);
+        fdt_prop_u32(s, "width", fb_dev->width);
+        fdt_prop_u32(s, "height", fb_dev->height);
+        fdt_prop_u32(s, "stride", fb_dev->stride);
+        fdt_prop_str(s, "format", "a8r8g8b8");
+        fdt_end_node(s); /* framebuffer */
+    }
+    
     fdt_end_node(s); /* soc */
 
     fdt_begin_node(s, "chosen");
-    fdt_prop_str(s, "bootargs", m->cmd_line);
+    fdt_prop_str(s, "bootargs", cmd_line ? cmd_line : "");
+
     fdt_end_node(s); /* chosen */
     
     fdt_end_node(s); /* / */
@@ -714,18 +728,26 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst)
     return size;
 }
 
-void setup_linux_config(VirtMachine *s1)
+static void copy_kernel(RISCVMachine *s, const uint8_t *buf, int buf_len,
+                        const char *cmd_line)
 {
-    RISCVMachine *s = (RISCVMachine *)s1;
     uint32_t fdt_addr;
     uint8_t *ram_ptr;
     uint32_t *q;
-    
+
+    if (buf_len > s->ram_size) {
+        vm_error("Kernel too big\n");
+        exit(1);
+    }
+
+    ram_ptr = get_ram_ptr(s, RAM_BASE_ADDR);
+    memcpy(ram_ptr, buf, buf_len);
+
     ram_ptr = get_ram_ptr(s, 0);
     
     fdt_addr = 0x1000 + 8 * 8;
 
-    riscv_build_fdt(s, ram_ptr + fdt_addr);
+    riscv_build_fdt(s, ram_ptr + fdt_addr, cmd_line);
 
     /* jump_addr = 0x80000000 */
     
@@ -737,32 +759,11 @@ void setup_linux_config(VirtMachine *s1)
     q[4] = 0x00028067; /* jalr zero, t0, jump_addr */
 }
 
-static uint8_t *virtio_get_ram_ptr(void *opaque, virtio_phys_addr_t paddr)
-{
-    RISCVMachine *m = opaque;
-    return get_ram_ptr(m, paddr);
-}
-
-static void virtio_set_irq(void *opaque, int irq_num, int state)
+static void riscv_flush_tlb_write_range(void *opaque, uint8_t *ram_addr,
+                                        size_t ram_size)
 {
     RISCVMachine *s = opaque;
-    plic_set_irq(s, irq_num, state);
-}
-
-static uint64_t virtio_read(void *opaque, uint64_t offset,
-                                int size_log2)
-{
-    VIRTIODevice *s = opaque;
-    //    printf("read offset=0x%x\n", (int)offset);
-    return virtio_mmio_read(s, offset, size_log2);
-}
- 
-static void virtio_write(void *opaque, uint64_t offset, uint64_t val,
-                      int size_log2)
-{
-    VIRTIODevice *s = opaque;
-    //    printf("write offset=0x%x\n", (int)offset);
-    virtio_mmio_write(s, offset, val, size_log2);
+    riscv_cpu_flush_tlb_write_range_ram(s->cpu_state, ram_addr, ram_size);
 }
 
 void virt_machine_set_defaults(VirtMachineParams *p)
@@ -773,27 +774,23 @@ void virt_machine_set_defaults(VirtMachineParams *p)
 VirtMachine *virt_machine_init(const VirtMachineParams *p)
 {
     RISCVMachine *s;
-    VIRTIODevice *blk_dev, *net_dev;
+    VIRTIODevice *blk_dev;
     int irq_num, i;
-    uint64_t virtio_addr;
+    VIRTIOBusDef vbus_s, *vbus = &vbus_s;
 
     s = mallocz(sizeof(*s));
 
     s->ram_size = p->ram_size;
-    s->phys_mem_size = p->ram_size + LOW_RAM_SIZE;
-    s->phys_mem = mallocz(s->phys_mem_size);
-    if (!s->phys_mem) {
-        fprintf(stderr, "Could not allocate VM memory\n");
-        exit(1);
-    }
-        
     s->mem_map = phys_mem_map_init();
+    /* needed to handle the RAM dirty bits */
+    s->mem_map->opaque = s;
+    s->mem_map->flush_tlb_write_range = riscv_flush_tlb_write_range;
 
-    s->cpu_state = riscv_cpu_init(s->mem_map, s->phys_mem);
+    s->cpu_state = riscv_cpu_init(s->mem_map);
 
     /* RAM */
     cpu_register_ram(s->mem_map, RAM_BASE_ADDR, p->ram_size, 0);
-    cpu_register_ram(s->mem_map, 0x00000000, LOW_RAM_SIZE, p->ram_size);
+    cpu_register_ram(s->mem_map, 0x00000000, LOW_RAM_SIZE, 0);
     
     s->rtc_real_time = p->rtc_real_time;
     if (p->rtc_real_time) {
@@ -804,48 +801,44 @@ VirtMachine *virt_machine_init(const VirtMachineParams *p)
                         clint_read, clint_write, DEVIO_SIZE32);
     cpu_register_device(s->mem_map, PLIC_BASE_ADDR, PLIC_SIZE, s,
                         plic_read, plic_write, DEVIO_SIZE32);
+    for(i = 1; i < 32; i++) {
+        irq_init(&s->plic_irq[i], plic_set_irq, s, i);
+    }
+
     cpu_register_device(s->mem_map, HTIF_BASE_ADDR, 16,
                         s, htif_read, htif_write, DEVIO_SIZE32);
     s->common.console = p->console;
 
-    virtio_addr = VIRTIO_BASE_ADDR;
+    memset(vbus, 0, sizeof(*vbus));
+    vbus->mem_map = s->mem_map;
+    vbus->addr = VIRTIO_BASE_ADDR;
     irq_num = VIRTIO_IRQ;
     
-    pstrcpy(s->cmd_line, sizeof(s->cmd_line), "loglevel=3");
-    
     /* virtio console */
-    s->common.console_dev = virtio_console_init(virtio_set_irq, irq_num, 
-                                                virtio_get_ram_ptr, s,
-                                                p->console);
-    cpu_register_device(s->mem_map, virtio_addr, VIRTIO_SIZE,
-                        s->common.console_dev, virtio_read, virtio_write,
-                        DEVIO_SIZE8 | DEVIO_SIZE16 | DEVIO_SIZE32);
-    virtio_addr += VIRTIO_SIZE;
-    irq_num++;
-    s->virtio_count++;
-
+    if (p->console) {
+        vbus->irq = &s->plic_irq[irq_num];
+        s->common.console_dev = virtio_console_init(vbus, p->console);
+        vbus->addr += VIRTIO_SIZE;
+        irq_num++;
+        s->virtio_count++;
+    }
+    
     /* virtio net device */
-    if (p->net) {
-        net_dev = virtio_net_init(virtio_set_irq, irq_num,
-                                  virtio_get_ram_ptr, s, p->net);
-        cpu_register_device(s->mem_map, virtio_addr, VIRTIO_SIZE,
-                            net_dev, virtio_read, virtio_write,
-                            DEVIO_SIZE8 | DEVIO_SIZE16 | DEVIO_SIZE32);
-        s->common.net_dev = net_dev;
-        s->common.net = p->net;
-        virtio_addr += VIRTIO_SIZE;
+    for(i = 0; i < p->eth_count; i++) {
+        vbus->irq = &s->plic_irq[irq_num];
+        virtio_net_init(vbus, p->tab_eth[i].net);
+        s->common.net = p->tab_eth[i].net;
+        vbus->addr += VIRTIO_SIZE;
         irq_num++;
         s->virtio_count++;
     }
 
     /* virtio block device */
     for(i = 0; i < p->drive_count; i++) {
-        blk_dev = virtio_block_init(virtio_set_irq, irq_num,
-                                    virtio_get_ram_ptr, s, p->tab_drive[i]);
-        cpu_register_device(s->mem_map, virtio_addr, VIRTIO_SIZE,
-                            blk_dev, virtio_read, virtio_write,
-                            DEVIO_SIZE8 | DEVIO_SIZE16 | DEVIO_SIZE32);
-        virtio_addr += VIRTIO_SIZE;
+        vbus->irq = &s->plic_irq[irq_num];
+        blk_dev = virtio_block_init(vbus, p->tab_drive[i].block_dev);
+        (void)blk_dev;
+        vbus->addr += VIRTIO_SIZE;
         irq_num++;
         s->virtio_count++;
     }
@@ -853,34 +846,59 @@ VirtMachine *virt_machine_init(const VirtMachineParams *p)
     /* virtio filesystem */
     for(i = 0; i < p->fs_count; i++) {
         VIRTIODevice *fs_dev;
-        char buf[64];
-
-        if (i == 0)
-            strcpy(buf, "/dev/root");
-        else
-            snprintf(buf, sizeof(buf), "/dev/root%d", i);
-        fs_dev = virtio_9p_init(virtio_set_irq, irq_num, virtio_get_ram_ptr, s,
-                                p->tab_fs[i], buf);
-        cpu_register_device(s->mem_map, virtio_addr, VIRTIO_SIZE,
-                            fs_dev, virtio_read, virtio_write,
-                            DEVIO_SIZE8 | DEVIO_SIZE16 | DEVIO_SIZE32);
+        vbus->irq = &s->plic_irq[irq_num];
+        fs_dev = virtio_9p_init(vbus, p->tab_fs[i].fs_dev,
+                                p->tab_fs[i].tag);
+        (void)fs_dev;
         //        virtio_set_debug(fs_dev, VIRTIO_DEBUG_9P);
-        virtio_addr += VIRTIO_SIZE;
+        vbus->addr += VIRTIO_SIZE;
         irq_num++;
         s->virtio_count++;
     }
 
-    if (p->drive_count == 0) {
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), " root=root rootfstype=9p rootflags=trans=virtio ro");
-    } else {
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), " root=/dev/vda ro");
+    if (p->display_device) {
+        FBDevice *fb_dev;
+        fb_dev = mallocz(sizeof(*fb_dev));
+        s->common.fb_dev = fb_dev;
+        if (!strcmp(p->display_device, "simplefb")) {
+            simplefb_init(s->mem_map,
+                          FRAMEBUFFER_BASE_ADDR,
+                          fb_dev,
+                          p->width, p->height);
+            
+        } else {
+            vm_error("unsupported display device: %s\n", p->display_device);
+            exit(1);
+        }
     }
 
-    if (p->cmdline) {
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), " ");
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), p->cmdline);
-    }
+    if (p->input_device) {
+        if (!strcmp(p->input_device, "virtio")) {
+            vbus->irq = &s->plic_irq[irq_num];
+            s->keyboard_dev = virtio_input_init(vbus,
+                                                VIRTIO_INPUT_TYPE_KEYBOARD);
+            vbus->addr += VIRTIO_SIZE;
+            irq_num++;
+            s->virtio_count++;
 
+            vbus->irq = &s->plic_irq[irq_num];
+            s->mouse_dev = virtio_input_init(vbus,
+                                             VIRTIO_INPUT_TYPE_TABLET);
+            vbus->addr += VIRTIO_SIZE;
+            irq_num++;
+            s->virtio_count++;
+        } else {
+            vm_error("unsupported input device: %s\n", p->input_device);
+            exit(1);
+        }
+    }
+    
+    if (!p->files[VM_FILE_BIOS].buf) {
+        vm_error("No bios found");
+    }
+    copy_kernel(s, p->files[VM_FILE_BIOS].buf, p->files[VM_FILE_BIOS].len,
+                p->cmdline);
+    
     return (VirtMachine *)s;
 }
 
@@ -890,17 +908,7 @@ void virt_machine_end(VirtMachine *s1)
     /* XXX: stop all */
     riscv_cpu_end(s->cpu_state);
     phys_mem_map_end(s->mem_map);
-    free(s->phys_mem);
     free(s);
-}
-
-void copy_kernel(VirtMachine *s1, const uint8_t *buf, int buf_len)
-{
-    RISCVMachine *s = (RISCVMachine *)s1;
-    uint8_t *ram_ptr;
-    assert(buf_len < s->ram_size);
-    ram_ptr = get_ram_ptr(s, RAM_BASE_ADDR);
-    memcpy(ram_ptr, buf, buf_len);
 }
 
 /* in ms */
@@ -932,4 +940,41 @@ void virt_machine_interp(VirtMachine *s1, int max_exec_cycle)
 {
     RISCVMachine *s = (RISCVMachine *)s1;
     riscv_cpu_interp(s->cpu_state, max_exec_cycle);
+}
+
+const char *virt_machine_get_name(void)
+{
+    switch(riscv_cpu_get_max_xlen()) {
+    case 32:
+        return "riscv32";
+    case 64:
+        return "riscv64";
+    case 128:
+        return "riscv128";
+    default:
+        abort();
+    }
+}
+
+void vm_send_key_event(VirtMachine *s1, BOOL is_down,
+                       uint16_t key_code)
+{
+    RISCVMachine *s = (RISCVMachine *)s1;
+    if (s->keyboard_dev) {
+        virtio_input_send_key_event(s->keyboard_dev, is_down, key_code);
+    }
+}
+
+BOOL vm_mouse_is_absolute(VirtMachine *s)
+{
+    return TRUE;
+}
+
+void vm_send_mouse_event(VirtMachine *s1, int dx, int dy, int dz,
+                        unsigned int buttons)
+{
+    RISCVMachine *s = (RISCVMachine *)s1;
+    if (s->mouse_dev) {
+        virtio_input_send_mouse_event(s->mouse_dev, dx, dy, dz, buttons);
+    }
 }

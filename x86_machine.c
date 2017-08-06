@@ -31,14 +31,18 @@
 #include <errno.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/time.h>
 
 #include "cutils.h"
 #include "iomem.h"
 #include "virtio.h"
 #include "x86_cpu.h"
 #include "machine.h"
+#include "pci.h"
+#include "ide.h"
+#include "ps2.h"
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))
 #define USE_KVM
 #endif
 
@@ -50,8 +54,13 @@
 #include <sys/time.h>
 #endif
 
+//#define DEBUG_BIOS
+//#define DUMP_IOPORT
+
 /***********************************************************/
 /* cmos emulation */
+
+//#define DEBUG_CMOS
 
 #define RTC_SECONDS             0
 #define RTC_SECONDS_ALARM       1
@@ -71,65 +80,177 @@
 #define RTC_REG_C               12
 #define RTC_REG_D               13
 
-/* PC cmos mappings */
-#define REG_EQUIPMENT_BYTE          0x14
+#define REG_A_UIP 0x80
 
-static int to_bcd(unsigned int a)
-{
-    return ((a / 10) << 4) | (a % 10);
-}
+#define REG_B_SET 0x80
+#define REG_B_PIE 0x40
+#define REG_B_AIE 0x20
+#define REG_B_UIE 0x10
+
 typedef struct {
     uint8_t cmos_index;
     uint8_t cmos_data[128];
+    IRQSignal *irq;
+    BOOL use_local_time;
+    /* used for the periodic irq */
+    uint32_t irq_timeout;
+    uint32_t irq_period;
 } CMOSState;
 
-static void cmos_write(void *opaque, uint64_t offset,
-                       uint64_t data, int size_log2);
-static uint64_t cmos_read(void *opaque, uint64_t offset, int size_log2);
+static void cmos_write(void *opaque, uint32_t offset,
+                       uint32_t data, int size_log2);
+static uint32_t cmos_read(void *opaque, uint32_t offset, int size_log2);
 
-CMOSState *cmos_init(PhysMemoryMap *port_map, int addr)
+static int to_bcd(CMOSState *s, unsigned int a)
 {
-    CMOSState *s;
+    if (s->cmos_data[RTC_REG_B] & 0x04) {
+        return a;
+    } else {
+        return ((a / 10) << 4) | (a % 10);
+    }
+}
+
+static void cmos_update_time(CMOSState *s, BOOL set_century)
+{
+    struct timeval tv;
     struct tm tm;
     time_t ti;
+    int val;
+    
+    gettimeofday(&tv, NULL);
+    ti = tv.tv_sec;
+    if (s->use_local_time) {
+        localtime_r(&ti, &tm);
+    } else {
+        gmtime_r(&ti, &tm);
+    }
+    
+    s->cmos_data[RTC_SECONDS] = to_bcd(s, tm.tm_sec);
+    s->cmos_data[RTC_MINUTES] = to_bcd(s, tm.tm_min);
+    if (s->cmos_data[RTC_REG_B] & 0x02) {
+        s->cmos_data[RTC_HOURS] = to_bcd(s, tm.tm_hour);
+    } else {
+        s->cmos_data[RTC_HOURS] = to_bcd(s, tm.tm_hour % 12);
+        if (tm.tm_hour >= 12)
+            s->cmos_data[RTC_HOURS] |= 0x80;
+    }
+    s->cmos_data[RTC_DAY_OF_WEEK] = to_bcd(s, tm.tm_wday);
+    s->cmos_data[RTC_DAY_OF_MONTH] = to_bcd(s, tm.tm_mday);
+    s->cmos_data[RTC_MONTH] = to_bcd(s, tm.tm_mon + 1);
+    s->cmos_data[RTC_YEAR] = to_bcd(s, tm.tm_year % 100);
+
+    if (set_century) {
+        /* not set by the hardware, but easier to do it here */
+        val = to_bcd(s, (tm.tm_year / 100) + 19);
+        s->cmos_data[0x32] = val;
+        s->cmos_data[0x37] = val;
+    }
+    
+    /* update in progress flag: 8/32768 seconds after change */
+    if (tv.tv_usec < 244) {
+        s->cmos_data[RTC_REG_A] |= REG_A_UIP;
+    } else {
+        s->cmos_data[RTC_REG_A] &= ~REG_A_UIP;
+    }
+}
+
+CMOSState *cmos_init(PhysMemoryMap *port_map, int addr,
+                     IRQSignal *irq, BOOL use_local_time)
+{
+    CMOSState *s;
     
     s = mallocz(sizeof(*s));
+    s->use_local_time = use_local_time;
     
     s->cmos_index = 0;
-
-    ti = time(NULL);
-    gmtime_r(&ti, &tm);
-    
-    s->cmos_data[RTC_SECONDS] = to_bcd(tm.tm_sec);
-    s->cmos_data[RTC_MINUTES] = to_bcd(tm.tm_min);
-    s->cmos_data[RTC_HOURS] = to_bcd(tm.tm_hour);
-    s->cmos_data[RTC_DAY_OF_WEEK] = to_bcd(tm.tm_wday);
-    s->cmos_data[RTC_DAY_OF_MONTH] = to_bcd(tm.tm_mday);
-    s->cmos_data[RTC_MONTH] = to_bcd(tm.tm_mon + 1);
-    s->cmos_data[RTC_YEAR] = to_bcd(tm.tm_year % 100);
 
     s->cmos_data[RTC_REG_A] = 0x26;
     s->cmos_data[RTC_REG_B] = 0x02;
     s->cmos_data[RTC_REG_C] = 0x00;
     s->cmos_data[RTC_REG_D] = 0x80;
 
-    s->cmos_data[REG_EQUIPMENT_BYTE] = 0x02; /* FPU is there */
-
+    cmos_update_time(s, TRUE);
+    
+    s->irq = irq;
+    
     cpu_register_device(port_map, addr, 2, s, cmos_read, cmos_write, 
                         DEVIO_SIZE8);
     return s;
 }
 
-static void cmos_write(void *opaque, uint64_t offset,
-                       uint64_t data, int size_log2)
+#define CMOS_FREQ 32768
+
+static uint32_t cmos_get_timer(CMOSState *s)
 {
-    CMOSState *s = opaque;
-    if (offset == 0) {
-        s->cmos_index = data & 0x7f;
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)ts.tv_sec * CMOS_FREQ +
+        ((uint64_t)ts.tv_nsec * CMOS_FREQ / 1000000000);
+}
+
+static void cmos_update_timer(CMOSState *s)
+{
+    int period_code;
+
+    period_code = s->cmos_data[RTC_REG_A] & 0x0f;
+    if ((s->cmos_data[RTC_REG_B] & REG_B_PIE) &&
+        period_code != 0) {
+        if (period_code <= 2)
+            period_code += 7;
+        s->irq_period = 1 << (period_code - 1);
+        s->irq_timeout = (cmos_get_timer(s) + s->irq_period) &
+            ~(s->irq_period - 1);
     }
 }
 
-static uint64_t cmos_read(void *opaque, uint64_t offset, int size_log2)
+/* XXX: could return a delay, but we don't need high precision
+   (Windows 2000 uses it for delay calibration) */
+static void cmos_update_irq(CMOSState *s)
+{
+    uint32_t d;
+    if (s->cmos_data[RTC_REG_B] & REG_B_PIE) {
+        d = cmos_get_timer(s) - s->irq_timeout;
+        if ((int32_t)d >= 0) {
+            /* this is not what the real RTC does. Here we sent the IRQ
+               immediately */
+            s->cmos_data[RTC_REG_C] |= 0xc0;
+            set_irq(s->irq, 1);
+            /* update for the next irq */
+            s->irq_timeout += s->irq_period;
+        }
+    }
+}
+
+static void cmos_write(void *opaque, uint32_t offset,
+                       uint32_t data, int size_log2)
+{
+    CMOSState *s = opaque;
+
+    if (offset == 0) {
+        s->cmos_index = data & 0x7f;
+    } else {
+#ifdef DEBUG_CMOS
+        printf("cmos_write: reg=0x%02x val=0x%02x\n", s->cmos_index, data);
+#endif
+        switch(s->cmos_index) {
+        case RTC_REG_A:
+            s->cmos_data[RTC_REG_A] = (data & ~REG_A_UIP) |
+                (s->cmos_data[RTC_REG_A] & REG_A_UIP);
+            cmos_update_timer(s);
+            break;
+        case RTC_REG_B:
+            s->cmos_data[s->cmos_index] = data;
+            cmos_update_timer(s);
+            break;
+        default:
+            s->cmos_data[s->cmos_index] = data;
+            break;
+        }
+    }
+}
+
+static uint32_t cmos_read(void *opaque, uint32_t offset, int size_log2)
 {
     CMOSState *s = opaque;
     int ret;
@@ -137,13 +258,29 @@ static uint64_t cmos_read(void *opaque, uint64_t offset, int size_log2)
     if (offset == 0) {
         return 0xff;
     } else {
-        /* toggle update-in-progress bit for Linux (same hack as
-           plex86) */
-        ret = s->cmos_data[s->cmos_index];
-        if (s->cmos_index == RTC_REG_A)
-            s->cmos_data[RTC_REG_A] ^= 0x80; 
-        else if (s->cmos_index == RTC_REG_C)
-            s->cmos_data[RTC_REG_C] = 0x00; 
+        switch(s->cmos_index) {
+        case RTC_SECONDS:
+        case RTC_MINUTES:
+        case RTC_HOURS:
+        case RTC_DAY_OF_WEEK:
+        case RTC_DAY_OF_MONTH:
+        case RTC_MONTH:
+        case RTC_YEAR:
+        case RTC_REG_A:
+            cmos_update_time(s, FALSE);
+            ret = s->cmos_data[s->cmos_index];
+            break;
+        case RTC_REG_C:
+            ret = s->cmos_data[s->cmos_index];
+            s->cmos_data[RTC_REG_C] = 0x00;
+            set_irq(s->irq, 0);
+            break;
+        default:
+            ret = s->cmos_data[s->cmos_index];
+        }
+#ifdef DEBUG_CMOS
+        printf("cmos_read: reg=0x%02x val=0x%02x\n", s->cmos_index, ret);
+#endif
         return ret;
     }
 }
@@ -175,11 +312,15 @@ typedef struct {
 } PICState;
 
 static void pic_reset(PICState *s);
-static void pic_write(void *opaque, uint64_t offset,
-                      uint64_t val64, int size_log2);
-static uint64_t pic_read(void *opaque, uint64_t offset, int size_log2);
+static void pic_write(void *opaque, uint32_t offset,
+                      uint32_t val, int size_log2);
+static uint32_t pic_read(void *opaque, uint32_t offset, int size_log2);
+static void pic_elcr_write(void *opaque, uint32_t offset,
+                           uint32_t val, int size_log2);
+static uint32_t pic_elcr_read(void *opaque, uint32_t offset, int size_log2);
 
-PICState *pic_init(PhysMemoryMap *port_map, int port, int elcr_mask,
+PICState *pic_init(PhysMemoryMap *port_map, int port, int elcr_port,
+                   int elcr_mask,
                    PICUpdateIRQFunc *update_irq, void *opaque)
 {
     PICState *s;
@@ -188,8 +329,10 @@ PICState *pic_init(PhysMemoryMap *port_map, int port, int elcr_mask,
     s->elcr_mask = elcr_mask;
     s->update_irq = update_irq;
     s->opaque = opaque;
-    cpu_register_device(port_map, port, 2, s, pic_read, pic_write, 
-                        DEVIO_SIZE8);
+    cpu_register_device(port_map, port, 2, s,
+                        pic_read, pic_write, DEVIO_SIZE8);
+    cpu_register_device(port_map, elcr_port, 1, s,
+                        pic_elcr_read, pic_elcr_write, DEVIO_SIZE8);
     pic_reset(s);
     return s;
 }
@@ -216,12 +359,24 @@ static void pic_set_irq1(PICState *s, int irq, int level)
 {
     int mask;
     mask = 1 << irq;
-    if (level) {
-        if ((s->last_irr & mask) == 0)
+    if (s->elcr & mask) {
+        /* level triggered */
+        if (level) {
             s->irr |= mask;
-        s->last_irr |= mask;
+            s->last_irr |= mask;
+        } else {
+            s->irr &= ~mask;
+            s->last_irr &= ~mask;
+        }
     } else {
-        s->last_irr &= ~mask;
+        /* edge triggered */
+        if (level) {
+            if ((s->last_irr & mask) == 0)
+                s->irr |= mask;
+            s->last_irr |= mask;
+        } else {
+            s->last_irr &= ~mask;
+        }
     }
 }
     
@@ -269,13 +424,12 @@ static void pic_intack(PICState *s, int irq)
         s->irr &= ~(1 << irq);
 }
 
-static void pic_write(void *opaque, uint64_t offset,
-                      uint64_t val64, int size_log2)
+static void pic_write(void *opaque, uint32_t offset,
+                      uint32_t val, int size_log2)
 {
     PICState *s = opaque;
-    int priority, addr, val;
+    int priority, addr;
     
-    val = val64;
     addr = offset & 1;
 #ifdef DEBUG_PIC
     console.log("pic_write: addr=" + toHex2(addr) + " val=" + toHex2(val));
@@ -371,7 +525,7 @@ static void pic_write(void *opaque, uint64_t offset,
     }
 }
 
-static uint64_t pic_read(void *opaque, uint64_t offset, int size_log2)
+static uint32_t pic_read(void *opaque, uint32_t offset, int size_log2)
 {
     PICState *s = opaque;
     int addr, ret;
@@ -391,6 +545,19 @@ static uint64_t pic_read(void *opaque, uint64_t offset, int size_log2)
     return ret;
 }
 
+static void pic_elcr_write(void *opaque, uint32_t offset,
+                           uint32_t val, int size_log2)
+{
+    PICState *s = opaque;
+    s->elcr = val & s->elcr_mask;
+}
+
+static uint32_t pic_elcr_read(void *opaque, uint32_t offset, int size_log2)
+{
+    PICState *s = opaque;
+    return s->elcr;
+}
+
 typedef struct {
     PICState *pics[2];
     int irq_requested;
@@ -399,22 +566,39 @@ typedef struct {
 #if defined(DEBUG_PIC)
     uint8_t irq_level[16];
 #endif
+    IRQSignal *irqs;
 } PIC2State;
 
 static void pic2_update_irq(void *opaque);
+static void pic2_set_irq(void *opaque, int irq, int level);
 
-PIC2State *pic2_init(PhysMemoryMap *port_map, int addr0, int addr1,
+PIC2State *pic2_init(PhysMemoryMap *port_map, uint32_t addr0, uint32_t addr1,
+                     uint32_t elcr_addr0, uint32_t elcr_addr1, 
                      void (*cpu_set_irq)(void *opaque, int level),
-                     void *opaque)
+                     void *opaque, IRQSignal *irqs)
 {
     PIC2State *s;
+    int i;
+    
     s = mallocz(sizeof(*s));
+
+    for(i = 0; i < 16; i++) {
+        irq_init(&irqs[i], pic2_set_irq, s, i);
+    }
     s->cpu_set_irq = cpu_set_irq;
     s->opaque = opaque;
-    s->pics[0] = pic_init(port_map, addr0, 0xf8, pic2_update_irq, s);
-    s->pics[1] = pic_init(port_map, addr1, 0xde, pic2_update_irq, s);
+    s->pics[0] = pic_init(port_map, addr0, elcr_addr0, 0xf8, pic2_update_irq, s);
+    s->pics[1] = pic_init(port_map, addr1, elcr_addr1, 0xde, pic2_update_irq, s);
     s->irq_requested = 0;
     return s;
+}
+
+void pic2_set_elcr(PIC2State *s, const uint8_t *elcr)
+{
+    int i;
+    for(i = 0; i < 2; i++) {
+        s->pics[i]->elcr = elcr[i] & s->pics[i]->elcr_mask;
+    }
 }
 
 /* raise irq to CPU if necessary. must be called every time the active
@@ -445,8 +629,9 @@ static void pic2_update_irq(void *opaque)
     }
 }
 
-static void pic2_set_irq(PIC2State *s, int irq, int level)
+static void pic2_set_irq(void *opaque, int irq, int level)
 {
+    PIC2State *s = opaque;
 #if defined(DEBUG_PIC)
     if (irq != 0 && level != s->irq_level[irq]) {
         console.log("pic_set_irq: irq=" + irq + " level=" + level);
@@ -486,7 +671,8 @@ static int pic2_get_hard_intno(PIC2State *s)
     pic2_update_irq(s);
 
 #if defined(DEBUG_PIC)
-    console.log("get_hard_intno: irq=" + irq + " intno=" + intno);
+    if (irq != 0 && irq != 14)
+        printf("pic_interrupt: irq=%d\n", irq);
 #endif
     return intno;
 }
@@ -525,21 +711,20 @@ struct PITState {
     PITChannel pit_channels[3];
     uint8_t speaker_data_on;
     PITGetTicksFunc *get_ticks;
-    DeviceSetIRQFunc *set_irq;
-    int irq_num;
+    IRQSignal *irq;
     void *opaque;
 };
 
 static void pit_load_count(PITChannel *pc, int val);
-static void pit_write(void *opaque, uint64_t offset,
-                      uint64_t val64, int size_log2);
-static uint64_t pit_read(void *opaque, uint64_t offset, int size_log2);
-static void speaker_write(void *opaque, uint64_t offset,
-                          uint64_t val, int size_log2);
-static uint64_t speaker_read(void *opaque, uint64_t offset, int size_log2);
+static void pit_write(void *opaque, uint32_t offset,
+                      uint32_t val, int size_log2);
+static uint32_t pit_read(void *opaque, uint32_t offset, int size_log2);
+static void speaker_write(void *opaque, uint32_t offset,
+                          uint32_t val, int size_log2);
+static uint32_t speaker_read(void *opaque, uint32_t offset, int size_log2);
 
 PITState *pit_init(PhysMemoryMap *port_map, int addr0, int addr1,
-                   DeviceSetIRQFunc *set_irq, int irq_num,
+                   IRQSignal *irq,
                    PITGetTicksFunc *get_ticks, void *opaque)
 {
     PITState *s;
@@ -548,8 +733,7 @@ PITState *pit_init(PhysMemoryMap *port_map, int addr0, int addr1,
 
     s = mallocz(sizeof(*s));
 
-    s->set_irq = set_irq;
-    s->irq_num = irq_num;
+    s->irq = irq;
     s->get_ticks = get_ticks;
     s->opaque = opaque;
     
@@ -639,17 +823,16 @@ static void pit_load_count(PITChannel *s, int val)
     s->count = val;
 }
 
-static void pit_write(void *opaque, uint64_t offset,
-                      uint64_t val64, int size_log2)
+static void pit_write(void *opaque, uint32_t offset,
+                      uint32_t val, int size_log2)
 {
     PITState *pit = opaque;
-    int channel, access, val, addr;
+    int channel, access, addr;
     PITChannel *s;
 
-    val = val64;
     addr = offset & 3;
 #ifdef DEBUG_PIT
-    console.log("pit_write: addr=" + toHex2(addr) + " val=" + toHex2(val));
+    printf("pit_write: off=%d val=0x%02x\n", addr, val);
 #endif
     if (addr == 3) {
         channel = val >> 6;
@@ -690,7 +873,7 @@ static void pit_write(void *opaque, uint64_t offset,
     }
 }
 
-static uint64_t pit_read(void *opaque, uint64_t offset, int size_log2)
+static uint32_t pit_read(void *opaque, uint32_t offset, int size_log2)
 {
     PITState *pit = opaque;
     PITChannel *s;
@@ -725,20 +908,20 @@ static uint64_t pit_read(void *opaque, uint64_t offset, int size_log2)
         break;
     }
 #ifdef DEBUG_PIT
-    console.log("pit_read: offset=" + toHex2(addr) + " val=" + toHex2(ret));
+    printf("pit_read: off=%d val=0x%02x\n", addr, ret);
 #endif
     return ret;
 }
 
-static void speaker_write(void *opaque, uint64_t offset,
-                          uint64_t val, int size_log2)
+static void speaker_write(void *opaque, uint32_t offset,
+                          uint32_t val, int size_log2)
 {
     PITState *pit = opaque;
     pit->speaker_data_on = (val >> 1) & 1;
     pit->pit_channels[2].gate = val & 1;
 }
 
-static uint64_t speaker_read(void *opaque, uint64_t offset, int size_log2)
+static uint32_t speaker_read(void *opaque, uint32_t offset, int size_log2)
 {
     PITState *pit = opaque;
     PITChannel *s;
@@ -774,8 +957,8 @@ static int pit_update_irq(PITState *pit)
         if (s->last_irq_time == 0) {
             delay = s->count - d;
             if (delay <= 0) {
-                pit->set_irq(pit->opaque, pit->irq_num, 1);
-                pit->set_irq(pit->opaque, pit->irq_num, 0);
+                set_irq(pit->irq, 1);
+                set_irq(pit->irq, 0);
                 s->last_irq_time = d;
             }
         }
@@ -784,8 +967,8 @@ static int pit_update_irq(PITState *pit)
     case 3:
         delay = s->last_irq_time + s->count - d;
         if (delay <= 0) {
-            pit->set_irq(pit->opaque, pit->irq_num, 1);
-            pit->set_irq(pit->opaque, pit->irq_num, 0);
+            set_irq(pit->irq, 1);
+            set_irq(pit->irq, 0);
             s->last_irq_time += s->count;
         }
         break;
@@ -841,18 +1024,17 @@ typedef struct {
     uint8_t msr;
     uint8_t scr;
     uint8_t fcr;
-    DeviceSetIRQFunc *set_irq_func;
-    int irq_num;
+    IRQSignal *irq;
     void (*write_func)(void *opaque, const uint8_t *buf, int buf_len);
     void *opaque;
 } SerialState;
 
-static void serial_write(void *opaque, uint64_t offset,
-                         uint64_t val64, int size_log2);
-static uint64_t serial_read(void *opaque, uint64_t offset, int size_log2);
+static void serial_write(void *opaque, uint32_t offset,
+                         uint32_t val, int size_log2);
+static uint32_t serial_read(void *opaque, uint32_t offset, int size_log2);
 
 SerialState *serial_init(PhysMemoryMap *port_map, int addr,
-                         DeviceSetIRQFunc *set_irq_func, int irq_num,
+                         IRQSignal *irq,
                          void (*write_func)(void *opaque, const uint8_t *buf, int buf_len), void *opaque)
 {
     SerialState *s;
@@ -870,8 +1052,7 @@ SerialState *serial_init(PhysMemoryMap *port_map, int addr,
     s->scr = 0;
     s->fcr = 0;
 
-    s->set_irq_func = set_irq_func;
-    s->irq_num = irq_num;
+    s->irq = irq;
     s->write_func = write_func;
     s->opaque = opaque;
 
@@ -890,9 +1071,9 @@ static void serial_update_irq(SerialState *s)
         s->iir = UART_IIR_NO_INT;
     }
     if (s->iir != UART_IIR_NO_INT) {
-        s->set_irq_func(s->opaque, s->irq_num, 1);
+        set_irq(s->irq, 1);
     } else {
-        s->set_irq_func(s->opaque, s->irq_num, 0);
+        set_irq(s->irq, 0);
     }
 }
 
@@ -911,13 +1092,12 @@ Serial.prototype.write_tx_fifo = function()
 }
 #endif
     
-static void serial_write(void *opaque, uint64_t offset,
-                         uint64_t val64, int size_log2)
+static void serial_write(void *opaque, uint32_t offset,
+                         uint32_t val, int size_log2)
 {
     SerialState *s = opaque;
-    int addr, val;
+    int addr;
 
-    val = val64;
     addr = offset & 7;
     switch(addr) {
     default:
@@ -944,7 +1124,6 @@ static void serial_write(void *opaque, uint64_t offset,
                 /* write to the terminal */
                 ch = val;
                 s->write_func(s->opaque, &ch, 1);
-                
                 s->lsr |= UART_LSR_THRE;
                 s->lsr |= UART_LSR_TEMT;
                 serial_update_irq(s);
@@ -989,7 +1168,7 @@ static void serial_write(void *opaque, uint64_t offset,
     }
 }
 
-static uint64_t serial_read(void *opaque, uint64_t offset, int size_log2)
+static uint32_t serial_read(void *opaque, uint32_t offset, int size_log2)
 {
     SerialState *s = opaque;
     int ret, addr;
@@ -1074,47 +1253,54 @@ Serial.prototype.send_chars = function(str)
     s->send_char_from_fifo();
 }
     
-/***********************************************************/
-/* simulate reset */
+#endif
 
-function KBD(pc, reset_request)
+#ifdef DEBUG_BIOS
+static void bios_debug_write(void *opaque, uint32_t offset,
+                        uint32_t val, int size_log2)
 {
-    pc.register_ioport_read(0x64, 1, 1, s->read_status.bind(this));
-    pc.register_ioport_write(0x64, 1, 1, s->write_command.bind(this));
-    s->reset_request = reset_request;
+#ifdef EMSCRIPTEN
+    static char line_buf[256];
+    static int line_buf_index;
+    line_buf[line_buf_index++] = val;
+    if (val == '\n' || line_buf_index >= sizeof(line_buf) - 1) {
+        line_buf[line_buf_index] = '\0';
+        printf("%s", line_buf);
+        line_buf_index = 0;
+    }
+#else
+    putchar(val & 0xff);
+#endif
 }
 
-KBD.prototype.read_status = function(addr)
+static uint32_t bios_debug_read(void *opaque, uint32_t offset, int size_log2)
 {
     return 0;
-}
-
-KBD.prototype.write_command = function(addr, val)
-{
-    switch(val) {
-    case 0xfe:
-        s->reset_request();
-        break;
-    default:
-        break;
-    }
 }
 #endif
 
 typedef struct PCMachine {
     VirtMachine common;
     uint64_t ram_size;
-    size_t phys_mem_size;
-    uint8_t *phys_mem;
     PhysMemoryMap *mem_map;
     PhysMemoryMap *port_map;
     
     X86CPUState *cpu_state;
     PIC2State *pic_state;
+    IRQSignal pic_irq[16];
     PITState *pit_state;
+    I440FXState *i440fx_state;
     CMOSState *cmos_state;
     SerialState *serial_state;
-    char cmd_line[512];
+
+    /* input */
+    VIRTIODevice *keyboard_dev;
+    VIRTIODevice *mouse_dev;
+    KBDState *kbd_state;
+    PS2MouseState *ps2_mouse;
+    VMMouseState *vm_mouse;
+    PS2KbdState *ps2_kbd;
+
 #ifdef USE_KVM
     BOOL kvm_enabled;
     int kvm_fd;
@@ -1125,14 +1311,96 @@ typedef struct PCMachine {
 #endif
 } PCMachine;
 
-static void port80_write(void *opaque, uint64_t offset,
-                         uint64_t val64, int size_log2)
+static void copy_kernel(PCMachine *s, const uint8_t *buf, int buf_len,
+                        const char *cmd_line);
+
+static void port80_write(void *opaque, uint32_t offset,
+                         uint32_t val64, int size_log2)
 {
 }
 
-static uint64_t port80_read(void *opaque, uint64_t offset, int size_log2)
+static uint32_t port80_read(void *opaque, uint32_t offset, int size_log2)
 {
     return 0xff;
+}
+
+static void port92_write(void *opaque, uint32_t offset,
+                         uint32_t val, int size_log2)
+{
+}
+
+static uint32_t port92_read(void *opaque, uint32_t offset, int size_log2)
+{
+    int a20 = 1; /* A20=0 is not supported */
+    return a20 << 1;
+}
+
+#define VMPORT_MAGIC   0x564D5868
+#define REG_EAX 0
+#define REG_EBX 1
+#define REG_ECX 2
+#define REG_EDX 3
+#define REG_ESI 4
+#define REG_EDI 5
+
+static uint32_t vmport_read(void *opaque, uint32_t addr, int size_log2)
+{
+    PCMachine *s = opaque;
+    uint32_t regs[6];
+
+#ifdef USE_KVM
+    if (s->kvm_enabled) {
+        struct kvm_regs r;
+
+        ioctl(s->vcpu_fd, KVM_GET_REGS, &r);
+        regs[REG_EAX] = r.rax;
+        regs[REG_EBX] = r.rbx;
+        regs[REG_ECX] = r.rcx;
+        regs[REG_EDX] = r.rdx;
+        regs[REG_ESI] = r.rsi;
+        regs[REG_EDI] = r.rdi;
+
+        if (regs[REG_EAX] == VMPORT_MAGIC) {
+            
+            vmmouse_handler(s->vm_mouse, regs);
+            
+            /* Note: in 64 bits the high parts are reset to zero
+               in all cases. */
+            r.rax = regs[REG_EAX];
+            r.rbx = regs[REG_EBX];
+            r.rcx = regs[REG_ECX];
+            r.rdx = regs[REG_EDX];
+            r.rsi = regs[REG_ESI];
+            r.rdi = regs[REG_EDI];
+            ioctl(s->vcpu_fd, KVM_SET_REGS, &r);
+        }
+    } else
+#endif
+    {
+        regs[REG_EAX] = x86_cpu_get_reg(s->cpu_state, 0);
+        regs[REG_EBX] = x86_cpu_get_reg(s->cpu_state, 3);
+        regs[REG_ECX] = x86_cpu_get_reg(s->cpu_state, 1);
+        regs[REG_EDX] = x86_cpu_get_reg(s->cpu_state, 2);
+        regs[REG_ESI] = x86_cpu_get_reg(s->cpu_state, 6);
+        regs[REG_EDI] = x86_cpu_get_reg(s->cpu_state, 7);
+
+        if (regs[REG_EAX] == VMPORT_MAGIC) {
+            vmmouse_handler(s->vm_mouse, regs);
+
+            x86_cpu_set_reg(s->cpu_state, 0, regs[REG_EAX]);
+            x86_cpu_set_reg(s->cpu_state, 3, regs[REG_EBX]);
+            x86_cpu_set_reg(s->cpu_state, 1, regs[REG_ECX]);
+            x86_cpu_set_reg(s->cpu_state, 2, regs[REG_EDX]);
+            x86_cpu_set_reg(s->cpu_state, 6, regs[REG_ESI]);
+            x86_cpu_set_reg(s->cpu_state, 7, regs[REG_EDI]);
+        }
+    }
+    return regs[REG_EAX];
+}
+
+static void vmport_write(void *opaque, uint32_t addr, uint32_t val,
+                         int size_log2)
+{
 }
 
 static void pic_set_irq_cb(void *opaque, int level)
@@ -1141,29 +1409,12 @@ static void pic_set_irq_cb(void *opaque, int level)
     x86_cpu_set_irq(s->cpu_state, level);
 }
 
-static void pc_set_irq_cb(void *opaque, int irq_num, int level)
-{
-    PCMachine *s = opaque;
-#ifdef USE_KVM
-    if (s->kvm_enabled) {
-	struct kvm_irq_level irq_level;
-        irq_level.irq = irq_num;
-        irq_level.level = level;
-        if (ioctl(s->vm_fd, KVM_IRQ_LINE, &irq_level) < 0) {
-            perror("KVM_IRQ_LINE");
-            exit(1);
-        }
-    } else
-#endif
-    {
-        pic2_set_irq(s->pic_state, irq_num, level);
-    }
-}
-
 static void serial_write_cb(void *opaque, const uint8_t *buf, int buf_len)
 {
     PCMachine *s = opaque;
-    s->common.console->write_data(s->common.console->opaque, buf, buf_len);
+    if (s->common.console) {
+        s->common.console->write_data(s->common.console->opaque, buf, buf_len);
+    }
 }
 
 static int get_hard_intno_cb(void *opaque)
@@ -1181,31 +1432,73 @@ static int64_t pit_get_ticks_cb(void *opaque)
         ((uint64_t)ts.tv_nsec * PIT_FREQ / 1000000000);
 }
 
-#define VIRTIO_START_ADDR 0xf0000000
-#define VIRTIO_START_IRQ  8
+#define FRAMEBUFFER_BASE_ADDR 0xf0400000
 
-static uint8_t *virtio_get_ram_ptr(void *opaque, virtio_phys_addr_t paddr)
+static uint8_t *get_ram_ptr(PCMachine *s, uint64_t paddr)
+{
+    PhysMemoryRange *pr;
+    pr = get_phys_mem_range(s->mem_map, paddr);
+    if (!pr || !pr->is_ram)
+        return NULL;
+    return pr->phys_mem + (uintptr_t)(paddr - pr->addr);
+}
+
+#ifdef DUMP_IOPORT
+static BOOL dump_port(int port)
+{
+    return !((port >= 0x1f0 && port <= 0x1f7) ||
+             (port >= 0x20 && port <= 0x21) ||
+             (port >= 0xa0 && port <= 0xa1));
+}
+#endif
+
+static void st_port(void *opaque, uint32_t port, uint32_t val, int size_log2)
 {
     PCMachine *s = opaque;
-    if (paddr >= s->ram_size)
-        return 0;
-    return s->phys_mem + paddr;
+    PhysMemoryRange *pr;
+#ifdef DUMP_IOPORT
+    if (dump_port(port))
+        printf("write port=0x%x val=0x%x s=%d\n", port, val, 1 << size_log2);
+#endif
+    pr = get_phys_mem_range(s->port_map, port);
+    if (!pr) {
+        return;
+    }
+    port -= pr->addr;
+    if ((pr->devio_flags >> size_log2) & 1) {
+        pr->write_func(pr->opaque, port, (uint32_t)val, size_log2);
+    } else if (size_log2 == 1 && (pr->devio_flags & DEVIO_SIZE8)) {
+        pr->write_func(pr->opaque, port, val & 0xff, 0);
+        pr->write_func(pr->opaque, port + 1, (val >> 8) & 0xff, 0);
+    }
 }
 
-static uint64_t virtio_read(void *opaque, uint64_t offset,
-                            int size_log2)
+static uint32_t ld_port(void *opaque, uint32_t port1, int size_log2)
 {
-    VIRTIODevice *s = opaque;
-    //    printf("read offset=0x%x\n", (int)offset);
-    return virtio_mmio_read(s, offset, size_log2);
-}
- 
-static void virtio_write(void *opaque, uint64_t offset, uint64_t val,
-                         int size_log2)
-{
-    VIRTIODevice *s = opaque;
-    //    printf("write offset=0x%x\n", (int)offset);
-    virtio_mmio_write(s, offset, val, size_log2);
+    PCMachine *s = opaque;
+    PhysMemoryRange *pr;
+    uint32_t val, port;
+    
+    port = port1;
+    pr = get_phys_mem_range(s->port_map, port);
+    if (!pr) {
+        val = -1;
+    } else {
+        port -= pr->addr;
+        if ((pr->devio_flags >> size_log2) & 1) {
+            val = pr->read_func(pr->opaque, port, size_log2);
+        } else if (size_log2 == 1 && (pr->devio_flags & DEVIO_SIZE8)) {
+            val = pr->read_func(pr->opaque, port, 0) & 0xff;
+            val |= (pr->read_func(pr->opaque, port + 1, 0) & 0xff) << 8;
+        } else {
+            val = -1;
+        }
+    }
+#ifdef DUMP_IOPORT
+    if (dump_port(port1))
+        printf("read port=0x%x val=0x%x s=%d\n", port1, val, 1 << size_log2);
+#endif
+    return val;
 }
 
 void virt_machine_set_defaults(VirtMachineParams *p)
@@ -1220,12 +1513,157 @@ static void sigalrm_handler(int sig)
 {
 }
 
+#define CPUID_APIC (1 << 9)
+#define CPUID_ACPI (1 << 22)
+
+static void kvm_set_cpuid(PCMachine *s)
+{
+    struct kvm_cpuid2 *kvm_cpuid;
+    int n_ent_max, i;
+    struct kvm_cpuid_entry2 *ent;
+    
+    n_ent_max = 128;
+    kvm_cpuid = mallocz(sizeof(struct kvm_cpuid2) + n_ent_max * sizeof(kvm_cpuid->entries[0]));
+    
+    kvm_cpuid->nent = n_ent_max;
+    if (ioctl(s->kvm_fd, KVM_GET_SUPPORTED_CPUID, kvm_cpuid) < 0) {
+        perror("KVM_GET_SUPPORTED_CPUID");
+        exit(1);
+    }
+
+    for(i = 0; i < kvm_cpuid->nent; i++) {
+        ent = &kvm_cpuid->entries[i];
+        /* remove the APIC & ACPI to be in sync with the emulator */
+        if (ent->function == 1 || ent->function == 0x80000001) {
+            ent->edx &= ~(CPUID_APIC | CPUID_ACPI);
+        }
+    }
+    
+    if (ioctl(s->vcpu_fd, KVM_SET_CPUID2, kvm_cpuid) < 0) {
+        perror("KVM_SET_CPUID2");
+        exit(1);
+    }
+    free(kvm_cpuid);
+}
+
+/* XXX: should check overlapping mappings */
+static void kvm_map_ram(PhysMemoryMap *mem_map, PhysMemoryRange *pr)
+{
+    PCMachine *s = mem_map->opaque;
+    struct kvm_userspace_memory_region region;
+    int flags;
+
+    region.slot = pr - mem_map->phys_mem_range;
+    flags = 0;
+    if (pr->devram_flags & DEVRAM_FLAG_ROM)
+        flags |= KVM_MEM_READONLY;
+    if (pr->devram_flags & DEVRAM_FLAG_DIRTY_BITS)
+        flags |= KVM_MEM_LOG_DIRTY_PAGES;
+    region.flags = flags;
+    region.guest_phys_addr = pr->addr;
+    region.memory_size = pr->size;
+#if 0
+    printf("map slot %d: %08lx %08lx\n",
+           region.slot, pr->addr, pr->size);
+#endif
+    region.userspace_addr = (uintptr_t)pr->phys_mem;
+    if (ioctl(s->vm_fd, KVM_SET_USER_MEMORY_REGION, &region) < 0) {
+        perror("KVM_SET_USER_MEMORY_REGION");
+        exit(1);
+    }
+}
+
+/* XXX: just for one region */
+static PhysMemoryRange *kvm_register_ram(PhysMemoryMap *mem_map, uint64_t addr,
+                                         uint64_t size, int devram_flags)
+{
+    PhysMemoryRange *pr;
+    uint8_t *phys_mem;
+    
+    pr = register_ram_entry(mem_map, addr, size, devram_flags);
+
+    phys_mem = mmap(NULL, size, PROT_READ | PROT_WRITE,
+                    MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    if (!phys_mem)
+        return NULL;
+    pr->phys_mem = phys_mem;
+    if (devram_flags & DEVRAM_FLAG_DIRTY_BITS) {
+        int n_pages = size >> 12;
+        pr->dirty_bits_size = ((n_pages + 63) / 64) * 8;
+        pr->dirty_bits = mallocz(pr->dirty_bits_size);
+    }
+
+    if (pr->size != 0) {
+        kvm_map_ram(mem_map, pr);
+    }
+    return pr;
+}
+
+static void kvm_set_ram_addr(PhysMemoryMap *mem_map,
+                             PhysMemoryRange *pr, uint64_t addr, BOOL enabled)
+{
+    if (enabled) {
+        if (pr->size == 0 || addr != pr->addr) {
+            /* move or create the region */
+            pr->size = pr->org_size;
+            pr->addr = addr;
+            kvm_map_ram(mem_map, pr);
+        }
+    } else {
+        if (pr->size != 0) {
+            pr->addr = 0;
+            pr->size = 0;
+            /* map a zero size region to disable */
+            kvm_map_ram(mem_map, pr);
+        }
+    }
+}
+
+static const uint32_t *kvm_get_dirty_bits(PhysMemoryMap *mem_map,
+                                          PhysMemoryRange *pr)
+{
+    PCMachine *s = mem_map->opaque;
+    struct kvm_dirty_log dlog;
+    
+    if (pr->size == 0) {
+        /* not mapped: we assume no modification was made */
+        memset(pr->dirty_bits, 0, pr->dirty_bits_size);
+    } else {
+        dlog.slot = pr - mem_map->phys_mem_range;
+        dlog.dirty_bitmap = pr->dirty_bits;
+        if (ioctl(s->vm_fd, KVM_GET_DIRTY_LOG, &dlog) < 0) {
+            perror("KVM_GET_DIRTY_LOG");
+            exit(1);
+        }
+    }
+    return pr->dirty_bits;
+}
+
+static void kvm_free_ram(PhysMemoryMap *mem_map, PhysMemoryRange *pr)
+{
+    /* XXX: do it */
+    munmap(pr->phys_mem, pr->org_size);
+    free(pr->dirty_bits);
+}
+
+static void kvm_pic_set_irq(void *opaque, int irq_num, int level)
+{
+    PCMachine *s = opaque;
+    struct kvm_irq_level irq_level;
+    irq_level.irq = irq_num;
+    irq_level.level = level;
+    if (ioctl(s->vm_fd, KVM_IRQ_LINE, &irq_level) < 0) {
+        perror("KVM_IRQ_LINE");
+        exit(1);
+    }
+}
+
 static void kvm_init(PCMachine *s)
 {
-    int ret;
-    struct kvm_userspace_memory_region region;
+    int ret, i;
     struct sigaction act;
     struct kvm_pit_config pit_config;
+    uint64_t base_addr;
     
     s->kvm_enabled = FALSE;
     s->kvm_fd = open("/dev/kvm", O_RDWR);
@@ -1250,15 +1688,15 @@ static void kvm_init(PCMachine *s)
         exit(1);
     }
 
-    if (ioctl(s->vm_fd, KVM_SET_TSS_ADDR, 0xfffbd000) < 0) {
-        perror("KVM_SET_TSS_ADDR");
+    /* just before the BIOS */
+    base_addr = 0xfffbc000;
+    if (ioctl(s->vm_fd, KVM_SET_IDENTITY_MAP_ADDR, &base_addr) < 0) {
+        perror("KVM_SET_IDENTITY_MAP_ADDR");
         exit(1);
     }
     
-    memset(&pit_config, 0, sizeof(pit_config));
-    pit_config.flags = 0;
-    if (ioctl(s->vm_fd, KVM_CREATE_PIT2, &pit_config)) {
-        perror("KVM_CREATE_PIT2");
+    if (ioctl(s->vm_fd, KVM_SET_TSS_ADDR, (long)(base_addr + 0x1000)) < 0) {
+        perror("KVM_SET_TSS_ADDR");
         exit(1);
     }
     
@@ -1267,29 +1705,21 @@ static void kvm_init(PCMachine *s)
         exit(1);
     }
 
-    s->phys_mem = mmap(NULL, s->phys_mem_size, PROT_READ | PROT_WRITE,
-                       MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    if (!s->phys_mem) {
-        fprintf(stderr, "Could not allocate VM memory\n");
+    memset(&pit_config, 0, sizeof(pit_config));
+    pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
+    if (ioctl(s->vm_fd, KVM_CREATE_PIT2, &pit_config)) {
+        perror("KVM_CREATE_PIT2");
         exit(1);
     }
-
-    region.slot = 0;
-    region.flags = 0;
-    region.guest_phys_addr = 0;
-    region.memory_size = s->phys_mem_size;
-    region.userspace_addr = (uintptr_t)s->phys_mem;
-    if (ioctl(s->vm_fd, KVM_SET_USER_MEMORY_REGION, &region) < 0) {
-        perror("KVM_SET_USER_MEMORY_REGION");
-        exit(1);
-    }
-
+    
     s->vcpu_fd = ioctl(s->vm_fd, KVM_CREATE_VCPU, 0);
     if (s->vcpu_fd < 0) {
         perror("KVM_CREATE_VCPU");
         exit(1);
     }
 
+    kvm_set_cpuid(s);
+    
     /* map the kvm_run structure */
     s->kvm_run_size = ioctl(s->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, NULL);
     if (s->kvm_run_size < 0) {
@@ -1304,49 +1734,22 @@ static void kvm_init(PCMachine *s)
         exit(1);
     }
 
+    for(i = 0; i < 16; i++) {
+        irq_init(&s->pic_irq[i], kvm_pic_set_irq, s, i);
+    }
+
     act.sa_handler = sigalrm_handler;
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     sigaction(SIGALRM, &act, NULL);
 
     s->kvm_enabled = TRUE;
-}
 
-static void st_port(PCMachine *s, int port, int val, int size_log2)
-{
-    PhysMemoryRange *pr;
-    pr = get_phys_mem_range(s->port_map, port);
-    if (!pr)
-        return;
-    port -= pr->addr;
-    if ((pr->devio_flags >> size_log2) & 1) {
-        pr->write_func(pr->opaque, port, (uint32_t)val, size_log2);
-    } else if (size_log2 == 1 && (pr->devio_flags & DEVIO_SIZE8)) {
-        pr->write_func(pr->opaque, port, val & 0xff, 0);
-        pr->write_func(pr->opaque, port + 1, (val >> 8) & 0xff, 0);
-    }
-}
-
-static int ld_port(PCMachine *s, int port, int size_log2)
-{
-    PhysMemoryRange *pr;
-    int val;
-    
-    pr = get_phys_mem_range(s->port_map, port);
-    if (!pr) {
-        val = -1;
-    } else {
-        port -= pr->addr;
-        if ((pr->devio_flags >> size_log2) & 1) {
-            val = pr->read_func(pr->opaque, port, size_log2);
-        } else if (size_log2 == 1 && (pr->devio_flags & DEVIO_SIZE8)) {
-            val = pr->read_func(pr->opaque, port, 0) & 0xff;
-            val |= (pr->read_func(pr->opaque, port + 1, 0) & 0xff) << 8;
-        } else {
-            val = -1;
-        }
-    }
-    return val;
+    s->mem_map->register_ram = kvm_register_ram;
+    s->mem_map->free_ram = kvm_free_ram;
+    s->mem_map->get_dirty_bits = kvm_get_dirty_bits;
+    s->mem_map->set_ram_addr = kvm_set_ram_addr;
+    s->mem_map->opaque = s;
 }
 
 static void kvm_exit_io(PCMachine *s, struct kvm_run *run)
@@ -1419,9 +1822,7 @@ static void kvm_exit_mmio(PCMachine *s, struct kvm_run *run)
             }
             break;
         case 8:
-            if (pr->devio_flags & DEVIO_SIZE64) {
-                pr->write_func(pr->opaque, addr, *(uint64_t *)data, 3);
-            } else if (pr->devio_flags & DEVIO_SIZE32) {
+            if (pr->devio_flags & DEVIO_SIZE32) {
                 pr->write_func(pr->opaque, addr, *(uint32_t *)data, 2);
                 pr->write_func(pr->opaque, addr + 4, *(uint32_t *)(data + 4), 2);
             }
@@ -1450,9 +1851,7 @@ static void kvm_exit_mmio(PCMachine *s, struct kvm_run *run)
             *(uint32_t *)data = pr->read_func(pr->opaque, addr, 2);
             break;
         case 8:
-            if (pr->devio_flags & DEVIO_SIZE64) {
-                *(uint64_t *)data = pr->read_func(pr->opaque, addr, 3);
-            } else if (pr->devio_flags & DEVIO_SIZE32) {
+            if (pr->devio_flags & DEVIO_SIZE32) {
                 *(uint32_t *)data =
                     pr->read_func(pr->opaque, addr, 2);
                 *(uint32_t *)(data + 4) =
@@ -1527,18 +1926,53 @@ static void kvm_exec(PCMachine *s)
 }
 #endif
 
+#if defined(EMSCRIPTEN)
+/* with Javascript clock_gettime() is not enough precise enough to
+   have a reliable TSC counter. XXX: increment the cycles during the
+   power down time */
+static uint64_t cpu_get_tsc(void *opaque)
+{
+    PCMachine *s = opaque;
+    uint64_t c;
+    c = x86_cpu_get_cycles(s->cpu_state);
+    return c;
+}
+#else
+
+#define TSC_FREQ 100000000
+
+static uint64_t cpu_get_tsc(void *opaque)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * TSC_FREQ +
+        (ts.tv_nsec / (1000000000 / TSC_FREQ));
+}
+#endif
+
+static void pc_flush_tlb_write_range(void *opaque, uint8_t *ram_addr,
+                                     size_t ram_size)
+{
+    PCMachine *s = opaque;
+    x86_cpu_flush_tlb_write_range_ram(s->cpu_state, ram_addr, ram_size);
+}
+
 VirtMachine *virt_machine_init(const VirtMachineParams *p)
 {
     PCMachine *s;
-    uint64_t virtio_addr;
-    VIRTIODevice *blk_dev, *net_dev;
-    int irq_num, i;
-    char buf1[128];
+    int i, piix3_devfn;
+    PCIBus *pci_bus;
+    VIRTIOBusDef vbus_s, *vbus = &vbus_s;
     
+    assert(p->ram_size >= (1 << 20));
+
     s = mallocz(sizeof(*s));
     s->ram_size = p->ram_size;
-    s->phys_mem_size = p->ram_size;
     
+    s->port_map = phys_mem_map_init();
+    s->mem_map = phys_mem_map_init();
+
 #ifdef USE_KVM
     if (p->accel_enable) {
         kvm_init(s);
@@ -1549,135 +1983,176 @@ VirtMachine *virt_machine_init(const VirtMachineParams *p)
     if (!s->kvm_enabled)
 #endif
     {
-        s->phys_mem = mallocz(s->phys_mem_size);
-        if (!s->phys_mem) {
-            fprintf(stderr, "Could not allocate VM memory\n");
-            exit(1);
-        }
-    }
-    
-    s->mem_map = phys_mem_map_init();
-    s->port_map = phys_mem_map_init();
-
-#ifdef USE_KVM
-    if (!s->kvm_enabled)
-#endif
-    {
-        s->cpu_state = x86_cpu_init(s->mem_map, s->phys_mem, s->port_map);
+        s->cpu_state = x86_cpu_init(s->mem_map);
+        x86_cpu_set_get_tsc(s->cpu_state, cpu_get_tsc, s);
+        x86_cpu_set_port_io(s->cpu_state, ld_port, st_port, s);
+        
+        /* needed to handle the RAM dirty bits */
+        s->mem_map->opaque = s;
+        s->mem_map->flush_tlb_write_range = pc_flush_tlb_write_range;
     }
 
-    /* set the RAM mapping */
-    cpu_register_ram(s->mem_map, 0, p->ram_size, 0);
+    /* set the RAM mapping and leave the VGA addresses empty */
+    cpu_register_ram(s->mem_map, 0xc0000, p->ram_size - 0xc0000, 0);
+    cpu_register_ram(s->mem_map, 0, 0xa0000, 0);
     
     /* devices */
     cpu_register_device(s->port_map, 0x80, 2, s, port80_read, port80_write, 
                         DEVIO_SIZE8);
+    cpu_register_device(s->port_map, 0x92, 2, s, port92_read, port92_write, 
+                        DEVIO_SIZE8);
     
+    /* setup the bios */
+    if (p->files[VM_FILE_BIOS].len > 0) {
+        int bios_size, bios_size1;
+        uint8_t *bios_buf, *ptr;
+        uint32_t bios_addr;
+        
+        bios_size = p->files[VM_FILE_BIOS].len;
+        bios_buf = p->files[VM_FILE_BIOS].buf;
+        assert((bios_size % 65536) == 0 && bios_size != 0);
+        bios_addr = -bios_size;
+        /* at the top of the 4GB memory */
+        cpu_register_ram(s->mem_map, bios_addr, bios_size, DEVRAM_FLAG_ROM);
+        ptr = get_ram_ptr(s, bios_addr);
+        memcpy(ptr, bios_buf, bios_size);
+        /* in the lower 1MB memory (currently set as RAM) */
+        bios_size1 = min_int(bios_size, 128 * 1024);
+        ptr = get_ram_ptr(s, 0x100000 - bios_size1);
+        memcpy(ptr, bios_buf + bios_size - bios_size1, bios_size1);
+#ifdef DEBUG_BIOS
+        cpu_register_device(s->port_map, 0x402, 2, s,
+                            bios_debug_read, bios_debug_write, 
+                            DEVIO_SIZE8);
+#endif
+    }
+
 #ifdef USE_KVM
     if (!s->kvm_enabled)
 #endif
     {
-        s->pic_state = pic2_init(s->port_map, 0x20, 0xa0, pic_set_irq_cb, s);
+        s->pic_state = pic2_init(s->port_map, 0x20, 0xa0,
+                                 0x4d0, 0x4d1,
+                                 pic_set_irq_cb, s,
+                                 s->pic_irq);
         x86_cpu_set_get_hard_intno(s->cpu_state, get_hard_intno_cb, s);
-        s->pit_state = pit_init(s->port_map, 0x40, 0x61, pc_set_irq_cb, 0,
+        s->pit_state = pit_init(s->port_map, 0x40, 0x61, &s->pic_irq[0],
                                 pit_get_ticks_cb, s);
     }
 
-    s->cmos_state = cmos_init(s->port_map, 0x70);
+    s->cmos_state = cmos_init(s->port_map, 0x70, &s->pic_irq[8],
+                              p->rtc_local_time);
 
+    /* various cmos data */
+    {
+        int size;
+        /* memory size */
+        size = min_int((s->ram_size - (1 << 20)) >> 10, 65535);
+        put_le16(s->cmos_state->cmos_data + 0x30, size);
+        if (s->ram_size >= (16 << 20)) {
+            size = min_int((s->ram_size - (16 << 20)) >> 16, 65535);
+            put_le16(s->cmos_state->cmos_data + 0x34, size);
+        }
+        s->cmos_state->cmos_data[0x14] = 0x06; /* mouse + FPU present */
+    }
+    
+    s->i440fx_state = i440fx_init(&pci_bus, &piix3_devfn, s->mem_map,
+                                  s->port_map, s->pic_irq);
+    
     s->common.console = p->console;
-    s->serial_state = serial_init(s->port_map, 0x3f8, pc_set_irq_cb, 4,
+    /* serial console */
+    if (0) {
+    s->serial_state = serial_init(s->port_map, 0x3f8, &s->pic_irq[4],
                                   serial_write_cb, s);
-    
-    virtio_addr = VIRTIO_START_ADDR;
-    irq_num = VIRTIO_START_IRQ;
-    
-    pstrcpy(s->cmd_line, sizeof(s->cmd_line), "notsc=1 console=hvc0 loglevel=3");
-
-    /* virtio console */
-    s->common.console_dev = virtio_console_init(pc_set_irq_cb, irq_num, 
-                                         virtio_get_ram_ptr, s,
-                                         p->console);
-    cpu_register_device(s->mem_map, virtio_addr, 0x1000,
-                        s->common.console_dev, virtio_read, virtio_write,
-                        DEVIO_SIZE8 | DEVIO_SIZE16 | DEVIO_SIZE32);
-
-    snprintf(buf1, sizeof(buf1), " virtio_mmio.device=4K@0x%" PRIx64 ":%d",
-             virtio_addr, irq_num);
-    pstrcat(s->cmd_line, sizeof(s->cmd_line), buf1);
-
-    virtio_addr += 0x1000;
-    irq_num++;
-
-    /* virtio net device */
-    if (p->net) {
-        net_dev = virtio_net_init(pc_set_irq_cb, irq_num,
-                                  virtio_get_ram_ptr, s, p->net);
-        cpu_register_device(s->mem_map, virtio_addr, 0x1000,
-                            net_dev, virtio_read, virtio_write,
-                            DEVIO_SIZE8 | DEVIO_SIZE16 | DEVIO_SIZE32);
-        s->common.net_dev = net_dev;
-        s->common.net = p->net;
-
-        snprintf(buf1, sizeof(buf1), " virtio_mmio.device=4K@0x%" PRIx64 ":%d",
-                 virtio_addr, irq_num);
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), buf1);
-
-        virtio_addr += 0x1000;
-        irq_num++;
     }
+    
+    memset(vbus, 0, sizeof(*vbus));
+    vbus->pci_bus = pci_bus;
 
-    /* virtio block device */
-    for(i = 0; i < p->drive_count; i++) {
-        blk_dev = virtio_block_init(pc_set_irq_cb, irq_num,
-                                    virtio_get_ram_ptr, s, p->tab_drive[i]);
-        cpu_register_device(s->mem_map, virtio_addr, 0x1000,
-                            blk_dev, virtio_read, virtio_write,
-                            DEVIO_SIZE8 | DEVIO_SIZE16 | DEVIO_SIZE32);
-
-        snprintf(buf1, sizeof(buf1), " virtio_mmio.device=4K@0x%" PRIx64 ":%d",
-                 virtio_addr, irq_num);
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), buf1);
-
-        virtio_addr += 0x1000;
-        irq_num++;
+    if (p->console) {
+        /* virtio console */
+        s->common.console_dev = virtio_console_init(vbus, p->console);
     }
+    
+    /* block devices */
+    for(i = 0; i < p->drive_count;) {
+        const VMDriveEntry *de = &p->tab_drive[i];
 
+        if (!de->device || !strcmp(de->device, "virtio")) {
+            virtio_block_init(vbus, p->tab_drive[i].block_dev);
+            i++;
+        } else if (!strcmp(de->device, "ide")) {
+            BlockDevice *tab_bs[2];
+            
+            tab_bs[0] = p->tab_drive[i++].block_dev;
+            tab_bs[1] = NULL;
+            if (i < p->drive_count)
+                tab_bs[1] = p->tab_drive[i++].block_dev;
+            ide_init(s->port_map, 0x1f0, 0x3f6, &s->pic_irq[14], tab_bs);
+            piix3_ide_init(pci_bus, piix3_devfn + 1);
+        }
+    }
+    
     /* virtio filesystem */
     for(i = 0; i < p->fs_count; i++) {
-        VIRTIODevice *fs_dev;
-        char buf[64];
-
-        if (i == 0)
-            strcpy(buf, "/dev/root");
-        else
-            snprintf(buf, sizeof(buf), "/dev/root%d", i);
-        fs_dev = virtio_9p_init(pc_set_irq_cb, irq_num, virtio_get_ram_ptr, s,
-                                p->tab_fs[i], buf);
-        cpu_register_device(s->mem_map, virtio_addr, 0x1000,
-                            fs_dev, virtio_read, virtio_write,
-                            DEVIO_SIZE8 | DEVIO_SIZE16 | DEVIO_SIZE32);
-        //        virtio_set_debug(fs_dev, VIRTIO_DEBUG_9P);
-
-        snprintf(buf1, sizeof(buf1), " virtio_mmio.device=4K@0x%" PRIx64 ":%d",
-                 virtio_addr, irq_num);
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), buf1);
-
-        virtio_addr += 0x1000;
-        irq_num++;
+        virtio_9p_init(vbus, p->tab_fs[i].fs_dev,
+                       p->tab_fs[i].tag);
     }
 
-    if (p->drive_count == 0) {
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), " root=root rootfstype=9p rootflags=trans=virtio ro");
-    } else {
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), " root=/dev/vda ro");
+    if (p->display_device) {
+        FBDevice *fb_dev;
+
+        fb_dev = mallocz(sizeof(*fb_dev));
+        s->common.fb_dev = fb_dev;
+        if (!strcmp(p->display_device, "vga")) {
+            int bios_size;
+            uint8_t *bios_buf;
+            bios_size = p->files[VM_FILE_VGA_BIOS].len;
+            bios_buf = p->files[VM_FILE_VGA_BIOS].buf;
+            pci_vga_init(pci_bus, fb_dev, p->width, p->height,
+                         bios_buf, bios_size);
+        } else if (!strcmp(p->display_device, "simplefb")) {
+            simplefb_init(s->mem_map,
+                          FRAMEBUFFER_BASE_ADDR,
+                          fb_dev, p->width, p->height);
+        } else {
+            vm_error("unsupported display device: %s\n", p->display_device);
+            exit(1);
+        }
     }
 
-    if (p->cmdline) {
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), " ");
-        pstrcat(s->cmd_line, sizeof(s->cmd_line), p->cmdline);
+    if (p->input_device) {
+        if (!strcmp(p->input_device, "virtio")) {
+            s->keyboard_dev = virtio_input_init(vbus, VIRTIO_INPUT_TYPE_KEYBOARD);
+            
+            s->mouse_dev = virtio_input_init(vbus, VIRTIO_INPUT_TYPE_TABLET);
+        } else if (!strcmp(p->input_device, "ps2")) {
+            s->kbd_state = i8042_init(&s->ps2_kbd, &s->ps2_mouse,
+                                      s->port_map,
+                                      &s->pic_irq[1], &s->pic_irq[12], 0x60);
+            /* vmmouse */
+            cpu_register_device(s->port_map, 0x5658, 1, s,
+                                vmport_read, vmport_write, 
+                    DEVIO_SIZE32);
+            s->vm_mouse = vmmouse_init(s->ps2_mouse);
+        } else {
+            vm_error("unsupported input device: %s\n", p->input_device);
+            exit(1);
+        }
     }
     
+    /* virtio net device */
+    for(i = 0; i < p->eth_count; i++) {
+        virtio_net_init(vbus, p->tab_eth[i].net);
+        s->common.net = p->tab_eth[i].net;
+    }
+
+    if (p->files[VM_FILE_KERNEL].buf) {
+        copy_kernel(s, p->files[VM_FILE_KERNEL].buf,
+                    p->files[VM_FILE_KERNEL].len,
+                    p->cmdline ? p->cmdline : "");
+    }
+
     return (VirtMachine *)s;
 }
 
@@ -1687,49 +2162,89 @@ void virt_machine_end(VirtMachine *s1)
     /* XXX: free all */
     if (s->cpu_state) {
         x86_cpu_end(s->cpu_state);
-        free(s->phys_mem);
     }
     phys_mem_map_end(s->mem_map);
     phys_mem_map_end(s->port_map);
     free(s);
 }
 
-#define KERNEL_LOAD_ADDR 0x00200000
-#define KERNEL_PARAMS_ADDR 0x00090000
-
-void copy_kernel(VirtMachine *s1, const uint8_t *buf, int buf_len)
+void vm_send_key_event(VirtMachine *s1, BOOL is_down, uint16_t key_code)
 {
     PCMachine *s = (PCMachine *)s1;
-    uint8_t *ram_ptr;
-    assert(buf_len < (s->ram_size - KERNEL_LOAD_ADDR));
-    ram_ptr = s->phys_mem + KERNEL_LOAD_ADDR;
-    memcpy(ram_ptr, buf, buf_len);
+    if (s->keyboard_dev) {
+        virtio_input_send_key_event(s->keyboard_dev, is_down, key_code);
+    } else if (s->ps2_kbd) {
+        ps2_put_keycode(s->ps2_kbd, is_down, key_code);
+    }
 }
+
+BOOL vm_mouse_is_absolute(VirtMachine *s1)
+{
+    PCMachine *s = (PCMachine *)s1;
+    if (s->mouse_dev) {
+        return TRUE;
+    } else if (s->vm_mouse) {
+        return vmmouse_is_absolute(s->vm_mouse);
+    } else {
+        return FALSE;
+    }
+}
+
+void vm_send_mouse_event(VirtMachine *s1, int dx, int dy, int dz,
+                        unsigned int buttons)
+{
+    PCMachine *s = (PCMachine *)s1;
+    if (s->mouse_dev) {
+        virtio_input_send_mouse_event(s->mouse_dev, dx, dy, dz, buttons);
+    } else if (s->vm_mouse) {
+        vmmouse_send_mouse_event(s->vm_mouse, dx, dy, dz, buttons);
+    }
+}
+
+struct screen_info {
+} __attribute__((packed));
 
 /* from plex86 (BSD license) */
 struct  __attribute__ ((packed)) linux_params {
-  // For 0x00..0x3f, see 'struct screen_info' in linux/include/linux/tty.h.
-  // I just padded out the VESA parts, rather than define them.
-
-  /* 0x000 */ uint8_t   orig_x;
-  /* 0x001 */ uint8_t   orig_y;
-  /* 0x002 */ uint16_t  ext_mem_k;
-  /* 0x004 */ uint16_t  orig_video_page;
-  /* 0x006 */ uint8_t   orig_video_mode;
-  /* 0x007 */ uint8_t   orig_video_cols;
-  /* 0x008 */ uint16_t  unused1;
-  /* 0x00a */ uint16_t  orig_video_ega_bx;
-  /* 0x00c */ uint16_t  unused2;
-  /* 0x00e */ uint8_t   orig_video_lines;
-  /* 0x00f */ uint8_t   orig_video_isVGA;
-  /* 0x010 */ uint16_t  orig_video_points;
-  /* 0x012 */ uint8_t   pad0[0x20 - 0x12]; // VESA info.
-  /* 0x020 */ uint16_t  cl_magic;  // Commandline magic number (0xA33F)
-  /* 0x022 */ uint16_t  cl_offset; // Commandline offset.  Address of commandline
-                                 // is calculated as 0x90000 + cl_offset, bu
-                                 // only if cl_magic == 0xA33F.
-  /* 0x024 */ uint8_t   pad1[0x40 - 0x24]; // VESA info.
-
+    /* screen_info structure */
+    uint8_t  orig_x;		/* 0x00 */
+    uint8_t  orig_y;		/* 0x01 */
+    uint16_t ext_mem_k;	/* 0x02 */
+    uint16_t orig_video_page;	/* 0x04 */
+    uint8_t  orig_video_mode;	/* 0x06 */
+    uint8_t  orig_video_cols;	/* 0x07 */
+    uint8_t  flags;		/* 0x08 */
+    uint8_t  unused2;		/* 0x09 */
+    uint16_t orig_video_ega_bx;/* 0x0a */
+    uint16_t unused3;		/* 0x0c */
+    uint8_t  orig_video_lines;	/* 0x0e */
+    uint8_t  orig_video_isVGA;	/* 0x0f */
+    uint16_t orig_video_points;/* 0x10 */
+    
+    /* VESA graphic mode -- linear frame buffer */
+    uint16_t lfb_width;	/* 0x12 */
+    uint16_t lfb_height;	/* 0x14 */
+    uint16_t lfb_depth;	/* 0x16 */
+    uint32_t lfb_base;		/* 0x18 */
+    uint32_t lfb_size;		/* 0x1c */
+    uint16_t cl_magic, cl_offset; /* 0x20 */
+    uint16_t lfb_linelength;	/* 0x24 */
+    uint8_t  red_size;		/* 0x26 */
+    uint8_t  red_pos;		/* 0x27 */
+    uint8_t  green_size;	/* 0x28 */
+    uint8_t  green_pos;	/* 0x29 */
+    uint8_t  blue_size;	/* 0x2a */
+    uint8_t  blue_pos;		/* 0x2b */
+    uint8_t  rsvd_size;	/* 0x2c */
+    uint8_t  rsvd_pos;		/* 0x2d */
+    uint16_t vesapm_seg;	/* 0x2e */
+    uint16_t vesapm_off;	/* 0x30 */
+    uint16_t pages;		/* 0x32 */
+    uint16_t vesa_attributes;	/* 0x34 */
+    uint32_t capabilities;     /* 0x36 */
+    uint32_t ext_lfb_base;	/* 0x3a */
+    uint8_t  _reserved[2];	/* 0x3e */
+    
   /* 0x040 */ uint8_t   apm_bios_info[20]; // struct apm_bios_info
   /* 0x054 */ uint8_t   pad2[0x80 - 0x54];
 
@@ -1815,19 +2330,60 @@ struct  __attribute__ ((packed)) linux_params {
   /* 0x7d4 */ uint8_t   pad9[0x800 - 0x7d4];
   /* 0x800 */ uint8_t   commandline[0x800];
 
-  uint64_t gdt_table[3];
+  uint64_t gdt_table[4];
 };
 
-void setup_linux_config(VirtMachine *s1)
+#define KERNEL_PARAMS_ADDR 0x00090000
+
+static void copy_kernel(PCMachine *s, const uint8_t *buf, int buf_len,
+                        const char *cmd_line)
 {
-    PCMachine *s = (PCMachine *)s1;
+    uint8_t *ram_ptr;
+    int setup_sects, header_len, copy_len, setup_hdr_start, setup_hdr_end;
+    uint32_t load_address;
     struct linux_params *params;
+    FBDevice *fb_dev;
     
-    params = (void *)(s->phys_mem + KERNEL_PARAMS_ADDR);
+    if (buf_len < 1024) {
+    too_small:
+        fprintf(stderr, "Kernel too small\n");
+        exit(1);
+    }
+    if (buf[0x1fe] != 0x55 || buf[0x1ff] != 0xaa) {
+        fprintf(stderr, "Invalid kernel magic\n");
+        exit(1);
+    }
+    setup_sects = buf[0x1f1];
+    if (setup_sects == 0)
+        setup_sects = 4;
+    header_len = (setup_sects + 1) * 512;
+    if (buf_len < header_len)
+        goto too_small;
+    if (memcmp(buf + 0x202, "HdrS", 4) != 0) {
+        fprintf(stderr, "Kernel too old\n");
+        exit(1);
+    }
+    load_address = 0x100000; /* we don't support older protocols */
+
+    ram_ptr = get_ram_ptr(s, load_address);
+    copy_len = buf_len - header_len;
+    if (copy_len > (s->ram_size - load_address)) {
+        fprintf(stderr, "Not enough RAM\n");
+        exit(1);
+    }
+    memcpy(ram_ptr, buf + header_len, copy_len);
+
+    params = (void *)get_ram_ptr(s, KERNEL_PARAMS_ADDR);
     
     memset(params, 0, sizeof(struct linux_params));
 
-    strcpy((char *)params->commandline, s->cmd_line);
+    /* copy the setup header */
+    setup_hdr_start = 0x1f1;
+    setup_hdr_end = 0x202 + buf[0x201];
+    memcpy((uint8_t *)params + setup_hdr_start, buf + setup_hdr_start,
+           setup_hdr_end - setup_hdr_start);
+
+    strcpy((char *)params->commandline, cmd_line);
 
     params->mount_root_rdonly = 0;
     params->cmd_line_ptr = KERNEL_PARAMS_ADDR +
@@ -1840,8 +2396,34 @@ void setup_linux_config(VirtMachine *s1)
         params->initrd_size = initrd_size;
     }
 #endif
-    params->orig_video_lines = 25;
-    params->orig_video_cols = 80;
+    params->orig_video_lines = 0;
+    params->orig_video_cols = 0;
+
+    fb_dev = s->common.fb_dev;
+    if (fb_dev) {
+        
+        params->orig_video_isVGA = 0x23; /* VIDEO_TYPE_VLFB */
+
+        params->lfb_depth = 32;
+        params->red_size = 8;
+        params->red_pos = 16;
+        params->green_size = 8;
+        params->green_pos = 8;
+        params->blue_size = 8;
+        params->blue_pos = 0;
+        params->rsvd_size = 8;
+        params->rsvd_pos = 24;
+
+        params->lfb_width = fb_dev->width;
+        params->lfb_height = fb_dev->height;
+        params->lfb_linelength = fb_dev->stride;
+        params->lfb_size = fb_dev->fb_size;
+        params->lfb_base = FRAMEBUFFER_BASE_ADDR;
+    }
+    
+    params->gdt_table[2] = 0x00cf9b000000ffffLL; /* CS */
+    params->gdt_table[3] = 0x00cf93000000ffffLL; /* DS */
+        
 #ifdef USE_KVM
     if (s->kvm_enabled) {
         struct kvm_sregs sregs;
@@ -1860,9 +2442,6 @@ void setup_linux_config(VirtMachine *s1)
             offsetof(struct linux_params, gdt_table);
         sregs.gdt.limit = sizeof(params->gdt_table) - 1;
         
-        params->gdt_table[1] = 0x00cf9b000000ffffLL; /* CS */
-        params->gdt_table[2] = 0x00cf93000000ffffLL; /* DS */
-        
         memset(&seg, 0, sizeof(seg));
         seg.limit = 0xffffffff;
         seg.present = 1;
@@ -1871,13 +2450,14 @@ void setup_linux_config(VirtMachine *s1)
         seg.g = 1; /* 4KB granularity */
 
         seg.type = 0xb; /* code */
-        seg.selector = 1 << 3;
+        seg.selector = 2 << 3;
         sregs.cs = seg;
 
         seg.type = 0x3; /* data */
-        seg.selector = 2 << 3;
+        seg.selector = 3 << 3;
         sregs.ds = seg;
         sregs.es = seg;
+        sregs.ss = seg;
         sregs.fs = seg;
         sregs.gs = seg;
         
@@ -1887,7 +2467,7 @@ void setup_linux_config(VirtMachine *s1)
         }
         
         memset(&regs, 0, sizeof(regs));
-        regs.rip = KERNEL_LOAD_ADDR;
+        regs.rip = load_address;
         regs.rsi = KERNEL_PARAMS_ADDR;
         regs.rflags = 0x2;
         if (ioctl(s->vcpu_fd, KVM_SET_REGS, &regs) < 0) {
@@ -1897,8 +2477,43 @@ void setup_linux_config(VirtMachine *s1)
     } else
 #endif
     {
-        x86_cpu_set_reg(s->cpu_state, X86_CPU_REG_EIP, KERNEL_LOAD_ADDR);
+        int i;
+        X86CPUSeg sd;
+        uint32_t val;
+        val = x86_cpu_get_reg(s->cpu_state, X86_CPU_REG_CR0);
+        x86_cpu_set_reg(s->cpu_state, X86_CPU_REG_CR0, val | (1 << 0));
+        
+        sd.base = KERNEL_PARAMS_ADDR +
+            offsetof(struct linux_params, gdt_table);
+        sd.limit = sizeof(params->gdt_table) - 1;
+        x86_cpu_set_seg(s->cpu_state, X86_CPU_SEG_GDT, &sd);
+        sd.sel = 2 << 3;
+        sd.base = 0;
+        sd.limit = 0xffffffff;
+        sd.flags = 0xc09b;
+        x86_cpu_set_seg(s->cpu_state, X86_CPU_SEG_CS, &sd);
+        sd.sel = 3 << 3;
+        sd.flags = 0xc093;
+        for(i = 0; i < 6; i++) {
+            if (i != X86_CPU_SEG_CS) {
+                x86_cpu_set_seg(s->cpu_state, i, &sd);
+            }
+        }
+                        
+        x86_cpu_set_reg(s->cpu_state, X86_CPU_REG_EIP, load_address);
         x86_cpu_set_reg(s->cpu_state, 6, KERNEL_PARAMS_ADDR); /* esi */
+    }
+
+    /* map PCI interrupts (no BIOS, so we must do it) */
+    {
+        uint8_t elcr[2];
+        static const uint8_t pci_irqs[4] = { 9, 10, 11, 12 };
+
+        i440fx_map_interrupts(s->i440fx_state, elcr, pci_irqs);
+        /* XXX: KVM support */
+        if (s->pic_state) {
+            pic2_set_elcr(s->pic_state, elcr);
+        }
     }
 }
 
@@ -1910,10 +2525,12 @@ int virt_machine_get_sleep_duration(VirtMachine *s1, int delay)
 #ifdef USE_KVM
     if (s->kvm_enabled) {
         /* XXX: improve */
+        cmos_update_irq(s->cmos_state);
         delay = 0;
     } else
 #endif
     {
+        cmos_update_irq(s->cmos_state);
         delay = min_int(delay, pit_update_irq(s->pit_state));
         if (!x86_cpu_get_power_down(s->cpu_state))
             delay = 0;
@@ -1932,4 +2549,9 @@ void virt_machine_interp(VirtMachine *s1, int max_exec_cycles)
     {
         x86_cpu_interp(s->cpu_state, max_exec_cycles);
     }
+}
+
+const char *virt_machine_get_name(void)
+{
+    return "pc";
 }

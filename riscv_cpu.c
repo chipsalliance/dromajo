@@ -59,6 +59,8 @@
 
 #if defined(EMSCRIPTEN)
 #define USE_GLOBAL_STATE
+/* use local variables slows down the generated JS code */
+#define USE_GLOBAL_VARIABLES
 #endif
 
 #if FLEN > 0
@@ -201,6 +203,12 @@ struct RISCVCPUState {
     target_ulong pc;
     target_ulong reg[32];
 
+#ifdef USE_GLOBAL_VARIABLES
+    /* faster to use global variables with emscripten */
+    uint8_t *__code_ptr, *__code_end;
+    target_ulong __code_to_pc_addend;
+#endif
+    
 #if FLEN > 0
     fp_uint fp_reg[32];
     uint32_t fflags;
@@ -248,8 +256,6 @@ struct RISCVCPUState {
 
     PhysMemoryMap *mem_map;
 
-    uint8_t *phys_mem;
-
     TLBEntry tlb_read[TLB_SIZE];
     TLBEntry tlb_write[TLB_SIZE];
     TLBEntry tlb_code[TLB_SIZE];
@@ -262,6 +268,11 @@ static no_inline int target_write_slow(RISCVCPUState *s, target_ulong addr,
 
 #ifdef USE_GLOBAL_STATE
 static RISCVCPUState riscv_cpu_global_state;
+#endif
+#ifdef USE_GLOBAL_VARIABLES
+#define code_ptr s->__code_ptr
+#define code_end s->__code_end
+#define code_to_pc_addend s->__code_to_pc_addend
 #endif
 
 #ifdef CONFIG_LOGFILE
@@ -352,22 +363,22 @@ static __attribute__((unused)) void cpu_abort(RISCVCPUState *s)
 
 /* addr must be aligned. Only RAM accesses are supported */
 #define PHYS_MEM_READ_WRITE(size, uint_type) \
-static inline void phys_write_u ## size(RISCVCPUState *s, target_ulong addr,\
+static __maybe_unused inline void phys_write_u ## size(RISCVCPUState *s, target_ulong addr,\
                                         uint_type val)                   \
 {\
     PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, addr);\
     if (!pr || !pr->is_ram)\
         return;\
-    *(uint_type *)(s->phys_mem + pr->phys_mem_offset +\
+    *(uint_type *)(pr->phys_mem + \
                  (uintptr_t)(addr - pr->addr)) = val;\
 }\
 \
-static inline uint_type phys_read_u ## size(RISCVCPUState *s, target_ulong addr) \
+static __maybe_unused inline uint_type phys_read_u ## size(RISCVCPUState *s, target_ulong addr) \
 {\
     PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, addr);\
     if (!pr || !pr->is_ram)\
         return 0;\
-    return *(uint_type *)(s->phys_mem + pr->phys_mem_offset +\
+    return *(uint_type *)(pr->phys_mem + \
                           (uintptr_t)(addr - pr->addr));     \
 }
 
@@ -599,7 +610,7 @@ static no_inline int target_read_slow(RISCVCPUState *s, mem_uint_t *pval,
                 err = target_read_u128(s, &v0, addr);
                 if (err)
                     return err;
-                err = target_read_u128(s, &v1, addr + 8);
+                err = target_read_u128(s, &v1, addr + 16);
                 if (err)
                     return err;
                 ret = (v0 >> (al * 8)) | (v1 << (128 - al * 8));
@@ -625,8 +636,7 @@ static no_inline int target_read_slow(RISCVCPUState *s, mem_uint_t *pval,
             return 0;
         } else if (pr->is_ram) {
             tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
-            ptr = s->phys_mem + pr->phys_mem_offset +
-                (uintptr_t)(paddr - pr->addr);
+            ptr = pr->phys_mem + (uintptr_t)(paddr - pr->addr);
             s->tlb_read[tlb_idx].vaddr = addr & ~PG_MASK;
             s->tlb_read[tlb_idx].mem_addend = (uintptr_t)ptr - addr;
             switch(size_log2) {
@@ -711,9 +721,9 @@ static no_inline int target_write_slow(RISCVCPUState *s, target_ulong addr,
             printf("\n");
 #endif
         } else if (pr->is_ram) {
+            phys_mem_set_dirty_bit(pr, paddr - pr->addr);
             tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
-            ptr = s->phys_mem + pr->phys_mem_offset +
-                (uintptr_t)(paddr - pr->addr);
+            ptr = pr->phys_mem + (uintptr_t)(paddr - pr->addr);
             s->tlb_write[tlb_idx].vaddr = addr & ~PG_MASK;
             s->tlb_write[tlb_idx].mem_addend = (uintptr_t)ptr - addr;
             switch(size_log2) {
@@ -802,8 +812,7 @@ static no_inline __exception int target_read_insn_slow(RISCVCPUState *s,
         return -1;
     }
     tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
-    ptr = s->phys_mem + pr->phys_mem_offset +
-        (uintptr_t)(paddr - pr->addr);
+    ptr = pr->phys_mem + (uintptr_t)(paddr - pr->addr);
     s->tlb_code[tlb_idx].vaddr = addr & ~PG_MASK;
     s->tlb_code[tlb_idx].mem_addend = (uintptr_t)ptr - addr;
     *pmem_addend = s->tlb_code[tlb_idx].mem_addend;
@@ -848,6 +857,26 @@ static void tlb_flush_vaddr(RISCVCPUState *s, target_ulong vaddr)
 {
     tlb_flush_all(s);
 }
+
+/* XXX: inefficient but not critical as long as it is seldom used */
+void riscv_cpu_flush_tlb_write_range_ram(RISCVCPUState *s,
+                                         uint8_t *ram_ptr, size_t ram_size)
+{
+    uint8_t *ptr, *ram_end;
+    int i;
+    
+    ram_end = ram_ptr + ram_size;
+    for(i = 0; i < TLB_SIZE; i++) {
+        if (s->tlb_write[i].vaddr != -1) {
+            ptr = (uint8_t *)(s->tlb_write[i].mem_addend +
+                              (uintptr_t)s->tlb_write[i].vaddr);
+            if (ptr >= ram_ptr && ptr < ram_end) {
+                s->tlb_write[i].vaddr = -1;
+            }
+        }
+    }
+}
+
 
 #define SSTATUS_MASK0 (MSTATUS_UIE | MSTATUS_SIE |       \
                       MSTATUS_UPIE | MSTATUS_SPIE |     \
@@ -1100,7 +1129,7 @@ static int get_insn_rm(RISCVCPUState *s, unsigned int rm)
 #endif
 
 /* return -1 if invalid CSR, 0 if OK, 1 if the interpreter loop must be
-   exited (e.g. XLEN was modified) */
+   exited (e.g. XLEN was modified), 2 if TLBs have been flushed. */
 static int csr_write(RISCVCPUState *s, uint32_t csr, target_ulong val)
 {
     target_ulong mask;
@@ -1175,7 +1204,8 @@ static int csr_write(RISCVCPUState *s, uint32_t csr, target_ulong val)
                 ((uint64_t)mode << 60);
         }
 #endif
-        break;
+        tlb_flush_all(s);
+        return 2;
         
     case 0x300:
         set_mstatus(s, val);
@@ -1513,7 +1543,7 @@ int riscv_cpu_get_max_xlen(void)
     return MAX_XLEN;
 }
 
-RISCVCPUState *riscv_cpu_init(PhysMemoryMap *mem_map, uint8_t *phys_mem)
+RISCVCPUState *riscv_cpu_init(PhysMemoryMap *mem_map)
 {
     RISCVCPUState *s;
     
@@ -1523,7 +1553,6 @@ RISCVCPUState *riscv_cpu_init(PhysMemoryMap *mem_map, uint8_t *phys_mem)
     s = mallocz(sizeof(*s));
 #endif
     s->mem_map = mem_map;
-    s->phys_mem = phys_mem;
     s->pc = 0x1000;
     s->priv = PRV_M;
     s->cur_xlen = MAX_XLEN;

@@ -199,15 +199,9 @@ FSDevice *fs_net_init(const char *url, void (*start)(void *opaque), void *opaque
 void fs_net_set_pwd(FSDevice *fs, const char *pwd);
 #ifdef EMSCRIPTEN
 void fs_import_file(const char *filename, uint8_t *buf, int buf_len);
-#else
-typedef BOOL FSNetEventLoopCompletionFunc(void *opaque);
-void fs_net_set_fdset(int *pfd_max, fd_set *rfds, fd_set *wfds, fd_set *efds,
-                      int *ptimeout);
-void fs_net_event_loop(FSNetEventLoopCompletionFunc *cb, void *opaque);
 #endif
 void fs_export_file(const char *filename,
                     const uint8_t *buf, int buf_len);
-int fs_net_get_file(FSDevice *fs1, uint8_t **pbuf, const char *path);
 void fs_end(FSDevice *fs);
 
 FSFile *fs_dup(FSDevice *fs, FSFile *f);
