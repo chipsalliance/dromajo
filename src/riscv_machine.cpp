@@ -944,7 +944,6 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, cons
     *q++ = 0x0f058593;  //         addi   a1, a1, 240 # _start + 256
     *q++ = 0x60300413;  //         li     s0, 1539
     *q++ = 0x7b041073;  //         csrw   dcsr, s0
-    *q++ = 0x0010041b;  //         addiw  s0, zero, 1
     if (s->ram_base_addr == 0xC000000000) {
       *q++ = 0x0030041b;  //         addiw  s0, zero, 3
       *q++ = 0x02641413;  //         slli   s0, s0, 38
