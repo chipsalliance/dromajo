@@ -18,7 +18,11 @@
 #ifndef _ELF64_H
 #define _ELF64_H 1
 
+#if defined(__APPLE__)
+#include <libelf/gelf.h>	/* brew install libelf */
+#else
 #include <elf.h>
+#endif
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
