@@ -49,7 +49,6 @@
 #include <errno.h>
 #include <unistd.h>
 #include <time.h>
-#include <elf.h>
 
 #include "cutils.h"
 #include "iomem.h"

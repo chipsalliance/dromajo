@@ -42,7 +42,7 @@ VERSION=Dromajo-0.1
 
 CXX=g++
 CFLAGS_OPT=-Ofast
-CXXFLAGS=$(CFLAGS_OPT) -Wall -std=c++11 -g -Werror -Wno-parentheses -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -MMD
+CXXFLAGS=$(CFLAGS_OPT) -Wall -std=c++11 -g -Wno-parentheses -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -MMD
 CXXFLAGS+=-D_GNU_SOURCE -DCONFIG_VERSION=\"$(VERSION)\"
 #CXXFLAGS+=-DLIVECACHE
 LDFLAGS=
@@ -56,7 +56,14 @@ all: $(PROGS)
 EMU_OBJS:=virtio.o pci.o fs.o cutils.o iomem.o dw_apb_uart.o \
     json.o machine.o elf64.o LiveCache.o fs_disk.o
 
-EMU_LIBS=-lrt
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+	CXXFLAGS += -Werror
+	EMU_LIBS=-lrt
+endif
+ifeq ($(UNAME_S),Darwin)
+	EMU_LIBS=
+endif
 
 dromajo: dromajo.o libdromajo_cosim.a
 	$(CXX) $(LDFLAGS) -o $@ $^ $(DROMAJO_LIBS) $(EMU_LIBS)
