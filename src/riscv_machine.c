@@ -869,7 +869,6 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         size = fdt_output(s, dst);
     } else {
         // write from other dts
-        printf("[DEBUG] New DTB %s\n", dtb_name);
         FILE *fPtr;
         unsigned long fLen;
 
@@ -886,8 +885,9 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         }
 
         // DEBUG
-        for (unsigned long i = 0; i < fLen; ++i)
-            printf("[%p] == 0x%x\n", &dst[i], dst[i]);
+        //for (unsigned long i = 0; i < fLen; ++i)
+        //    printf("[DEBUG][%p][%ld/%ld] == 0x%x\n", &dst[i], i, fLen, dst[i]);
+        //printf("[DEBUG] Done printing\n");
 
         fclose(fPtr); // Close the file
 
@@ -903,6 +903,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 #endif
     if (!dtb_name)
         fdt_end(s);
+
     return size;
 }
 
@@ -939,8 +940,8 @@ static int load_bootrom(const char *bootrom_name, uint32_t *location)
     }
 
     // DEBUG
-    for (unsigned long i = 0; i < (fLen/sizeof(uint32_t)); ++i)
-        printf("[%p] == 0x%x\n", &location[i], location[i]);
+    //for (unsigned long i = 0; i < (fLen/sizeof(uint32_t)); ++i)
+    //    printf("[%p] == 0x%x\n", &location[i], location[i]);
 
     fclose(fPtr); // Close the file
 
