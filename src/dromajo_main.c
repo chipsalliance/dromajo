@@ -621,6 +621,8 @@ static void usage(const char *prog, const char *msg)
             "       --dtb load in a dtb file (default is dromajo dtb)\n"
             "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
             "       --reset_vector set reset vector (default 0x%lx)\n"
+            "       --mmio_start start of mmio range (overridden by config file)\n"
+            "       --mmio_end end of mmio range (overridden by config file)\n"
             "       --maxinsns terminates execution after a number of instructions\n"
             "       --terminate-event name of the validate event to terminate execution\n"
             "       --trace start trace dump after a number of instructions. Trace disabled by default\n"
@@ -664,6 +666,8 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     const char *dtb_name           = 0;
     bool        compact_bootrom    = false;
     uint64_t    reset_vector       = BOOT_BASE_ADDR;
+    uint64_t    mmio_start_override = 0;
+    uint64_t    mmio_end_override   = 0;
     const char *snapshot_save_name = 0;
     const char *path               = NULL;
     const char *cmdline            = NULL;
@@ -697,6 +701,8 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             {"compact_bootrom",               no_argument, 0,  'o' },
             {"reset_vector",            required_argument, 0,  'r' }, // CFG
             {"dtb",                     required_argument, 0,  'd' }, // CFG
+            {"mmio_start",              required_argument, 0,  'S' }, // CFG
+            {"mmio_end",                required_argument, 0,  'E' }, // CFG
             {0,                         0,                 0,  0 }
         };
 
@@ -779,6 +785,18 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             if (optarg[0] != '0' || optarg[1] != 'x')
                 usage(prog, "--reset_vector expects argument to start with 0x... ");
             reset_vector = strtoll(optarg+2, NULL, 16);
+            break;
+
+        case 'S':
+            if (optarg[0] != '0' || optarg[1] != 'x')
+                usage(prog, "--mmio_start argument to start with 0x... ");
+            mmio_start_override = strtoll(optarg+2, NULL, 16);
+            break;
+
+        case 'E':
+            if (optarg[0] != '0' || optarg[1] != 'x')
+                usage(prog, "--mmio_end expects argument to start with 0x... ");
+            mmio_end_override = strtoll(optarg+2, NULL, 16);
             break;
 
         default:
@@ -925,6 +943,12 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     // Setup particular reset vector
     if (reset_vector)
         p->reset_vector = reset_vector;
+
+    // MMIO ranges
+    if (mmio_start_override)
+        p->mmio_start = mmio_start_override;
+    if (mmio_end_override)
+        p->mmio_end = mmio_end_override;
 
     RISCVMachine *s = virt_machine_init(p);
     if (!s)
