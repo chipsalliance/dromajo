@@ -37,7 +37,7 @@ dromajo_cosim_state_t *dromajo_cosim_init(int argc, char *argv[]);
 /*
  * dromajo_cosim_fini --
  *
- * Destroys the states and releases the resources
+ * Destroys the states and releases the resources.
  */
 void dromajo_cosim_fini(dromajo_cosim_state_t *state);
 
@@ -55,9 +55,8 @@ void dromajo_cosim_fini(dromajo_cosim_state_t *state);
  * DUT, such as loads from IO devices, interrupts, and CSRs cycle,
  * time, and instret.  For all these cases the model will override
  * with the expected values.
- *
  */
-int dromajo_cosim_step(dromajo_cosim_state_t *dromajo_cosim_state,
+int dromajo_cosim_step(dromajo_cosim_state_t *state,
                        int                    hartid,
                        uint64_t               dut_pc,
                        uint32_t               dut_insn,
@@ -71,9 +70,10 @@ int dromajo_cosim_step(dromajo_cosim_state_t *dromajo_cosim_state,
  * DUT raises a trap (exception or interrupt) and provides the cause.
  * MSB indicates an asynchronous interrupt, synchronous exception
  * otherwise.
- *
  */
-void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t cause);
+void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state,
+                              int                   hartid,
+                              int64_t               cause);
 #ifdef __cplusplus
 } // extern C
 #endif

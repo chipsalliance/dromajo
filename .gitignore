@@ -1,0 +1,7 @@
+*.o
+*.d
+snap.*
+dromajo
+libdromajo_cosim.a
+*.swp
+tags

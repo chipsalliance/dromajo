@@ -206,7 +206,7 @@ void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t 
  * time, and instret.  For all these cases the model will override
  * with the expected values.
  */
-int dromajo_cosim_step(dromajo_cosim_state_t *dromajo_cosim_state,
+int dromajo_cosim_step(dromajo_cosim_state_t *state,
                        int                    hartid,
                        uint64_t               dut_pc,
                        uint32_t               dut_insn,
@@ -214,7 +214,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *dromajo_cosim_state,
                        uint64_t               dut_mstatus,
                        bool                   check)
 {
-    RISCVMachine  *r = (RISCVMachine *)dromajo_cosim_state;
+    RISCVMachine  *r = (RISCVMachine *)state;
     RISCVCPUState *s = r->cpu_state[hartid];
     uint64_t emu_pc, emu_wdata = 0;
     int      emu_priv;
