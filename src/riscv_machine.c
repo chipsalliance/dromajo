@@ -702,7 +702,6 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
     FDTState *s;
     int size;
     if (!dtb_name) {
-        printf("[DEBUG] Default DTB\n");
         int intc_phandle = 0;
         int max_xlen, i, cur_phandle, plic_phandle;
         char isa_string[128], *q;
