@@ -136,6 +136,9 @@ typedef struct {
     /* snaphot load file */
     const char *snapshot_load_name;
 
+    /* bootrom name */
+    const char *bootrom_name;
+
     /* number of cpus */
     uint64_t ncpus;
 

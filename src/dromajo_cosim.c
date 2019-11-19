@@ -214,6 +214,8 @@ int dromajo_cosim_step(dromajo_cosim_state_t *dromajo_cosim_state,
                        uint64_t               dut_mstatus,
                        bool                   check)
 {
+    printf("[DEBUG] (%p) %x %lx | %x %lx | %lx %x\n", dromajo_cosim_state, hartid, dut_pc, dut_insn, dut_wdata, dut_mstatus, check);
+
     RISCVMachine  *r = (RISCVMachine *)dromajo_cosim_state;
     RISCVCPUState *s = r->cpu_state[hartid];
     uint64_t emu_pc, emu_wdata = 0;
@@ -223,6 +225,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *dromajo_cosim_state,
     int      exit_code = 0;
     bool     verbose = true;
     int      iregno, fregno;
+
 
     /* Succeed after N instructions without failure. */
     if (r->common.maxinsns == 0) {

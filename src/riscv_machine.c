@@ -892,8 +892,35 @@ static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_l
         }
 }
 
+static int load_bootrom(const char *file, uint32_t *location)
+{
+    FILE *fileptr;
+    unsigned long filelen;
+
+    fileptr = fopen(file, "rb");  // Open the file in binary mode
+    fseek(fileptr, 0, SEEK_END);  // Jump to the end of the file
+    filelen = ftell(fileptr);     // Get the current byte offset in the file
+    rewind(fileptr);              // Jump back to the beginning of the file
+
+    size_t result = fread((char*)location, sizeof(uint8_t), filelen, fileptr); // Read in the entire file
+    if (result != filelen) {
+        printf("%ld %ld\n", result, filelen);
+        fprintf(dromajo_stderr,
+                "DROMAJO failed reading the bootrom image\n");
+        return 1;
+    }
+
+    // DEBUG
+    for (unsigned long i = 0; i < (filelen/sizeof(uint32_t)); ++i)
+        printf("[%p] == 0x%x\n", &location[i], location[i]);
+
+    fclose(fileptr); // Close the file
+
+    return 0;
+}
+
 /* Return non-zero on failure */
-static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, const char *cmd_line)
+static int copy_kernel(RISCVMachine *s, const char* bootrom_name, const uint8_t *buf, size_t buf_len, const char *cmd_line)
 {
     if (buf_len > s->ram_size) {
         vm_error("Kernel too big\n");
@@ -928,36 +955,42 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, cons
     uint32_t fdt_addr = (BOOT_BASE_ADDR - ROM_BASE_ADDR) + 256;
     uint32_t *q       = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
 
-    /* KEEP THIS IN SYNC WITH boom-template/bootrom/cosim/cosim.S
-       Eventually we'll make this code loadable */
-
-    *q++ = 0xf1402573;  // start:  csrr   a0, mhartid
-    if (s->ncpus == 1) {
-        *q++ = 0x00050663;  //         beqz   a0, 1f
-        *q++ = 0x10500073;  // 0:      wfi
-        *q++ = 0xffdff06f;  //         j      0b
+    /* KEEP THIS IN SYNC WITH THE TARGET BOOTROM */
+    if (bootrom_name) {
+        // read in the bootrom from the file
+        int result = load_bootrom(bootrom_name, q);
+        if (result)
+            return 1;
     } else {
-        *q++ = 0x00000013; // nop
-        *q++ = 0x00000013; // nop
-        *q++ = 0x00000013; // nop
+        // use the hardcoded bootrom
+        *q++ = 0xf1402573;  // start:  csrr   a0, mhartid
+        if (s->ncpus == 1) {
+            *q++ = 0x00050663;  //         beqz   a0, 1f
+            *q++ = 0x10500073;  // 0:      wfi
+            *q++ = 0xffdff06f;  //         j      0b
+        } else {
+            *q++ = 0x00000013; // nop
+            *q++ = 0x00000013; // nop
+            *q++ = 0x00000013; // nop
+        }
+        *q++ = 0x00000597;  // 1:      auipc  a1, 0x0
+        *q++ = 0x0f058593;  //         addi   a1, a1, 240 # _start + 256
+        *q++ = 0x60300413;  //         li     s0, 1539
+        *q++ = 0x7b041073;  //         csrw   dcsr, s0
+        *q++ = 0x0010041b;  //         addiw  s0, zero, 1
+        if (s->ram_base_addr == 0xC000000000) {
+        *q++ = 0x0030041b;  //         addiw  s0, zero, 3
+        *q++ = 0x02641413;  //         slli   s0, s0, 38
+        }else{
+        *q++ = 0x0010041b;  //         addiw  s0, zero, 1
+        if (s->ram_base_addr == 0x80000000)
+            *q++ = 0x01f41413; //     slli s0, s0, 31
+        else
+            *q++ = 0x02741413;  //         slli   s0, s0, 39
+        }
+        *q++ = 0x7b141073;  //         csrw   dpc, s0
+        *q++ = 0x7b200073;  //         dret
     }
-    *q++ = 0x00000597;  // 1:      auipc  a1, 0x0
-    *q++ = 0x0f058593;  //         addi   a1, a1, 240 # _start + 256
-    *q++ = 0x60300413;  //         li     s0, 1539
-    *q++ = 0x7b041073;  //         csrw   dcsr, s0
-    *q++ = 0x0010041b;  //         addiw  s0, zero, 1
-    if (s->ram_base_addr == 0xC000000000) {
-      *q++ = 0x0030041b;  //         addiw  s0, zero, 3
-      *q++ = 0x02641413;  //         slli   s0, s0, 38
-    }else{
-      *q++ = 0x0010041b;  //         addiw  s0, zero, 1
-      if (s->ram_base_addr == 0x80000000)
-        *q++ = 0x01f41413; //     slli s0, s0, 31
-      else
-        *q++ = 0x02741413;  //         slli   s0, s0, 39
-    }
-    *q++ = 0x7b141073;  //         csrw   dpc, s0
-    *q++ = 0x7b200073;  //         dret
 
     for (int i = 0; i < s->ncpus; ++i)
         riscv_set_debug_mode(s->cpu_state[i], TRUE);
@@ -1119,6 +1152,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
         vm_error("No bios given\n");
         return NULL;
     } else if (copy_kernel(s,
+                           p->bootrom_name,
                            p->files[VM_FILE_BIOS].buf,
                            p->files[VM_FILE_BIOS].len,
                            p->cmdline))
