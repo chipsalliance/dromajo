@@ -85,6 +85,12 @@ struct RISCVMachine {
     uint64_t mmio_start;
     uint64_t mmio_end;
 
+    /* Reset vector */
+    uint64_t reset_vector;
+
+    /* Bootrom Params */
+    bool compact_bootrom;
+
     /* Extension state, not used by Dromajo itself */
     void *ext_state;
 };

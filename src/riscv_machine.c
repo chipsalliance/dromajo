@@ -698,173 +698,202 @@ void fdt_end(FDTState *s)
     free(s);
 }
 
-static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
+static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, const char *cmd_line)
 {
     FDTState *s;
-    int intc_phandle = 0;
-    int size, max_xlen, i, cur_phandle, plic_phandle;
-    char isa_string[128], *q;
-    uint32_t misa;
-    uint32_t tab[4*MAX_CPUS];
-    FBDevice *fb_dev;
+    int size;
+    if (!dtb_name) {
+        printf("[DEBUG] Default DTB\n");
+        int intc_phandle = 0;
+        int max_xlen, i, cur_phandle, plic_phandle;
+        char isa_string[128], *q;
+        uint32_t misa;
+        uint32_t tab[4*MAX_CPUS];
+        FBDevice *fb_dev;
 
-    s = fdt_init();
+        s = fdt_init();
 
-    cur_phandle = 1;
+        cur_phandle = 1;
 
-    fdt_begin_node(s, "");
-    fdt_prop_u32(s, "#address-cells", 2);
-    fdt_prop_u32(s, "#size-cells", 2);
-    fdt_prop_str(s, "compatible", "ucbbar,dromajo-bar_dev");
-    fdt_prop_str(s, "model", "ucbbar,dromajo-bare");
+        fdt_begin_node(s, "");
+        fdt_prop_u32(s, "#address-cells", 2);
+        fdt_prop_u32(s, "#size-cells", 2);
+        fdt_prop_str(s, "compatible", "ucbbar,dromajo-bar_dev");
+        fdt_prop_str(s, "model", "ucbbar,dromajo-bare");
 
-    /* CPU list */
-    fdt_begin_node(s, "cpus");
-    fdt_prop_u32(s, "#address-cells", 1);
-    fdt_prop_u32(s, "#size-cells", 0);
-    fdt_prop_u32(s, "timebase-frequency", RTC_FREQ);
+        /* CPU list */
+        fdt_begin_node(s, "cpus");
+        fdt_prop_u32(s, "#address-cells", 1);
+        fdt_prop_u32(s, "#size-cells", 0);
+        fdt_prop_u32(s, "timebase-frequency", RTC_FREQ);
 
-    int hartid2handle[MAX_CPUS];
+        int hartid2handle[MAX_CPUS];
 
-    for (int hartid = 0; hartid < m->ncpus; ++hartid) {
-        /* cpu */
-        fdt_begin_node_num(s, "cpu", hartid);
-        fdt_prop_str(s, "device_type", "cpu");
-        fdt_prop_u32(s, "reg", hartid);
-        fdt_prop_str(s, "status", "okay");
-        fdt_prop_str(s, "compatible", "riscv");
+        for (int hartid = 0; hartid < m->ncpus; ++hartid) {
+            /* cpu */
+            fdt_begin_node_num(s, "cpu", hartid);
+            fdt_prop_str(s, "device_type", "cpu");
+            fdt_prop_u32(s, "reg", hartid);
+            fdt_prop_str(s, "status", "okay");
+            fdt_prop_str(s, "compatible", "riscv");
 
-        max_xlen = 64;
-        misa = riscv_cpu_get_misa(m->cpu_state[hartid]);
-        q = isa_string;
-        q += snprintf(isa_string, sizeof(isa_string), "rv%d", max_xlen);
-        for (i = 0; i < 26; ++i) {
-            if (misa & (1 << i))
-                *q++ = 'a' + i;
+            max_xlen = 64;
+            misa = riscv_cpu_get_misa(m->cpu_state[hartid]);
+            q = isa_string;
+            q += snprintf(isa_string, sizeof(isa_string), "rv%d", max_xlen);
+            for (i = 0; i < 26; ++i) {
+                if (misa & (1 << i))
+                    *q++ = 'a' + i;
+            }
+            *q = '\0';
+            fdt_prop_str(s, "riscv,isa", isa_string);
+
+            fdt_prop_str(s, "mmu-type", max_xlen <= 32 ? "riscv,sv32" : "riscv,sv48");
+            fdt_prop_u32(s, "clock-frequency", 2000000000);
+
+            fdt_begin_node(s, "interrupt-controller");
+            fdt_prop_u32(s, "#interrupt-cells", 1);
+            fdt_prop(s, "interrupt-controller", NULL, 0);
+            fdt_prop_str(s, "compatible", "riscv,cpu-intc");
+            intc_phandle = cur_phandle++;
+            hartid2handle[hartid] = intc_phandle;
+            fdt_prop_u32(s, "phandle", intc_phandle);
+            fdt_prop_u32(s, "linux,phandle", intc_phandle);
+            fdt_end_node(s); /* interrupt-controller */
+
+            fdt_end_node(s); /* cpu */
         }
-        *q = '\0';
-        fdt_prop_str(s, "riscv,isa", isa_string);
 
-        fdt_prop_str(s, "mmu-type", max_xlen <= 32 ? "riscv,sv32" : "riscv,sv48");
-        fdt_prop_u32(s, "clock-frequency", 2000000000);
+        fdt_end_node(s); /* cpus */
 
-        fdt_begin_node(s, "interrupt-controller");
+        fdt_begin_node_num(s, "memory", m->ram_base_addr);
+        fdt_prop_str(s, "device_type", "memory");
+        tab[0] = m->ram_base_addr >> 32;
+        tab[1] = m->ram_base_addr;
+        tab[2] = m->ram_size >> 32;
+        tab[3] = m->ram_size;
+        fdt_prop_tab_u32(s, "reg", tab, 4);
+
+        fdt_end_node(s); /* memory */
+
+        fdt_begin_node(s, "soc");
+        fdt_prop_u32(s, "#address-cells", 2);
+        fdt_prop_u32(s, "#size-cells", 2);
+        fdt_prop_tab_str(s, "compatible",
+                        "ucbbar,dromajo-bar-soc", "simple-bus", NULL);
+        fdt_prop(s, "ranges", NULL, 0);
+
+        fdt_begin_node_num(s, "clint", CLINT_BASE_ADDR);
+        fdt_prop_str(s, "compatible", "riscv,clint0");
+
+        for (int hartid = 0; hartid < m->ncpus; ++hartid) {
+            tab[hartid * 4 + 0] = hartid2handle[hartid];
+            tab[hartid * 4 + 1] = 3; /* M IPI irq */
+            tab[hartid * 4 + 2] = hartid2handle[hartid];
+            tab[hartid * 4 + 3] = 7; /* M timer irq */
+        }
+
+        fdt_prop_tab_u32(s, "interrupts-extended", tab, 4 * m->ncpus);
+
+        fdt_prop_tab_u64_2(s, "reg", CLINT_BASE_ADDR, CLINT_SIZE);
+
+        fdt_end_node(s); /* clint */
+
+        fdt_begin_node_num(s, "plic", PLIC_BASE_ADDR);
         fdt_prop_u32(s, "#interrupt-cells", 1);
+
         fdt_prop(s, "interrupt-controller", NULL, 0);
-        fdt_prop_str(s, "compatible", "riscv,cpu-intc");
-        intc_phandle = cur_phandle++;
-        hartid2handle[hartid] = intc_phandle;
-        fdt_prop_u32(s, "phandle", intc_phandle);
-        fdt_prop_u32(s, "linux,phandle", intc_phandle);
-        fdt_end_node(s); /* interrupt-controller */
+        fdt_prop_str(s, "compatible", "riscv,plic0");
+        fdt_prop_u32(s, "riscv,ndev", 31);
+        fdt_prop_tab_u64_2(s, "reg", PLIC_BASE_ADDR, PLIC_SIZE);
 
-        fdt_end_node(s); /* cpu */
-    }
+        for (int hartid = 0; hartid < m->ncpus; ++hartid) {
+            tab[hartid * 4 + 0] = hartid2handle[hartid];
+            tab[hartid * 4 + 1] = 9; /* S ext irq */
+            tab[hartid * 4 + 2] = hartid2handle[hartid];
+            tab[hartid * 4 + 3] = 11; /* M ext irq */
+        }
 
-    fdt_end_node(s); /* cpus */
+        fdt_prop_tab_u32(s, "interrupts-extended", tab, m->ncpus * 4);
 
-    fdt_begin_node_num(s, "memory", m->ram_base_addr);
-    fdt_prop_str(s, "device_type", "memory");
-    tab[0] = m->ram_base_addr >> 32;
-    tab[1] = m->ram_base_addr;
-    tab[2] = m->ram_size >> 32;
-    tab[3] = m->ram_size;
-    fdt_prop_tab_u32(s, "reg", tab, 4);
+        plic_phandle = cur_phandle++;
+        fdt_prop_u32(s, "phandle", plic_phandle);
 
-    fdt_end_node(s); /* memory */
+        fdt_end_node(s); /* plic */
 
-    fdt_begin_node(s, "soc");
-    fdt_prop_u32(s, "#address-cells", 2);
-    fdt_prop_u32(s, "#size-cells", 2);
-    fdt_prop_tab_str(s, "compatible",
-                     "ucbbar,dromajo-bar-soc", "simple-bus", NULL);
-    fdt_prop(s, "ranges", NULL, 0);
-
-    fdt_begin_node_num(s, "clint", CLINT_BASE_ADDR);
-    fdt_prop_str(s, "compatible", "riscv,clint0");
-
-    for (int hartid = 0; hartid < m->ncpus; ++hartid) {
-        tab[hartid * 4 + 0] = hartid2handle[hartid];
-        tab[hartid * 4 + 1] = 3; /* M IPI irq */
-        tab[hartid * 4 + 2] = hartid2handle[hartid];
-        tab[hartid * 4 + 3] = 7; /* M timer irq */
-    }
-
-    fdt_prop_tab_u32(s, "interrupts-extended", tab, 4 * m->ncpus);
-
-    fdt_prop_tab_u64_2(s, "reg", CLINT_BASE_ADDR, CLINT_SIZE);
-
-    fdt_end_node(s); /* clint */
-
-    fdt_begin_node_num(s, "plic", PLIC_BASE_ADDR);
-    fdt_prop_u32(s, "#interrupt-cells", 1);
-
-    fdt_prop(s, "interrupt-controller", NULL, 0);
-    fdt_prop_str(s, "compatible", "riscv,plic0");
-    fdt_prop_u32(s, "riscv,ndev", 31);
-    fdt_prop_tab_u64_2(s, "reg", PLIC_BASE_ADDR, PLIC_SIZE);
-
-    for (int hartid = 0; hartid < m->ncpus; ++hartid) {
-        tab[hartid * 4 + 0] = hartid2handle[hartid];
-        tab[hartid * 4 + 1] = 9; /* S ext irq */
-        tab[hartid * 4 + 2] = hartid2handle[hartid];
-        tab[hartid * 4 + 3] = 11; /* M ext irq */
-    }
-
-    fdt_prop_tab_u32(s, "interrupts-extended", tab, m->ncpus * 4);
-
-    plic_phandle = cur_phandle++;
-    fdt_prop_u32(s, "phandle", plic_phandle);
-
-    fdt_end_node(s); /* plic */
-
-    for (i = 0; i < m->virtio_count; ++i) {
-        fdt_begin_node_num(s, "virtio", VIRTIO_BASE_ADDR + i * VIRTIO_SIZE);
-        fdt_prop_str(s, "compatible", "virtio,mmio");
-        fdt_prop_tab_u64_2(s, "reg", VIRTIO_BASE_ADDR + i * VIRTIO_SIZE, VIRTIO_SIZE);
-        tab[0] = plic_phandle;
-        tab[1] = VIRTIO_IRQ + i;
-        fdt_prop_tab_u32(s, "interrupts-extended", tab, 2);
-        fdt_end_node(s); /* virtio */
-    }
+        for (i = 0; i < m->virtio_count; ++i) {
+            fdt_begin_node_num(s, "virtio", VIRTIO_BASE_ADDR + i * VIRTIO_SIZE);
+            fdt_prop_str(s, "compatible", "virtio,mmio");
+            fdt_prop_tab_u64_2(s, "reg", VIRTIO_BASE_ADDR + i * VIRTIO_SIZE, VIRTIO_SIZE);
+            tab[0] = plic_phandle;
+            tab[1] = VIRTIO_IRQ + i;
+            fdt_prop_tab_u32(s, "interrupts-extended", tab, 2);
+            fdt_end_node(s); /* virtio */
+        }
 
 #ifdef USE_SIFIVE_UART
-    // SiFive UART
-    fdt_begin_node_num(s, "uart", UART0_BASE_ADDR);
-    fdt_prop_str(s, "compatible", "sifive,uart0");
-    fdt_prop_tab_u64_2(s, "reg", UART0_BASE_ADDR, UART0_SIZE);
-    fdt_end_node(s); /* uart */
+        // SiFive UART
+        fdt_begin_node_num(s, "uart", UART0_BASE_ADDR);
+        fdt_prop_str(s, "compatible", "sifive,uart0");
+        fdt_prop_tab_u64_2(s, "reg", UART0_BASE_ADDR, UART0_SIZE);
+        fdt_end_node(s); /* uart */
 #endif
 
-    // Fake Synopsys™ DesignWare™ ABP™ UART
-    fdt_begin_node_num(s, "uart", DW_APB_UART0_BASE_ADDR); {
-        fdt_prop_str(s, "compatible", "snps,dw-apb-uart");
-        fdt_prop_tab_u64_2(s, "reg", DW_APB_UART0_BASE_ADDR, DW_APB_UART0_SIZE);
-        // No interrupts?
-    } fdt_end_node(s);
+        // Fake Synopsys™ DesignWare™ ABP™ UART
+        fdt_begin_node_num(s, "uart", DW_APB_UART0_BASE_ADDR); {
+            fdt_prop_str(s, "compatible", "snps,dw-apb-uart");
+            fdt_prop_tab_u64_2(s, "reg", DW_APB_UART0_BASE_ADDR, DW_APB_UART0_SIZE);
+            // No interrupts?
+        } fdt_end_node(s);
 
-    fb_dev = m->common.fb_dev;
-    if (fb_dev) {
-        fdt_begin_node_num(s, "framebuffer", FRAMEBUFFER_BASE_ADDR);
-        fdt_prop_str(s, "compatible", "simple-framebuffer");
-        fdt_prop_tab_u64_2(s, "reg", FRAMEBUFFER_BASE_ADDR, fb_dev->fb_size);
-        fdt_prop_u32(s, "width", fb_dev->width);
-        fdt_prop_u32(s, "height", fb_dev->height);
-        fdt_prop_u32(s, "stride", fb_dev->stride);
-        fdt_prop_str(s, "format", "a8r8g8b8");
-        fdt_end_node(s); /* framebuffer */
+        fb_dev = m->common.fb_dev;
+        if (fb_dev) {
+            fdt_begin_node_num(s, "framebuffer", FRAMEBUFFER_BASE_ADDR);
+            fdt_prop_str(s, "compatible", "simple-framebuffer");
+            fdt_prop_tab_u64_2(s, "reg", FRAMEBUFFER_BASE_ADDR, fb_dev->fb_size);
+            fdt_prop_u32(s, "width", fb_dev->width);
+            fdt_prop_u32(s, "height", fb_dev->height);
+            fdt_prop_u32(s, "stride", fb_dev->stride);
+            fdt_prop_str(s, "format", "a8r8g8b8");
+            fdt_end_node(s); /* framebuffer */
+        }
+
+        fdt_end_node(s); /* soc */
+
+        fdt_begin_node(s, "chosen");
+        fdt_prop_str(s, "bootargs", cmd_line ? cmd_line : "");
+
+        fdt_end_node(s); /* chosen */
+
+        fdt_end_node(s); /* / */
+
+        size = fdt_output(s, dst);
+    } else {
+        // write from other dts
+        printf("[DEBUG] New DTB %s\n", dtb_name);
+        FILE *fPtr;
+        unsigned long fLen;
+
+        fPtr = fopen(dtb_name, "rb");  // Open the file in binary mode
+        fseek(fPtr, 0, SEEK_END);  // Jump to the end of the file
+        fLen = ftell(fPtr);     // Get the current byte offset in the file
+        rewind(fPtr);              // Jump back to the beginning of the file
+
+        size_t result = fread((char*)dst, sizeof(uint8_t), fLen, fPtr); // Read in the entire file
+        if (result != fLen) {
+            fprintf(dromajo_stderr,
+                    "DROMAJO failed reading the dts string\n");
+            return -1;
+        }
+
+        // DEBUG
+        for (unsigned long i = 0; i < fLen; ++i)
+            printf("[%p] == 0x%x\n", &dst[i], dst[i]);
+
+        fclose(fPtr); // Close the file
+
+        size = fLen;
     }
-
-    fdt_end_node(s); /* soc */
-
-    fdt_begin_node(s, "chosen");
-    fdt_prop_str(s, "bootargs", cmd_line ? cmd_line : "");
-
-    fdt_end_node(s); /* chosen */
-
-    fdt_end_node(s); /* / */
-
-    size = fdt_output(s, dst);
 #if 0
     {
         FILE *f;
@@ -873,7 +902,8 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
         fclose(f);
     }
 #endif
-    fdt_end(s);
+    if (!dtb_name)
+        fdt_end(s);
     return size;
 }
 
@@ -892,35 +922,34 @@ static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_l
         }
 }
 
-static int load_bootrom(const char *file, uint32_t *location)
+static int load_bootrom(const char *bootrom_name, uint32_t *location)
 {
-    FILE *fileptr;
-    unsigned long filelen;
+    FILE *fPtr;
+    unsigned long fLen;
 
-    fileptr = fopen(file, "rb");  // Open the file in binary mode
-    fseek(fileptr, 0, SEEK_END);  // Jump to the end of the file
-    filelen = ftell(fileptr);     // Get the current byte offset in the file
-    rewind(fileptr);              // Jump back to the beginning of the file
+    fPtr = fopen(bootrom_name, "rb");  // Open the file in binary mode
+    fseek(fPtr, 0, SEEK_END);  // Jump to the end of the file
+    fLen = ftell(fPtr);     // Get the current byte offset in the file
+    rewind(fPtr);              // Jump back to the beginning of the file
 
-    size_t result = fread((char*)location, sizeof(uint8_t), filelen, fileptr); // Read in the entire file
-    if (result != filelen) {
-        printf("%ld %ld\n", result, filelen);
+    size_t result = fread((char*)location, sizeof(uint8_t), fLen, fPtr); // Read in the entire file
+    if (result != fLen) {
         fprintf(dromajo_stderr,
                 "DROMAJO failed reading the bootrom image\n");
-        return 1;
+        return -1;
     }
 
     // DEBUG
-    for (unsigned long i = 0; i < (filelen/sizeof(uint32_t)); ++i)
+    for (unsigned long i = 0; i < (fLen/sizeof(uint32_t)); ++i)
         printf("[%p] == 0x%x\n", &location[i], location[i]);
 
-    fclose(fileptr); // Close the file
+    fclose(fPtr); // Close the file
 
-    return 0;
+    return fLen;
 }
 
 /* Return non-zero on failure */
-static int copy_kernel(RISCVMachine *s, const char* bootrom_name, const uint8_t *buf, size_t buf_len, const char *cmd_line)
+static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, const char *bootrom_name, const char *dtb_name, const char *cmd_line)
 {
     if (buf_len > s->ram_size) {
         vm_error("Kernel too big\n");
@@ -951,15 +980,16 @@ static int copy_kernel(RISCVMachine *s, const char* bootrom_name, const uint8_t 
         assert(0);
     }
 
-    uint8_t *ram_ptr  = get_ram_ptr(s, ROM_BASE_ADDR);
-    uint32_t fdt_addr = (BOOT_BASE_ADDR - ROM_BASE_ADDR) + 256;
-    uint32_t *q       = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
+    // setup the bootrom
+    uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
+    uint32_t *q      = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
+    uint32_t bootromSzBytes = 0;
 
     /* KEEP THIS IN SYNC WITH THE TARGET BOOTROM */
     if (bootrom_name) {
         // read in the bootrom from the file
-        int result = load_bootrom(bootrom_name, q);
-        if (result)
+        bootromSzBytes = load_bootrom(bootrom_name, q);
+        if (bootromSzBytes < 0)
             return 1;
     } else {
         // use the hardcoded bootrom
@@ -979,23 +1009,34 @@ static int copy_kernel(RISCVMachine *s, const char* bootrom_name, const uint8_t 
         *q++ = 0x7b041073;  //         csrw   dcsr, s0
         *q++ = 0x0010041b;  //         addiw  s0, zero, 1
         if (s->ram_base_addr == 0xC000000000) {
-        *q++ = 0x0030041b;  //         addiw  s0, zero, 3
-        *q++ = 0x02641413;  //         slli   s0, s0, 38
-        }else{
-        *q++ = 0x0010041b;  //         addiw  s0, zero, 1
-        if (s->ram_base_addr == 0x80000000)
-            *q++ = 0x01f41413; //     slli s0, s0, 31
-        else
-            *q++ = 0x02741413;  //         slli   s0, s0, 39
+            *q++ = 0x0030041b;  //         addiw  s0, zero, 3
+            *q++ = 0x02641413;  //         slli   s0, s0, 38
+        } else {
+            *q++ = 0x0010041b;  //         addiw  s0, zero, 1
+            if (s->ram_base_addr == 0x80000000)
+                *q++ = 0x01f41413; //     slli s0, s0, 31
+            else
+                *q++ = 0x02741413;  //         slli   s0, s0, 39
         }
         *q++ = 0x7b141073;  //         csrw   dpc, s0
         *q++ = 0x7b200073;  //         dret
+        bootromSzBytes = 13*sizeof(uint32_t);
     }
+
+    // setup the dtb
+    uint32_t fdt_off = (BOOT_BASE_ADDR - ROM_BASE_ADDR);
+    if (s->compact_bootrom)
+        fdt_off += bootromSzBytes;
+    else
+        fdt_off += 256;
+
+    printf("[DEBUG] Before\n");
+    if(riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line) < 0)
+        return -1;
+    printf("[DEBUG] After\n");
 
     for (int i = 0; i < s->ncpus; ++i)
         riscv_set_debug_mode(s->cpu_state[i], TRUE);
-
-    riscv_build_fdt(s, ram_ptr + fdt_addr, cmd_line);
 
     return 0;
 }
@@ -1033,6 +1074,8 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     s->common.snapshot_load_name = p->snapshot_load_name;
 
     s->ncpus = p->ncpus;
+    s->reset_vector = p->reset_vector;
+    s->compact_bootrom = p->compact_bootrom;
 
     if (MAX_CPUS < s->ncpus) {
         fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
@@ -1152,9 +1195,10 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
         vm_error("No bios given\n");
         return NULL;
     } else if (copy_kernel(s,
-                           p->bootrom_name,
                            p->files[VM_FILE_BIOS].buf,
                            p->files[VM_FILE_BIOS].len,
+                           p->bootrom_name,
+                           p->dtb_name,
                            p->cmdline))
         return NULL;
 

@@ -617,7 +617,8 @@ static void usage(const char *prog, const char *msg)
             "       --ncpus number of cpus to simulate (default 1)\n"
             "       --load resumes a previously saved snapshot\n"
             "       --save saves a snapshot upon exit\n"
-            "       --bootrom load in a hexfile bootrom\n"
+            "       --bootrom load in a bootrom img file\n"
+            "       --dtb load in a dtb file\n"
             "       --maxinsns terminates execution after a number of instructions\n"
             "       --terminate-event name of the validate event to terminate execution\n"
             "       --trace start trace dump after a number of instructions. Trace disabled by default\n"
@@ -658,6 +659,9 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     const char *prog               = argv[0];
     const char *snapshot_load_name = 0;
     const char *bootrom_name       = 0;
+    const char *dtb_name           = 0;
+    bool        compact_bootrom    = false;
+    uint64_t    reset_vector       = 0;
     const char *snapshot_save_name = 0;
     const char *path               = NULL;
     const char *cmdline            = NULL;
@@ -688,6 +692,9 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             {"memory_size",             required_argument, 0,  'M' }, // CFG
             {"memory_addr",             required_argument, 0,  'A' }, // CFG
             {"bootrom",                 required_argument, 0,  'b' }, // CFG
+            {"compact_bootrom",               no_argument, 0,  'o' },
+            {"reset_vector",            required_argument, 0,  'r' }, // CFG
+            {"dtb",                     required_argument, 0,  'd' }, // CFG
             {0,                         0,                 0,  0 }
         };
 
@@ -754,6 +761,22 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             if (bootrom_name)
                 usage(prog, "already had a bootrom to load");
             bootrom_name = strdup(optarg);
+            break;
+
+        case 'd':
+            if (dtb_name)
+                usage(prog, "already had a dtb to load");
+            dtb_name = strdup(optarg);
+            break;
+
+        case 'o':
+            compact_bootrom = true;
+            break;
+
+        case 'r':
+            if (optarg[0] != '0' || optarg[1] != 'x')
+                usage(prog, "--reset_vector expects argument to start with 0x... ");
+            reset_vector = strtoll(optarg+2, NULL, 16);
             break;
 
         default:
@@ -890,9 +913,16 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     p->console = console_init(TRUE, stdin, dromajo_stdout);
     p->dump_memories = dump_memories;
 
-    // Load a bootrom if present
+    // Setup bootrom params
     if (bootrom_name)
         p->bootrom_name = bootrom_name;
+    if (dtb_name)
+        p->dtb_name = dtb_name;
+    p->compact_bootrom = compact_bootrom;
+
+    // Setup particular reset vector
+    if (reset_vector)
+        p->reset_vector = reset_vector;
 
     RISCVMachine *s = virt_machine_init(p);
     if (!s)

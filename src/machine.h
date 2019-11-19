@@ -136,8 +136,13 @@ typedef struct {
     /* snaphot load file */
     const char *snapshot_load_name;
 
-    /* bootrom name */
+    /* bootrom params */
     const char *bootrom_name;
+    const char *dtb_name;
+    bool compact_bootrom;
+
+    /* reset vector used at startup */
+    uint64_t reset_vector;
 
     /* number of cpus */
     uint64_t ncpus;
