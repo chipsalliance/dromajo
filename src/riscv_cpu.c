@@ -1875,7 +1875,7 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid)
     RISCVCPUState *s = (RISCVCPUState *)mallocz(sizeof *s);
     s->machine = machine;
     s->mem_map = machine->mem_map;
-    s->pc = s->machine->reset_vector;
+    s->pc = machine->reset_vector;
     s->priv = PRV_M;
     s->mstatus = ((uint64_t)2 << MSTATUS_UXL_SHIFT) |
                  ((uint64_t)2 << MSTATUS_SXL_SHIFT) |

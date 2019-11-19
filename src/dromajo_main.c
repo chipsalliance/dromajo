@@ -617,8 +617,10 @@ static void usage(const char *prog, const char *msg)
             "       --ncpus number of cpus to simulate (default 1)\n"
             "       --load resumes a previously saved snapshot\n"
             "       --save saves a snapshot upon exit\n"
-            "       --bootrom load in a bootrom img file\n"
-            "       --dtb load in a dtb file\n"
+            "       --bootrom load in a bootrom img file (default is dromajo bootrom)\n"
+            "       --dtb load in a dtb file (default is dromajo dtb)\n"
+            "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
+            "       --reset_vector set reset vector (default 0x%lx)\n"
             "       --maxinsns terminates execution after a number of instructions\n"
             "       --terminate-event name of the validate event to terminate execution\n"
             "       --trace start trace dump after a number of instructions. Trace disabled by default\n"
@@ -626,7 +628,7 @@ static void usage(const char *prog, const char *msg)
             "       --dump_memories dump memories that could be used to load a cosimulation\n"
             "       --memory_size sets the memory size in MiB (default 256 MiB)\n"
             "       --memory_addr sets the memory start address (default 0x%lx)\n",
-            msg, prog, (long)RAM_BASE_ADDR);
+            msg, prog, (long)BOOT_BASE_ADDR, (long)RAM_BASE_ADDR);
 
     exit(EXIT_FAILURE);
 }
@@ -661,7 +663,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     const char *bootrom_name       = 0;
     const char *dtb_name           = 0;
     bool        compact_bootrom    = false;
-    uint64_t    reset_vector       = 0;
+    uint64_t    reset_vector       = BOOT_BASE_ADDR;
     const char *snapshot_save_name = 0;
     const char *path               = NULL;
     const char *cmdline            = NULL;

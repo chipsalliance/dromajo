@@ -1030,10 +1030,8 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, cons
     else
         fdt_off += 256;
 
-    printf("[DEBUG] Before\n");
     if(riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line) < 0)
         return -1;
-    printf("[DEBUG] After\n");
 
     for (int i = 0; i < s->ncpus; ++i)
         riscv_set_debug_mode(s->cpu_state[i], TRUE);
