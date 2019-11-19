@@ -874,7 +874,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
 #endif
         {
 #if defined(__APPLE__)
-            fprintf(dromajo_err, "Filesystem access not supported yet\n");
+            fprintf(dromajo_stderr, "Filesystem access not supported yet\n");
             exit(1);
 #else
             char *fname;
