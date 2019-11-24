@@ -942,7 +942,7 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, cons
 
         if (elf64_get_entrypoint(buf) != s->ram_base_addr) {
             fprintf(dromajo_stderr,
-                    "DROMAJO currently requires a 0x%lx starting address, image assumes 0x%0lx\n",
+                    "DROMAJO currently requires a 0x%" PRIx64 " starting address, image assumes 0x%0" PRIx64 "\n",
                     s->ram_base_addr,
                     elf64_get_entrypoint(buf));
             return 1;
@@ -956,7 +956,7 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, cons
     if (!(s->ram_base_addr == 0x80000000 || s->ram_base_addr == 0x8000000000 || s->ram_base_addr == 0xC000000000)) {
         fprintf(dromajo_stderr,
                 "DROMAJO currently requires a 0x80000000 or 0x8000000000 or 0xC000000000"
-                " ram starting address, image assumes 0x%0lx\n",
+                " ram starting address, image assumes 0x%0" PRIx64 "\n",
                 elf64_get_entrypoint(buf));
         assert(0);
     }

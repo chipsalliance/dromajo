@@ -76,7 +76,7 @@ int iterate_core(RISCVMachine *m, int hartid)
     int fregno = riscv_get_most_recently_written_fp_reg(cpu);
 
     if (cpu->pending_exception != -1)
-        fprintf(dromajo_stderr, " exception %d, tval %016lx", cpu->pending_exception,
+        fprintf(dromajo_stderr, " exception %d, tval %016" PRIx64, cpu->pending_exception,
                 riscv_get_priv_level(cpu) == PRV_M ? cpu->mtval : cpu->stval);
     else if (iregno > 0)
         fprintf(dromajo_stderr, " x%2d 0x%016" PRIx64, iregno, virt_machine_get_reg(m, hartid, iregno));
