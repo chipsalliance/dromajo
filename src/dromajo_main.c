@@ -543,24 +543,6 @@ BOOL virt_machine_run(RISCVMachine *s, int hartid)
     return !riscv_terminated(s->cpu_state[hartid]) && s->common.maxinsns > 0;
 }
 
-void help(void)
-{
-    fprintf(dromajo_stderr, "dromajo version " CONFIG_VERSION
-            ", Copyright (c) 2016-2017 Fabrice Bellard\n"
-           "                             Copyright (c) 2018,2019 Esperanto Technologies\n"
-           "usage: dromajo [options] config_file\n"
-           "options are:\n"
-           "-m ram_size       set the RAM size in MB\n"
-           "-rw               allow write access to the disk image (default=snapshot)\n"
-           "-ctrlc            the C-c key stops the emulator instead of being sent to the\n"
-           "                  emulated software\n"
-           "-append cmdline   append cmdline to the kernel command line\n"
-           "\n"
-           "Console keys:\n"
-           "Press C-b x to exit the emulator, C-b h to get some help.\n");
-    exit(1);
-}
-
 void launch_alternate_executable(char **argv)
 {
     char filename[1024];
@@ -617,19 +599,18 @@ static void usage(const char *prog, const char *msg)
             "       --ncpus number of cpus to simulate (default 1)\n"
             "       --load resumes a previously saved snapshot\n"
             "       --save saves a snapshot upon exit\n"
-            "       --bootrom load in a bootrom img file (default is dromajo bootrom)\n"
-            "       --dtb load in a dtb file (default is dromajo dtb)\n"
-            "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
-            "       --reset_vector set reset vector (default 0x%lx)\n"
-            "       --mmio_start start of mmio range (overridden by config file)\n"
-            "       --mmio_end end of mmio range (overridden by config file)\n"
             "       --maxinsns terminates execution after a number of instructions\n"
             "       --terminate-event name of the validate event to terminate execution\n"
             "       --trace start trace dump after a number of instructions. Trace disabled by default\n"
             "       --ignore_sbi_shutdown continue simulation even upon seeing the SBI_SHUTDOWN call\n"
             "       --dump_memories dump memories that could be used to load a cosimulation\n"
             "       --memory_size sets the memory size in MiB (default 256 MiB)\n"
-            "       --memory_addr sets the memory start address (default 0x%lx)\n",
+            "       --memory_addr sets the memory start address (default 0x%lx)\n"
+            "       --bootrom load in a bootrom img file (default is dromajo bootrom)\n"
+            "       --dtb load in a dtb file (default is dromajo dtb)\n"
+            "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
+            "       --reset_vector set reset vector (default 0x%lx)\n"
+            "       --mmio_range START:END [START,END) mmio range for cosim (overridden by config file)\n",
             msg, prog, (long)BOOT_BASE_ADDR, (long)RAM_BASE_ADDR);
 
     exit(EXIT_FAILURE);
@@ -701,8 +682,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             {"compact_bootrom",               no_argument, 0,  'o' },
             {"reset_vector",            required_argument, 0,  'r' }, // CFG
             {"dtb",                     required_argument, 0,  'd' }, // CFG
-            {"mmio_start",              required_argument, 0,  'S' }, // CFG
-            {"mmio_end",                required_argument, 0,  'E' }, // CFG
+            {"mmio_range",              required_argument, 0,  'R' }, // CFG
             {0,                         0,                 0,  0 }
         };
 
@@ -787,16 +767,21 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             reset_vector = strtoll(optarg+2, NULL, 16);
             break;
 
-        case 'S':
-            if (optarg[0] != '0' || optarg[1] != 'x')
-                usage(prog, "--mmio_start argument to start with 0x... ");
-            mmio_start_override = strtoll(optarg+2, NULL, 16);
-            break;
+        case 'R': {
+                if (!strchr(optarg, ':'))
+                    usage(prog, "--mmio_range expects an argument like START:END");
 
-        case 'E':
-            if (optarg[0] != '0' || optarg[1] != 'x')
-                usage(prog, "--mmio_end expects argument to start with 0x... ");
-            mmio_end_override = strtoll(optarg+2, NULL, 16);
+                char *mmio_start = strtok(optarg, ":");
+                char *mmio_end   = strtok(NULL, ":");
+
+                if (mmio_start[0] != '0' || mmio_start[1] != 'x')
+                    usage(prog, "--mmio_range START address must begin with 0x...");
+                mmio_start_override = strtoll(mmio_start+2, NULL, 16);
+
+                if (mmio_end[0] != '0' || mmio_end[1] != 'x')
+                    usage(prog, "--mmio_range END address must begin with 0x...");
+                mmio_end_override = strtoll(mmio_end+2, NULL, 16);
+            }
             break;
 
         default:
