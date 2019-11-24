@@ -62,6 +62,7 @@
 //#define DUMP_CLINT
 //#define DUMP_HTIF
 //#define DUMP_PLIC
+//#define DUMP_DTB
 
 #define USE_SIFIVE_UART
 
@@ -847,8 +848,6 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         fdt_end_node(s); /* / */
 
         size = fdt_output(s, dst);
-
-        fdt_end(s);
     } else {
         // write from other dts
         FILE *fPtr;
@@ -876,7 +875,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         size = fLen;
     }
 
-#if 1
+#ifdef DUMP_DTB
     {
         FILE *f;
         f = fopen("/tmp/dromajo.dtb", "wb");
@@ -884,6 +883,9 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         fclose(f);
     }
 #endif
+
+    if (!dtb_name)
+        fdt_end(s);
 
     return size;
 }
