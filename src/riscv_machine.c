@@ -65,25 +65,6 @@
 
 #define USE_SIFIVE_UART
 
-#define PLIC_BASE_ADDR          0x10000000
-#define PLIC_SIZE                0x2000000
-#define PLIC_HART_BASE          0x00200000
-#define PLIC_HART_SIZE              0x1000
-
-#define HTIF_BASE_ADDR          0x40008000
-#define IDE_BASE_ADDR           0x40009000
-#define VIRTIO_BASE_ADDR        0x40010000
-#define VIRTIO_SIZE                 0x1000
-#define VIRTIO_IRQ                       1
-#define FRAMEBUFFER_BASE_ADDR   0x41000000
-
-// sifive,uart, same as qemu UART0 (qemu has 2 sifive uarts)
-#define UART0_BASE_ADDR         0x54000000
-#define UART0_SIZE                      32
-#define UART0_IRQ                        3
-
-#define RTC_FREQ                  10000000
-
 enum {
     SIFIVE_UART_TXFIFO        = 0,
     SIFIVE_UART_RXFIFO        = 4,
@@ -259,7 +240,7 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
             val = m->cpu_state[hartid]->timecmp;
         }
     } else {
-        fprintf(stderr, "clint_read to unmanaged address 0x%x\n", CLINT_BASE_ADDR + offset);
+        fprintf(stderr, "clint_read to unmanaged address CLINT_BASE+0x%x\n", offset);
         val = 0;
     }
 
@@ -304,7 +285,7 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val,
             riscv_cpu_reset_mip(m->cpu_state[hartid], MIP_MTIP);
         }
     } else {
-        fprintf(stderr, "clint_write to unmanaged address 0x%x\n", CLINT_BASE_ADDR + offset);
+        fprintf(stderr, "clint_write to unmanaged address CLINT_BASE+0x%x\n", offset);
         val = 0;
     }
 
@@ -781,7 +762,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
                         "ucbbar,dromajo-bar-soc", "simple-bus", NULL);
         fdt_prop(s, "ranges", NULL, 0);
 
-        fdt_begin_node_num(s, "clint", CLINT_BASE_ADDR);
+        fdt_begin_node_num(s, "clint", m->clint_base_addr);
         fdt_prop_str(s, "compatible", "riscv,clint0");
 
         for (int hartid = 0; hartid < m->ncpus; ++hartid) {
@@ -793,17 +774,17 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 
         fdt_prop_tab_u32(s, "interrupts-extended", tab, 4 * m->ncpus);
 
-        fdt_prop_tab_u64_2(s, "reg", CLINT_BASE_ADDR, CLINT_SIZE);
+        fdt_prop_tab_u64_2(s, "reg", m->clint_base_addr, m->clint_size);
 
         fdt_end_node(s); /* clint */
 
-        fdt_begin_node_num(s, "plic", PLIC_BASE_ADDR);
+        fdt_begin_node_num(s, "plic", m->plic_base_addr);
         fdt_prop_u32(s, "#interrupt-cells", 1);
 
         fdt_prop(s, "interrupt-controller", NULL, 0);
         fdt_prop_str(s, "compatible", "riscv,plic0");
         fdt_prop_u32(s, "riscv,ndev", 31);
-        fdt_prop_tab_u64_2(s, "reg", PLIC_BASE_ADDR, PLIC_SIZE);
+        fdt_prop_tab_u64_2(s, "reg", m->plic_base_addr, m->plic_size);
 
         for (int hartid = 0; hartid < m->ncpus; ++hartid) {
             tab[hartid * 4 + 0] = hartid2handle[hartid];
@@ -866,6 +847,8 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         fdt_end_node(s); /* / */
 
         size = fdt_output(s, dst);
+
+        fdt_end(s);
     } else {
         // write from other dts
         FILE *fPtr;
@@ -892,7 +875,8 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 
         size = fLen;
     }
-#if 0
+
+#if 1
     {
         FILE *f;
         f = fopen("/tmp/dromajo.dtb", "wb");
@@ -900,8 +884,6 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         fclose(f);
     }
 #endif
-    if (!dtb_name)
-        fdt_end(s);
 
     return size;
 }
@@ -974,7 +956,7 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, cons
     if (!(s->ram_base_addr == 0x80000000 || s->ram_base_addr == 0x8000000000 || s->ram_base_addr == 0xC000000000)) {
         fprintf(dromajo_stderr,
                 "DROMAJO currently requires a 0x80000000 or 0x8000000000 or 0xC000000000"
-                " starting address, image assumes 0x%0lx\n",
+                " ram starting address, image assumes 0x%0lx\n",
                 elf64_get_entrypoint(buf));
         assert(0);
     }
@@ -1051,6 +1033,11 @@ void virt_machine_set_defaults(VirtMachineParams *p)
     memset(p, 0, sizeof *p);
     p->physical_addr_len = PHYSICAL_ADDR_LEN_DEFAULT;
     p->ram_base_addr     = RAM_BASE_ADDR;
+    p->reset_vector      = BOOT_BASE_ADDR;
+    p->plic_base_addr    = PLIC_BASE_ADDR;
+    p->plic_size         = PLIC_SIZE;
+    p->clint_base_addr   = CLINT_BASE_ADDR;
+    p->clint_size        = CLINT_SIZE;
 }
 
 RISCVMachine *virt_machine_init(const VirtMachineParams *p)
@@ -1071,8 +1058,11 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     s->common.snapshot_load_name = p->snapshot_load_name;
 
     s->ncpus = p->ncpus;
+
+    /* setup reset vector for core
+     * note: must be above riscv_cpu_init
+     */
     s->reset_vector = p->reset_vector;
-    s->compact_bootrom = p->compact_bootrom;
 
     if (MAX_CPUS < s->ncpus) {
         fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
@@ -1111,9 +1101,9 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
                         dw_apb_uart, dw_apb_uart_read, dw_apb_uart_write,
                         DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
 
-    cpu_register_device(s->mem_map, CLINT_BASE_ADDR, CLINT_SIZE, s,
+    cpu_register_device(s->mem_map, p->clint_base_addr, p->clint_size, s,
                         clint_read, clint_write, DEVIO_SIZE32);
-    cpu_register_device(s->mem_map, PLIC_BASE_ADDR, PLIC_SIZE, s,
+    cpu_register_device(s->mem_map, p->plic_base_addr, p->plic_size, s,
                         plic_read, plic_write, DEVIO_SIZE32);
 
     for (int j = 1; j < 32; j++) {
@@ -1199,8 +1189,18 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
                            p->cmdline))
         return NULL;
 
+    /* mmio setup for cosim */
     s->mmio_start = p->mmio_start;
     s->mmio_end   = p->mmio_end;
+
+    /* have compact bootrom */
+    s->compact_bootrom = p->compact_bootrom;
+
+    /* plic/clint setup */
+    s->plic_base_addr  = p->plic_base_addr;
+    s->plic_size       = p->plic_size;
+    s->clint_base_addr = p->clint_base_addr;
+    s->clint_size      = p->clint_size;
 
     if (p->dump_memories) {
       FILE *fd = fopen("BootRAM.hex", "w+");
@@ -1242,7 +1242,7 @@ void virt_machine_serialize(RISCVMachine *m, const char *dump_name)
             m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
 
     assert(m->ncpus == 1); // FIXME: riscv_cpu_serialize must be patched for multicore
-    riscv_cpu_serialize(s, dump_name);
+    riscv_cpu_serialize(s, dump_name, m->clint_base_addr);
 }
 
 void virt_machine_deserialize(RISCVMachine *m, const char *dump_name)

@@ -150,6 +150,13 @@ typedef struct {
     /* MMIO range (for co-simulation only) */
     uint64_t mmio_start;
     uint64_t mmio_end;
+
+    /* PLIC/CLINT Params */
+    uint64_t plic_base_addr;
+    uint64_t plic_size;
+    uint64_t clint_base_addr;
+    uint64_t clint_size;
+
     uint64_t physical_addr_len;
 
     char    *logfile; // If non-zero, all output goes here, stderr and stdout

@@ -610,8 +610,14 @@ static void usage(const char *prog, const char *msg)
             "       --dtb load in a dtb file (default is dromajo dtb)\n"
             "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
             "       --reset_vector set reset vector (default 0x%lx)\n"
-            "       --mmio_range START:END [START,END) mmio range for cosim (overridden by config file)\n",
-            msg, prog, (long)BOOT_BASE_ADDR, (long)RAM_BASE_ADDR);
+            "       --mmio_range START:END [START,END) mmio range for cosim (overridden by config file)\n"
+            "       --plic START:SIZE set PLIC start address and size (defaults to 0x%lx:0x%lx)\n"
+            "       --clint START:SIZE set CLINT start address and size (defaults to 0x%lx:0x%lx)\n",
+            msg,
+            prog,
+            (long)BOOT_BASE_ADDR, (long)RAM_BASE_ADDR,
+            (long)PLIC_BASE_ADDR, (long)PLIC_SIZE,
+            (long)CLINT_BASE_ADDR, (long)CLINT_SIZE);
 
     exit(EXIT_FAILURE);
 }
@@ -643,12 +649,6 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
 {
     const char *prog               = argv[0];
     const char *snapshot_load_name = 0;
-    const char *bootrom_name       = 0;
-    const char *dtb_name           = 0;
-    bool        compact_bootrom    = false;
-    uint64_t    reset_vector       = BOOT_BASE_ADDR;
-    uint64_t    mmio_start_override = 0;
-    uint64_t    mmio_end_override   = 0;
     const char *snapshot_save_name = 0;
     const char *path               = NULL;
     const char *cmdline            = NULL;
@@ -659,6 +659,16 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     uint64_t    memory_addr_override = 0;
     bool        ignore_sbi_shutdown  = false;
     bool        dump_memories        = false;
+    const char *bootrom_name         = 0;
+    const char *dtb_name             = 0;
+    bool        compact_bootrom      = false;
+    uint64_t    reset_vector_override = 0;
+    uint64_t    mmio_start_override  = 0;
+    uint64_t    mmio_end_override    = 0;
+    uint64_t    plic_base_addr_override = 0;
+    uint64_t    plic_size_override      = 0;
+    uint64_t    clint_base_addr_override = 0;
+    uint64_t    clint_size_override      = 0;
 
     dromajo_stdout = stdout;
     dromajo_stderr = stderr;
@@ -683,6 +693,8 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             {"reset_vector",            required_argument, 0,  'r' }, // CFG
             {"dtb",                     required_argument, 0,  'd' }, // CFG
             {"mmio_range",              required_argument, 0,  'R' }, // CFG
+            {"plic",                    required_argument, 0,  'p' }, // CFG
+            {"clint",                   required_argument, 0,  'C' }, // CFG
             {0,                         0,                 0,  0 }
         };
 
@@ -764,7 +776,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
         case 'r':
             if (optarg[0] != '0' || optarg[1] != 'x')
                 usage(prog, "--reset_vector expects argument to start with 0x... ");
-            reset_vector = strtoll(optarg+2, NULL, 16);
+            reset_vector_override = strtoll(optarg+2, NULL, 16);
             break;
 
         case 'R': {
@@ -781,6 +793,40 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
                 if (mmio_end[0] != '0' || mmio_end[1] != 'x')
                     usage(prog, "--mmio_range END address must begin with 0x...");
                 mmio_end_override = strtoll(mmio_end+2, NULL, 16);
+            }
+            break;
+
+        case 'p': {
+                if (!strchr(optarg, ':'))
+                    usage(prog, "--plic expects an argument like START:SIZE");
+
+                char *plic_base_addr = strtok(optarg, ":");
+                char *plic_size      = strtok(NULL, ":");
+
+                if (plic_base_addr[0] != '0' || plic_base_addr[1] != 'x')
+                    usage(prog, "--plic START address must begin with 0x...");
+                plic_base_addr_override = strtoll(plic_base_addr+2, NULL, 16);
+
+                if (plic_size[0] != '0' || plic_size[1] != 'x')
+                    usage(prog, "--plic SIZE must begin with 0x...");
+                plic_size_override = strtoll(plic_size+2, NULL, 16);
+            }
+            break;
+
+        case 'C': {
+                if (!strchr(optarg, ':'))
+                    usage(prog, "--clint expects an argument like START:SIZE");
+
+                char *clint_base_addr = strtok(optarg, ":");
+                char *clint_size      = strtok(NULL, ":");
+
+                if (clint_base_addr[0] != '0' || clint_base_addr[1] != 'x')
+                    usage(prog, "--clint START address must begin with 0x...");
+                clint_base_addr_override = strtoll(clint_base_addr+2, NULL, 16);
+
+                if (clint_size[0] != '0' || clint_size[1] != 'x')
+                    usage(prog, "--clint SIZE must begin with 0x...");
+                clint_size_override = strtoll(clint_size+2, NULL, 16);
             }
             break;
 
@@ -926,14 +972,35 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     p->compact_bootrom = compact_bootrom;
 
     // Setup particular reset vector
-    if (reset_vector)
-        p->reset_vector = reset_vector;
+    if (reset_vector_override)
+        p->reset_vector = reset_vector_override;
 
     // MMIO ranges
     if (mmio_start_override)
         p->mmio_start = mmio_start_override;
     if (mmio_end_override)
         p->mmio_end = mmio_end_override;
+
+    // PLIC params
+    if (plic_base_addr_override)
+        p->plic_base_addr = plic_base_addr_override;
+    if (plic_size_override)
+        p->plic_size = plic_size_override;
+
+    // CLINT params
+    if (clint_base_addr_override)
+        p->clint_base_addr = clint_base_addr_override;
+    if (clint_size_override)
+        p->clint_size = clint_size_override;
+
+    printf("[DROMAJO] %lx %lx %lx %lx %lx %lx %lx\n",
+            p->reset_vector,
+            p->mmio_start,
+            p->mmio_end,
+            p->plic_base_addr,
+            p->plic_size,
+            p->clint_base_addr,
+            p->clint_size);
 
     RISCVMachine *s = virt_machine_init(p);
     if (!s)
