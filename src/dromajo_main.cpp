@@ -993,15 +993,6 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     if (clint_size_override)
         p->clint_size = clint_size_override;
 
-    printf("[DROMAJO] %lx %lx %lx %lx %lx %lx %lx\n",
-            p->reset_vector,
-            p->mmio_start,
-            p->mmio_end,
-            p->plic_base_addr,
-            p->plic_size,
-            p->clint_base_addr,
-            p->clint_size);
-
     RISCVMachine *s = virt_machine_init(p);
     if (!s)
         return NULL;
