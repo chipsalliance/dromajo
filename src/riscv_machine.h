@@ -85,13 +85,46 @@ struct RISCVMachine {
     uint64_t mmio_start;
     uint64_t mmio_end;
 
+    /* Reset vector */
+    uint64_t reset_vector;
+
+    /* Bootrom Params */
+    bool compact_bootrom;
+
+    /* PLIC/CLINT Params */
+    uint64_t plic_base_addr;
+    uint64_t plic_size;
+    uint64_t clint_base_addr;
+    uint64_t clint_size;
+
+    /* Append to misa custom extensions */
+    bool custom_extension;
+
     /* Extension state, not used by Dromajo itself */
     void *ext_state;
 };
 
+#define PLIC_BASE_ADDR  0xC000000
+#define PLIC_SIZE       0x4000000
+
 #define CLINT_BASE_ADDR 0x02000000
 #define CLINT_SIZE      0x000c0000
+
 #define RTC_FREQ_DIV 16 /* arbitrary, relative to CPU freq to have a
                            10 MHz frequency */
+
+#define HTIF_BASE_ADDR          0x40008000
+#define IDE_BASE_ADDR           0x40009000
+#define VIRTIO_BASE_ADDR        0x40010000
+#define VIRTIO_SIZE                 0x1000
+#define VIRTIO_IRQ                       1
+#define FRAMEBUFFER_BASE_ADDR   0x41000000
+
+// sifive,uart, same as qemu UART0 (qemu has 2 sifive uarts)
+#define UART0_BASE_ADDR         0x54000000
+#define UART0_SIZE                      32
+#define UART0_IRQ                        3
+
+#define RTC_FREQ                  10000000
 
 #endif

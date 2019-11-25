@@ -1875,7 +1875,7 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid)
     RISCVCPUState *s = (RISCVCPUState *)mallocz(sizeof *s);
     s->machine = machine;
     s->mem_map = machine->mem_map;
-    s->pc = BOOT_BASE_ADDR;
+    s->pc = machine->reset_vector;
     s->priv = PRV_M;
     s->mstatus = ((uint64_t)2 << MSTATUS_UXL_SHIFT) |
                  ((uint64_t)2 << MSTATUS_SXL_SHIFT) |
@@ -1894,6 +1894,9 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid)
     s->misa |= MCPUID_Q;
 #endif
     s->misa |= MCPUID_C;
+
+    if (machine->custom_extension)
+        s->misa |= MCPUID_X;
 
     s->mvendorid = 11 * 128 + 101; // Esperanto JEDEC number 101 in bank 11 (Change for your own)
     s->marchid   = (1ULL << 63) | 2;
@@ -2215,7 +2218,7 @@ static void create_hang_nonzero_hart(uint32_t *rom, uint32_t *code_pos, uint32_t
                                       // 1:
 }
 
-static void create_boot_rom(RISCVCPUState *s, const char *file)
+static void create_boot_rom(RISCVCPUState *s, const char *file, const uint64_t clint_base_addr)
 {
     uint32_t rom[ROM_SIZE / 4];
     memset(rom, 0, sizeof rom);
@@ -2336,14 +2339,15 @@ static void create_boot_rom(RISCVCPUState *s, const char *file)
     // Recover CLINT (Close to the end of the recovery to avoid extra cycles)
     // TODO: One per hart (multicore/SMP)
 
-    fprintf(dromajo_stderr, "clint hartid=%d timecmp=%ld cycles (%ld)\n", (int)s->mhartid, s->timecmp, s->mcycle/RTC_FREQ_DIV);
+    fprintf(dromajo_stderr, "clint hartid=%d timecmp=%" PRId64 " cycles (%" PRId64 ")\n",
+	    (int)s->mhartid, s->timecmp, s->mcycle/RTC_FREQ_DIV);
 
     // Assuming 16 ratio between CPU and CLINT and that CPU is reset to zero
-    create_io64_recovery( rom, &code_pos, &data_pos, CLINT_BASE_ADDR + 0x4000, s->timecmp);
+    create_io64_recovery( rom, &code_pos, &data_pos, clint_base_addr + 0x4000, s->timecmp);
     create_csr64_recovery(rom, &code_pos, &data_pos, 0xb02, s->minstret);
     create_csr64_recovery(rom, &code_pos, &data_pos, 0xb00, s->mcycle);
 
-    create_io64_recovery( rom, &code_pos, &data_pos, CLINT_BASE_ADDR + 0xbff8, s->mcycle/RTC_FREQ_DIV);
+    create_io64_recovery( rom, &code_pos, &data_pos, clint_base_addr + 0xbff8, s->mcycle/RTC_FREQ_DIV);
 
     for (int i = 1; i < 3; i++) { // recover 1 and 2 now
       create_reg_recovery(rom, &code_pos, &data_pos, i, s->reg[i]);
@@ -2366,7 +2370,7 @@ static void create_boot_rom(RISCVCPUState *s, const char *file)
     serialize_memory(rom, ROM_SIZE, file);
 }
 
-void riscv_cpu_serialize(RISCVCPUState *s, const char *dump_name)
+void riscv_cpu_serialize(RISCVCPUState *s, const char *dump_name, const uint64_t clint_base_addr)
 {
     FILE *conf_fd = 0;
     size_t n = strlen(dump_name) + 64;
@@ -2465,7 +2469,7 @@ void riscv_cpu_serialize(RISCVCPUState *s, const char *dump_name)
 
     if (s->priv != 3 || ROM_BASE_ADDR + ROM_SIZE < s->pc) {
         fprintf(dromajo_stderr, "NOTE: creating a new boot rom\n");
-        create_boot_rom(s, f_name);
+        create_boot_rom(s, f_name, clint_base_addr);
     } else if (BOOT_BASE_ADDR < s->pc) {
         fprintf(dromajo_stderr, "ERROR: could not checkpoint when running inside the ROM\n");
         exit(-4);

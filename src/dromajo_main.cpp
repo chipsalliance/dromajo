@@ -543,24 +543,6 @@ BOOL virt_machine_run(RISCVMachine *s, int hartid)
     return !riscv_terminated(s->cpu_state[hartid]) && s->common.maxinsns > 0;
 }
 
-void help(void)
-{
-    fprintf(dromajo_stderr, "dromajo version " CONFIG_VERSION
-            ", Copyright (c) 2016-2017 Fabrice Bellard\n"
-           "                             Copyright (c) 2018,2019 Esperanto Technologies\n"
-           "usage: dromajo [options] config_file\n"
-           "options are:\n"
-           "-m ram_size       set the RAM size in MB\n"
-           "-rw               allow write access to the disk image (default=snapshot)\n"
-           "-ctrlc            the C-c key stops the emulator instead of being sent to the\n"
-           "                  emulated software\n"
-           "-append cmdline   append cmdline to the kernel command line\n"
-           "\n"
-           "Console keys:\n"
-           "Press C-b x to exit the emulator, C-b h to get some help.\n");
-    exit(1);
-}
-
 void launch_alternate_executable(char **argv)
 {
     char filename[1024];
@@ -623,8 +605,20 @@ static void usage(const char *prog, const char *msg)
             "       --ignore_sbi_shutdown continue simulation even upon seeing the SBI_SHUTDOWN call\n"
             "       --dump_memories dump memories that could be used to load a cosimulation\n"
             "       --memory_size sets the memory size in MiB (default 256 MiB)\n"
-            "       --memory_addr sets the memory start address (default 0x%lx)\n",
-            msg, prog, (long)RAM_BASE_ADDR);
+            "       --memory_addr sets the memory start address (default 0x%lx)\n"
+            "       --bootrom load in a bootrom img file (default is dromajo bootrom)\n"
+            "       --dtb load in a dtb file (default is dromajo dtb)\n"
+            "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
+            "       --reset_vector set reset vector (default 0x%lx)\n"
+            "       --mmio_range START:END [START,END) mmio range for cosim (overridden by config file)\n"
+            "       --plic START:SIZE set PLIC start address and size (defaults to 0x%lx:0x%lx)\n"
+            "       --clint START:SIZE set CLINT start address and size (defaults to 0x%lx:0x%lx)\n"
+            "       --custom_extension add X extension to isa\n",
+            msg,
+            prog,
+            (long)BOOT_BASE_ADDR, (long)RAM_BASE_ADDR,
+            (long)PLIC_BASE_ADDR, (long)PLIC_SIZE,
+            (long)CLINT_BASE_ADDR, (long)CLINT_SIZE);
 
     exit(EXIT_FAILURE);
 }
@@ -654,18 +648,29 @@ static bool load_elf_and_fake_the_config(VirtMachineParams *p, const char *path)
 
 RISCVMachine *virt_machine_main(int argc, char **argv)
 {
-    const char *prog               = argv[0];
-    const char *snapshot_load_name = 0;
-    const char *snapshot_save_name = 0;
-    const char *path               = NULL;
-    const char *cmdline            = NULL;
-    long        ncpus              = 0;
-    uint64_t    maxinsns           = 0;
-    uint64_t    trace              = UINT64_MAX;
-    long        memory_size_override = 0;
-    uint64_t    memory_addr_override = 0;
-    bool        ignore_sbi_shutdown  = false;
-    bool        dump_memories        = false;
+    const char *prog                     = argv[0];
+    const char *snapshot_load_name       = 0;
+    const char *snapshot_save_name       = 0;
+    const char *path                     = NULL;
+    const char *cmdline                  = NULL;
+    long        ncpus                    = 0;
+    uint64_t    maxinsns                 = 0;
+    uint64_t    trace                    = UINT64_MAX;
+    long        memory_size_override     = 0;
+    uint64_t    memory_addr_override     = 0;
+    bool        ignore_sbi_shutdown      = false;
+    bool        dump_memories            = false;
+    const char *bootrom_name             = 0;
+    const char *dtb_name                 = 0;
+    bool        compact_bootrom          = false;
+    uint64_t    reset_vector_override    = 0;
+    uint64_t    mmio_start_override      = 0;
+    uint64_t    mmio_end_override        = 0;
+    uint64_t    plic_base_addr_override  = 0;
+    uint64_t    plic_size_override       = 0;
+    uint64_t    clint_base_addr_override = 0;
+    uint64_t    clint_size_override      = 0;
+    bool        custom_extension         = false;
 
     dromajo_stdout = stdout;
     dromajo_stderr = stderr;
@@ -685,6 +690,14 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             {"dump_memories",           required_argument, 0,  'D' }, // CFG
             {"memory_size",             required_argument, 0,  'M' }, // CFG
             {"memory_addr",             required_argument, 0,  'A' }, // CFG
+            {"bootrom",                 required_argument, 0,  'b' }, // CFG
+            {"compact_bootrom",               no_argument, 0,  'o' },
+            {"reset_vector",            required_argument, 0,  'r' }, // CFG
+            {"dtb",                     required_argument, 0,  'd' }, // CFG
+            {"mmio_range",              required_argument, 0,  'R' }, // CFG
+            {"plic",                    required_argument, 0,  'p' }, // CFG
+            {"clint",                   required_argument, 0,  'C' }, // CFG
+            {"custom_extension",              no_argument, 0,  'u' }, // CFG
             {0,                         0,                 0,  0 }
         };
 
@@ -745,6 +758,83 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             if (optarg[0] != '0' || optarg[1] != 'x')
                 usage(prog, "--memory_addr expects argument to start with 0x... ");
             memory_addr_override = strtoll(optarg + 2, NULL, 16);
+            break;
+
+        case 'b':
+            if (bootrom_name)
+                usage(prog, "already had a bootrom to load");
+            bootrom_name = strdup(optarg);
+            break;
+
+        case 'd':
+            if (dtb_name)
+                usage(prog, "already had a dtb to load");
+            dtb_name = strdup(optarg);
+            break;
+
+        case 'o':
+            compact_bootrom = true;
+            break;
+
+        case 'r':
+            if (optarg[0] != '0' || optarg[1] != 'x')
+                usage(prog, "--reset_vector expects argument to start with 0x... ");
+            reset_vector_override = strtoll(optarg+2, NULL, 16);
+            break;
+
+        case 'R': {
+                if (!strchr(optarg, ':'))
+                    usage(prog, "--mmio_range expects an argument like START:END");
+
+                char *mmio_start = strtok(optarg, ":");
+                char *mmio_end   = strtok(NULL, ":");
+
+                if (mmio_start[0] != '0' || mmio_start[1] != 'x')
+                    usage(prog, "--mmio_range START address must begin with 0x...");
+                mmio_start_override = strtoll(mmio_start+2, NULL, 16);
+
+                if (mmio_end[0] != '0' || mmio_end[1] != 'x')
+                    usage(prog, "--mmio_range END address must begin with 0x...");
+                mmio_end_override = strtoll(mmio_end+2, NULL, 16);
+            }
+            break;
+
+        case 'p': {
+                if (!strchr(optarg, ':'))
+                    usage(prog, "--plic expects an argument like START:SIZE");
+
+                char *plic_base_addr = strtok(optarg, ":");
+                char *plic_size      = strtok(NULL, ":");
+
+                if (plic_base_addr[0] != '0' || plic_base_addr[1] != 'x')
+                    usage(prog, "--plic START address must begin with 0x...");
+                plic_base_addr_override = strtoll(plic_base_addr+2, NULL, 16);
+
+                if (plic_size[0] != '0' || plic_size[1] != 'x')
+                    usage(prog, "--plic SIZE must begin with 0x...");
+                plic_size_override = strtoll(plic_size+2, NULL, 16);
+            }
+            break;
+
+        case 'C': {
+                if (!strchr(optarg, ':'))
+                    usage(prog, "--clint expects an argument like START:SIZE");
+
+                char *clint_base_addr = strtok(optarg, ":");
+                char *clint_size      = strtok(NULL, ":");
+
+                if (clint_base_addr[0] != '0' || clint_base_addr[1] != 'x')
+                    usage(prog, "--clint START address must begin with 0x...");
+                clint_base_addr_override = strtoll(clint_base_addr+2, NULL, 16);
+
+                if (clint_size[0] != '0' || clint_size[1] != 'x')
+                    usage(prog, "--clint SIZE must begin with 0x...");
+                clint_size_override = strtoll(clint_size+2, NULL, 16);
+            }
+            break;
+
+        case 'u':
+            custom_extension = true;
             break;
 
         default:
@@ -880,6 +970,38 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
 
     p->console = console_init(TRUE, stdin, dromajo_stdout);
     p->dump_memories = dump_memories;
+
+    // Setup bootrom params
+    if (bootrom_name)
+        p->bootrom_name = bootrom_name;
+    if (dtb_name)
+        p->dtb_name = dtb_name;
+    p->compact_bootrom = compact_bootrom;
+
+    // Setup particular reset vector
+    if (reset_vector_override)
+        p->reset_vector = reset_vector_override;
+
+    // MMIO ranges
+    if (mmio_start_override)
+        p->mmio_start = mmio_start_override;
+    if (mmio_end_override)
+        p->mmio_end = mmio_end_override;
+
+    // PLIC params
+    if (plic_base_addr_override)
+        p->plic_base_addr = plic_base_addr_override;
+    if (plic_size_override)
+        p->plic_size = plic_size_override;
+
+    // CLINT params
+    if (clint_base_addr_override)
+        p->clint_base_addr = clint_base_addr_override;
+    if (clint_size_override)
+        p->clint_size = clint_size_override;
+
+    // ISA modifications
+    p->custom_extension = custom_extension;
 
     RISCVMachine *s = virt_machine_init(p);
     if (!s)

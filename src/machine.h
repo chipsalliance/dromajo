@@ -136,12 +136,30 @@ typedef struct {
     /* snaphot load file */
     const char *snapshot_load_name;
 
+    /* bootrom params */
+    const char *bootrom_name;
+    const char *dtb_name;
+    bool compact_bootrom;
+
+    /* reset vector used at startup */
+    uint64_t reset_vector;
+
     /* number of cpus */
     uint64_t ncpus;
 
     /* MMIO range (for co-simulation only) */
     uint64_t mmio_start;
     uint64_t mmio_end;
+
+    /* PLIC/CLINT Params */
+    uint64_t plic_base_addr;
+    uint64_t plic_size;
+    uint64_t clint_base_addr;
+    uint64_t clint_size;
+
+    /* Add to misa custom extensions */
+    bool custom_extension;
+
     uint64_t physical_addr_len;
 
     char    *logfile; // If non-zero, all output goes here, stderr and stdout
