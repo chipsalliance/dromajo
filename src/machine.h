@@ -157,6 +157,9 @@ typedef struct {
     uint64_t clint_base_addr;
     uint64_t clint_size;
 
+    /* Add to misa custom extensions */
+    bool custom_extension;
+
     uint64_t physical_addr_len;
 
     char    *logfile; // If non-zero, all output goes here, stderr and stdout

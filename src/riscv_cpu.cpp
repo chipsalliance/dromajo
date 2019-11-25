@@ -1895,6 +1895,9 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid)
 #endif
     s->misa |= MCPUID_C;
 
+    if (machine->custom_extension)
+        s->misa |= MCPUID_X;
+
     s->mvendorid = 11 * 128 + 101; // Esperanto JEDEC number 101 in bank 11 (Change for your own)
     s->marchid   = (1ULL << 63) | 2;
     s->mimpid    = 1;
@@ -2336,7 +2339,7 @@ static void create_boot_rom(RISCVCPUState *s, const char *file, const uint64_t c
     // Recover CLINT (Close to the end of the recovery to avoid extra cycles)
     // TODO: One per hart (multicore/SMP)
 
-    fprintf(dromajo_stderr, "clint hartid=%d timecmp=%" PRId64 " cycles (%" PRId64 ")\n", 
+    fprintf(dromajo_stderr, "clint hartid=%d timecmp=%" PRId64 " cycles (%" PRId64 ")\n",
 	    (int)s->mhartid, s->timecmp, s->mcycle/RTC_FREQ_DIV);
 
     // Assuming 16 ratio between CPU and CLINT and that CPU is reset to zero

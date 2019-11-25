@@ -97,6 +97,9 @@ struct RISCVMachine {
     uint64_t clint_base_addr;
     uint64_t clint_size;
 
+    /* Append to misa custom extensions */
+    bool custom_extension;
+
     /* Extension state, not used by Dromajo itself */
     void *ext_state;
 };

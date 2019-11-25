@@ -612,7 +612,8 @@ static void usage(const char *prog, const char *msg)
             "       --reset_vector set reset vector (default 0x%lx)\n"
             "       --mmio_range START:END [START,END) mmio range for cosim (overridden by config file)\n"
             "       --plic START:SIZE set PLIC start address and size (defaults to 0x%lx:0x%lx)\n"
-            "       --clint START:SIZE set CLINT start address and size (defaults to 0x%lx:0x%lx)\n",
+            "       --clint START:SIZE set CLINT start address and size (defaults to 0x%lx:0x%lx)\n"
+            "       --custom_extension add X extension to isa\n",
             msg,
             prog,
             (long)BOOT_BASE_ADDR, (long)RAM_BASE_ADDR,
@@ -647,28 +648,29 @@ static bool load_elf_and_fake_the_config(VirtMachineParams *p, const char *path)
 
 RISCVMachine *virt_machine_main(int argc, char **argv)
 {
-    const char *prog               = argv[0];
-    const char *snapshot_load_name = 0;
-    const char *snapshot_save_name = 0;
-    const char *path               = NULL;
-    const char *cmdline            = NULL;
-    long        ncpus              = 0;
-    uint64_t    maxinsns           = 0;
-    uint64_t    trace              = UINT64_MAX;
-    long        memory_size_override = 0;
-    uint64_t    memory_addr_override = 0;
-    bool        ignore_sbi_shutdown  = false;
-    bool        dump_memories        = false;
-    const char *bootrom_name         = 0;
-    const char *dtb_name             = 0;
-    bool        compact_bootrom      = false;
-    uint64_t    reset_vector_override = 0;
-    uint64_t    mmio_start_override  = 0;
-    uint64_t    mmio_end_override    = 0;
-    uint64_t    plic_base_addr_override = 0;
-    uint64_t    plic_size_override      = 0;
+    const char *prog                     = argv[0];
+    const char *snapshot_load_name       = 0;
+    const char *snapshot_save_name       = 0;
+    const char *path                     = NULL;
+    const char *cmdline                  = NULL;
+    long        ncpus                    = 0;
+    uint64_t    maxinsns                 = 0;
+    uint64_t    trace                    = UINT64_MAX;
+    long        memory_size_override     = 0;
+    uint64_t    memory_addr_override     = 0;
+    bool        ignore_sbi_shutdown      = false;
+    bool        dump_memories            = false;
+    const char *bootrom_name             = 0;
+    const char *dtb_name                 = 0;
+    bool        compact_bootrom          = false;
+    uint64_t    reset_vector_override    = 0;
+    uint64_t    mmio_start_override      = 0;
+    uint64_t    mmio_end_override        = 0;
+    uint64_t    plic_base_addr_override  = 0;
+    uint64_t    plic_size_override       = 0;
     uint64_t    clint_base_addr_override = 0;
     uint64_t    clint_size_override      = 0;
+    bool        custom_extension         = false;
 
     dromajo_stdout = stdout;
     dromajo_stderr = stderr;
@@ -695,6 +697,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             {"mmio_range",              required_argument, 0,  'R' }, // CFG
             {"plic",                    required_argument, 0,  'p' }, // CFG
             {"clint",                   required_argument, 0,  'C' }, // CFG
+            {"custom_extension",              no_argument, 0,  'u' }, // CFG
             {0,                         0,                 0,  0 }
         };
 
@@ -828,6 +831,10 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
                     usage(prog, "--clint SIZE must begin with 0x...");
                 clint_size_override = strtoll(clint_size+2, NULL, 16);
             }
+            break;
+
+        case 'u':
+            custom_extension = true;
             break;
 
         default:
@@ -992,6 +999,9 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
         p->clint_base_addr = clint_base_addr_override;
     if (clint_size_override)
         p->clint_size = clint_size_override;
+
+    // ISA modifications
+    p->custom_extension = custom_extension;
 
     RISCVMachine *s = virt_machine_init(p);
     if (!s)

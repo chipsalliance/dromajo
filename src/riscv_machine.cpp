@@ -1069,6 +1069,9 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     /* have compact bootrom */
     s->compact_bootrom = p->compact_bootrom;
 
+    /* add custom extension bit to misa */
+    s->custom_extension = p->custom_extension;
+
     if (MAX_CPUS < s->ncpus) {
         fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
         exit(3);

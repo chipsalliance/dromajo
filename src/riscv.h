@@ -89,6 +89,7 @@
 #define MCPUID_D       (1 << ('D' - 'A'))
 #define MCPUID_Q       (1 << ('Q' - 'A'))
 #define MCPUID_C       (1 << ('C' - 'A'))
+#define MCPUID_X       (1 << ('X' - 'A'))
 
 /* mstatus CSR */
 
