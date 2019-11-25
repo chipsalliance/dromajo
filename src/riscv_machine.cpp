@@ -62,7 +62,7 @@
 //#define DUMP_CLINT
 //#define DUMP_HTIF
 //#define DUMP_PLIC
-//#define DUMP_DTB
+#define DUMP_DTB
 
 #define USE_SIFIVE_UART
 
@@ -924,7 +924,7 @@ static int load_bootrom(const char *bootrom_name, uint32_t *location)
 
     // DEBUG
     //for (unsigned long i = 0; i < (fLen/sizeof(uint32_t)); ++i)
-    //    printf("[%p] == 0x%x\n", &location[i], location[i]);
+    //    printf("[DEBUG][%p][%ld/%ld] == 0x%x\n", &location[i], i, fLen/sizeof(uint32_t), location[i]);
 
     fclose(fPtr); // Close the file
 
@@ -1066,6 +1066,9 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
      */
     s->reset_vector = p->reset_vector;
 
+    /* have compact bootrom */
+    s->compact_bootrom = p->compact_bootrom;
+
     if (MAX_CPUS < s->ncpus) {
         fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
         exit(3);
@@ -1194,9 +1197,6 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     /* mmio setup for cosim */
     s->mmio_start = p->mmio_start;
     s->mmio_end   = p->mmio_end;
-
-    /* have compact bootrom */
-    s->compact_bootrom = p->compact_bootrom;
 
     /* plic/clint setup */
     s->plic_base_addr  = p->plic_base_addr;
