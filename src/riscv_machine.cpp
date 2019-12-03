@@ -1068,6 +1068,8 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     s->plic_size       = p->plic_size;
     s->clint_base_addr = p->clint_base_addr;
     s->clint_size      = p->clint_size;
+    /* clear mimpid, marchid, mvendorid */
+    s->clear_ids = p->clear_ids;
 
     if (MAX_CPUS < s->ncpus) {
         vm_error("ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
