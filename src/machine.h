@@ -160,6 +160,9 @@ typedef struct {
     /* Add to misa custom extensions */
     bool custom_extension;
 
+    /* Clear mimpid, marchid, mvendorid */
+    bool clear_ids;
+
     uint64_t physical_addr_len;
 
     char    *logfile; // If non-zero, all output goes here, stderr and stdout

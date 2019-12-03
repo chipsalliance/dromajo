@@ -100,6 +100,9 @@ struct RISCVMachine {
     /* Append to misa custom extensions */
     bool custom_extension;
 
+    /* Clear mimpid, marchid, mvendorid */
+    bool clear_ids;
+
     /* Extension state, not used by Dromajo itself */
     void *ext_state;
 };

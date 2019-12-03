@@ -609,11 +609,12 @@ static void usage(const char *prog, const char *msg)
             "       --bootrom load in a bootrom img file (default is dromajo bootrom)\n"
             "       --dtb load in a dtb file (default is dromajo dtb)\n"
             "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
-            "       --reset_vector set reset vector (default 0x%lx)\n"
+            "       --reset_vector set reset vector for all cores (default 0x%lx)\n"
             "       --mmio_range START:END [START,END) mmio range for cosim (overridden by config file)\n"
             "       --plic START:SIZE set PLIC start address and size (defaults to 0x%lx:0x%lx)\n"
             "       --clint START:SIZE set CLINT start address and size (defaults to 0x%lx:0x%lx)\n"
-            "       --custom_extension add X extension to isa\n",
+            "       --custom_extension add X extension to misa for all cores\n"
+            "       --clear_ids clear mvendorid, marchid, mimpid for all cores\n",
             msg,
             prog,
             (long)BOOT_BASE_ADDR, (long)RAM_BASE_ADDR,
@@ -671,6 +672,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     uint64_t    clint_base_addr_override = 0;
     uint64_t    clint_size_override      = 0;
     bool        custom_extension         = false;
+    bool        clear_ids                = false;
 
     dromajo_stdout = stdout;
     dromajo_stderr = stderr;
@@ -698,6 +700,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             {"plic",                    required_argument, 0,  'p' }, // CFG
             {"clint",                   required_argument, 0,  'C' }, // CFG
             {"custom_extension",              no_argument, 0,  'u' }, // CFG
+            {"clear_ids",                     no_argument, 0,  'L' }, // CFG
             {0,                         0,                 0,  0 }
         };
 
@@ -835,6 +838,10 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
 
         case 'u':
             custom_extension = true;
+            break;
+
+        case 'L':
+            clear_ids = true;
             break;
 
         default:
@@ -1000,8 +1007,9 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     if (clint_size_override)
         p->clint_size = clint_size_override;
 
-    // ISA modifications
+    // core modifications
     p->custom_extension = custom_extension;
+    p->clear_ids = clear_ids;
 
     RISCVMachine *s = virt_machine_init(p);
     if (!s)
