@@ -877,8 +877,11 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 
 #ifdef DUMP_DTB
     {
-        FILE *f;
-        f = fopen("/tmp/dromajo.dtb", "wb");
+        FILE *f = fopen("dromajo.dtb", "wb");
+        if (f==nullptr) {
+          fprintf(dromajo_stderr,"DROMAJO failed to open dromajo.dtb dump file (disable DUMP_DTB?)\n");
+          return -1;
+        }
         fwrite(dst, 1, size, f);
         fclose(f);
     }
