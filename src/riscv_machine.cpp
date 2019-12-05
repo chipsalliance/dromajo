@@ -681,7 +681,7 @@ void fdt_end(FDTState *s)
 
 static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, const char *cmd_line)
 {
-    FDTState *s;
+    FDTState *s = 0;
     int size;
     if (!dtb_name) {
         int intc_phandle = 0;
@@ -878,9 +878,9 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 #ifdef DUMP_DTB
     {
         FILE *f = fopen("dromajo.dtb", "wb");
-        if (f==nullptr) {
-          fprintf(dromajo_stderr,"DROMAJO failed to open dromajo.dtb dump file (disable DUMP_DTB?)\n");
-          return -1;
+        if (f == nullptr) {
+            fprintf(dromajo_stderr, "DROMAJO failed to open dromajo.dtb dump file (disable DUMP_DTB?)\n");
+            return -1;
         }
         fwrite(dst, 1, size, f);
         fclose(f);
