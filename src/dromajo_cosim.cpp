@@ -360,3 +360,71 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state,
 
     return exit_code;
 }
+
+/*
+ * dromajo_cosim_override_mem --
+ *
+ * DUT sets Dromajo memory. Used so that other devices (i.e. block device, accelerators, can write to memory).
+ */
+int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, target_ulong dut_paddr, mem_uint_t dut_val, int size_log2)
+{
+    RISCVMachine  *r = (RISCVMachine *)state;
+    RISCVCPUState *s = r->cpu_state[hartid];
+
+    uint8_t *ptr;
+    target_ulong offset;
+    PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, dut_paddr);
+
+    if (!pr) {
+#ifdef DUMP_INVALID_MEM_ACCESS
+        fprintf(dromajo_stderr, "riscv_cpu_write_memory: invalid physical address 0x%016" PRIx64 "\n", dut_paddr);
+#endif
+        return 1;
+    } else if (pr->is_ram) {
+        phys_mem_set_dirty_bit(pr, dut_paddr - pr->addr);
+        ptr = pr->phys_mem + (uintptr_t)(dut_paddr - pr->addr);
+        switch (size_log2) {
+        case 0:
+            *(uint8_t *)ptr = dut_val;
+            break;
+        case 1:
+            *(uint16_t *)ptr = dut_val;
+            break;
+        case 2:
+            *(uint32_t *)ptr = dut_val;
+        break;
+#if MLEN >= 64
+        case 3:
+            *(uint64_t *)ptr = dut_val;
+            break;
+#endif
+#if MLEN >= 128
+        case 4:
+            *(uint128_t *)ptr = dut_val;
+            break;
+#endif
+        default:
+            abort();
+        }
+    } else {
+        offset = dut_paddr - pr->addr;
+        if (((pr->devio_flags >> size_log2) & 1) != 0) {
+            pr->write_func(pr->opaque, offset, dut_val, size_log2);
+        }
+#if MLEN >= 64
+        else if ((pr->devio_flags & DEVIO_SIZE32) && size_log2 == 3) {
+            /* emulate 64 bit access */
+            pr->write_func(pr->opaque, offset,
+                           dut_val & 0xffffffff, 2);
+            pr->write_func(pr->opaque, offset + 4,
+                           (dut_val >> 32) & 0xffffffff, 2);
+        }
+#endif
+        else {
+#ifdef DUMP_INVALID_MEM_ACCESS
+            fprintf(dromajo_stderr, "unsupported device write access: addr=0x%016" PRIx64 "  width=%d bits\n", dut_paddr, 1 << (3 + size_log2));
+#endif
+        }
+    }
+    return 0;
+}
