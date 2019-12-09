@@ -366,7 +366,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state,
  *
  * DUT sets Dromajo memory. Used so that other devices (i.e. block device, accelerators, can write to memory).
  */
-int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, target_ulong dut_paddr, mem_uint_t dut_val, int size_log2)
+int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, uint64_t dut_paddr, uint64_t dut_val, int size_log2)
 {
     RISCVMachine  *r = (RISCVMachine *)state;
     RISCVCPUState *s = r->cpu_state[hartid];
@@ -384,27 +384,27 @@ int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, target_
         phys_mem_set_dirty_bit(pr, dut_paddr - pr->addr);
         ptr = pr->phys_mem + (uintptr_t)(dut_paddr - pr->addr);
         switch (size_log2) {
-        case 0:
-            *(uint8_t *)ptr = dut_val;
+            case 0:
+                *(uint8_t *)ptr = dut_val;
+                break;
+            case 1:
+                *(uint16_t *)ptr = dut_val;
+                break;
+            case 2:
+                *(uint32_t *)ptr = dut_val;
             break;
-        case 1:
-            *(uint16_t *)ptr = dut_val;
-            break;
-        case 2:
-            *(uint32_t *)ptr = dut_val;
-        break;
 #if MLEN >= 64
-        case 3:
-            *(uint64_t *)ptr = dut_val;
-            break;
+            case 3:
+                *(uint64_t *)ptr = dut_val;
+                break;
 #endif
 #if MLEN >= 128
-        case 4:
-            *(uint128_t *)ptr = dut_val;
-            break;
+            case 4:
+                *(uint128_t *)ptr = dut_val;
+                break;
 #endif
-        default:
-            abort();
+            default:
+                abort();
         }
     } else {
         offset = dut_paddr - pr->addr;
