@@ -67,6 +67,18 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
  * otherwise.
  */
 void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t cause);
+
+/*
+ * dromajo_cosim_override_mem --
+ *
+ * DUT sets Dromajo memory. Used so that other devices (i.e. block device, accelerators, can write to memory).
+ */
+int dromajo_cosim_override_mem(dromajo_cosim_state_t *state,
+                               int hartid,
+                               uint64_t dut_paddr,
+                               uint64_t dut_val,
+                               int size_log2);
+
 #ifdef __cplusplus
 }  // extern C
 #endif
