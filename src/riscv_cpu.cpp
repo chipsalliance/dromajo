@@ -1898,10 +1898,16 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid)
     if (machine->custom_extension)
         s->misa |= MCPUID_X;
 
-    s->mvendorid = 11 * 128 + 101; // Esperanto JEDEC number 101 in bank 11 (Change for your own)
-    s->marchid   = (1ULL << 63) | 2;
-    s->mimpid    = 1;
-    s->mhartid   = hartid;
+    if (machine->clear_ids) {
+        s->mvendorid = 0;
+        s->marchid   = 0;
+        s->mimpid    = 0;
+    } else {
+        s->mvendorid = 11 * 128 + 101; // Esperanto JEDEC number 101 in bank 11 (Change for your own)
+        s->marchid   = (1ULL << 63) | 2;
+        s->mimpid    = 1;
+    }
+    s->mhartid = hartid;
 
     s->tselect = 0;
     for (int i = 0; i < MAX_TRIGGERS; ++i) {

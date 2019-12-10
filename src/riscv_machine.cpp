@@ -1074,6 +1074,9 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     /* add custom extension bit to misa */
     s->custom_extension = p->custom_extension;
 
+    /* clear mimpid, marchid, mvendorid */
+    s->clear_ids = p->clear_ids;
+
     if (MAX_CPUS < s->ncpus) {
         fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
         exit(3);
