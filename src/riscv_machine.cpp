@@ -215,7 +215,6 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
     RISCVMachine *m = (RISCVMachine *)opaque;
     uint32_t val;
 
-    assert(size_log2 == 2);
     if (0 <= offset && offset < 0x4000) {
         int hartid = offset >> 2;
         if (m->ncpus <= hartid) {
@@ -249,6 +248,18 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
     fprintf(dromajo_stderr, "clint_read: offset=%x val=%x\n", offset, val);
 #endif
 
+    switch (size_log2) {
+        case DEVIO_SIZE8:
+            val = val & 0xff;
+            break;
+        case DEVIO_SIZE16:
+            val = val & 0xffff;
+            break;
+        case DEVIO_SIZE32:
+        default:
+            break;
+    }
+
     return val;
 }
 
@@ -257,7 +268,18 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val,
 {
     RISCVMachine *m = (RISCVMachine *)opaque;
 
-    assert(size_log2 == 2);
+    switch (size_log2) {
+        case DEVIO_SIZE8:
+            val = val & 0xff;
+            break;
+        case DEVIO_SIZE16:
+            val = val & 0xffff;
+            break;
+        case DEVIO_SIZE32:
+        default:
+            break;
+    }
+
     if (0 <= offset && offset < 0x4000) {
         int hartid = offset >> 2;
         if (m->ncpus <= hartid) {
@@ -1112,7 +1134,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
                         DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
 
     cpu_register_device(s->mem_map, p->clint_base_addr, p->clint_size, s,
-                        clint_read, clint_write, DEVIO_SIZE32);
+                        clint_read, clint_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
     cpu_register_device(s->mem_map, p->plic_base_addr, p->plic_size, s,
                         plic_read, plic_write, DEVIO_SIZE32);
 
@@ -1202,6 +1224,10 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     /* mmio setup for cosim */
     s->mmio_start = p->mmio_start;
     s->mmio_end   = p->mmio_end;
+
+    /* interrupts and exception setup for cosim */
+    s->common.pending_exception = -1;
+    s->common.pending_interrupt = -1;
 
     /* plic/clint setup */
     s->plic_base_addr  = p->plic_base_addr;
