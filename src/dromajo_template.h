@@ -262,7 +262,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles)
     insn_counter_addend = s->insn_counter + n_cycles;
 
     /* check pending interrupts */
-    if (unlikely((s->mip & s->mie) != 0)) {
+    if (unlikely(((s->mip & s->mie) != 0) && (s->machine->common.pending_interrupt != -1))) {
         if (raise_interrupt(s)) {
             --insn_counter_addend;
             goto done_interp;
@@ -307,7 +307,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles)
             target_ulong addr;
 
             /* check pending interrupts */
-            if (unlikely((s->mip & s->mie) != 0)) {
+            if (unlikely(((s->mip & s->mie) != 0) && (s->machine->common.pending_interrupt != -1))) {
                 if (raise_interrupt(s)) {
                     goto the_end;
                 }
@@ -1436,7 +1436,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles)
                         goto illegal_insn;
                     /* go to power down if no enabled interrupts are
                        pending */
-                    if ((s->mip & s->mie) == 0) {
+                    if (((s->mip & s->mie) == 0) && (s->machine->common.pending_interrupt == -1)) {
                         s->power_down_flag = TRUE;
                         s->pc = GET_PC() + 4;
                         goto done_interp;
