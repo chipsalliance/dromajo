@@ -84,6 +84,8 @@ struct RISCVMachine {
     /* MMIO range (for co-simulation only) */
     uint64_t mmio_start;
     uint64_t mmio_end;
+    AddressSet *mmio_addrset;
+    uint64_t mmio_addrset_size;
 
     /* Reset vector */
     uint64_t reset_vector;
