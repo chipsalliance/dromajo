@@ -107,9 +107,23 @@ static inline bool is_mmio_load(RISCVCPUState *s,
 {
     uint64_t pa;
     uint64_t va = riscv_get_reg_previous(s, reg) + offset;
-    return
-        !riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) &&
-        mmio_start <= pa && pa < mmio_end;
+
+    if(!riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) &&
+       mmio_start <= pa && pa < mmio_end) {
+        return true;
+    }
+
+    if (s->machine->mmio_addrset_size > 0) {
+        RISCVMachine *m = s->machine;
+        for (size_t i =0; i < m->mmio_addrset_size; ++i) {
+            uint64_t start = m->mmio_addrset[i].start;
+            uint64_t end = m->mmio_addrset[i].start + m->mmio_addrset[i].size;
+            if (!riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) && start <= pa && pa < end)
+                return true;
+        }
+    }
+
+    return false;
 }
 
 /*

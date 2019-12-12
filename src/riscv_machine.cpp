@@ -1120,6 +1120,14 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
                             mmio_read, mmio_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
     }
 
+    if (p->mmio_addrset_size > 0) {
+        for (size_t i = 0; i < p->mmio_addrset_size; ++i) {
+            uint64_t sz = p->mmio_addrset[i].size;
+            cpu_register_device(s->mem_map, p->mmio_addrset[i].start, sz, 0,
+                                mmio_read, mmio_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
+        }
+    }
+
     SiFiveUARTState *uart = (SiFiveUARTState *)calloc(sizeof *uart, 1);
     uart->irq = UART0_IRQ;
     uart->cs  = p->console;
@@ -1224,6 +1232,8 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     /* mmio setup for cosim */
     s->mmio_start = p->mmio_start;
     s->mmio_end   = p->mmio_end;
+    s->mmio_addrset = p->mmio_addrset;
+    s->mmio_addrset_size = p->mmio_addrset_size;
 
     /* interrupts and exception setup for cosim */
     s->common.pending_exception = -1;
@@ -1262,6 +1272,9 @@ void virt_machine_end(RISCVMachine *s)
     for (int i = 0; i < s->ncpus; ++i) {
         riscv_cpu_end(s->cpu_state[i]);
     }
+
+    if (s->mmio_addrset_size > 0)
+        free(s->mmio_addrset);
 
     phys_mem_map_end(s->mem_map);
     free(s);
