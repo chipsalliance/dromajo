@@ -62,7 +62,7 @@
 //#define DUMP_CLINT
 //#define DUMP_HTIF
 //#define DUMP_PLIC
-#define DUMP_DTB
+//#define DUMP_DTB
 
 #define USE_SIFIVE_UART
 
@@ -1095,6 +1095,11 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
 
     /* add custom extension bit to misa */
     s->custom_extension = p->custom_extension;
+
+    s->plic_base_addr  = p->plic_base_addr;
+    s->plic_size       = p->plic_size;
+    s->clint_base_addr = p->clint_base_addr;
+    s->clint_size      = p->clint_size;
 
     if (MAX_CPUS < s->ncpus) {
         fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
