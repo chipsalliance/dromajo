@@ -1851,7 +1851,7 @@ void riscv_cpu_set_mip(RISCVCPUState *s, uint32_t mask)
 {
     s->mip |= mask;
     /* exit from power down if an interrupt is pending */
-    if (s->power_down_flag && (s->mip & s->mie) != 0 && (s->machine->common.pending_interrupt != -1))
+    if (s->power_down_flag && (s->mip & s->mie) != 0 && (s->machine->common.pending_interrupt != -1 || !s->machine->common.cosim))
         s->power_down_flag = FALSE;
 }
 

@@ -249,13 +249,13 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
 #endif
 
     switch (size_log2) {
-        case DEVIO_SIZE8:
-            val = val & 0xff;
-            break;
-        case DEVIO_SIZE16:
+        case 1:
             val = val & 0xffff;
             break;
-        case DEVIO_SIZE32:
+        case 2:
+            val = val & 0xffffffff;
+            break;
+        case 3:
         default:
             break;
     }
@@ -269,13 +269,13 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val,
     RISCVMachine *m = (RISCVMachine *)opaque;
 
     switch (size_log2) {
-        case DEVIO_SIZE8:
-            val = val & 0xff;
-            break;
-        case DEVIO_SIZE16:
+        case 1:
             val = val & 0xffff;
             break;
-        case DEVIO_SIZE32:
+        case 2:
+            val = val & 0xffffffff;
+            break;
+        case 3:
         default:
             break;
     }
@@ -1096,6 +1096,11 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     /* add custom extension bit to misa */
     s->custom_extension = p->custom_extension;
 
+    s->plic_base_addr  = p->plic_base_addr;
+    s->plic_size       = p->plic_size;
+    s->clint_base_addr = p->clint_base_addr;
+    s->clint_size      = p->clint_size;
+
     if (MAX_CPUS < s->ncpus) {
         fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
         exit(3);
@@ -1236,6 +1241,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     s->mmio_addrset_size = p->mmio_addrset_size;
 
     /* interrupts and exception setup for cosim */
+    s->common.cosim = false;
     s->common.pending_exception = -1;
     s->common.pending_interrupt = -1;
 
