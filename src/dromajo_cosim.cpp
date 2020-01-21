@@ -40,6 +40,7 @@ dromajo_cosim_state_t *dromajo_cosim_init(int argc, char *argv[])
     m->llc = new LiveCache("LLC", 1024*32); // Small 32KB for testing
 #endif
 
+    m->common.cosim = true;
     m->common.pending_interrupt = -1;
     m->common.pending_exception = -1;
 
@@ -107,9 +108,23 @@ static inline bool is_mmio_load(RISCVCPUState *s,
 {
     uint64_t pa;
     uint64_t va = riscv_get_reg_previous(s, reg) + offset;
-    return
-        !riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) &&
-        mmio_start <= pa && pa < mmio_end;
+
+    if(!riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) &&
+       mmio_start <= pa && pa < mmio_end) {
+        return true;
+    }
+
+    if (s->machine->mmio_addrset_size > 0) {
+        RISCVMachine *m = s->machine;
+        for (size_t i =0; i < m->mmio_addrset_size; ++i) {
+            uint64_t start = m->mmio_addrset[i].start;
+            uint64_t end = m->mmio_addrset[i].start + m->mmio_addrset[i].size;
+            if (!riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) && start <= pa && pa < end)
+                return true;
+        }
+    }
+
+    return false;
 }
 
 /*
@@ -290,14 +305,15 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state,
         if (r->common.pending_interrupt != -1)
             riscv_cpu_set_mip(s, riscv_cpu_get_mip(s) | 1 << r->common.pending_interrupt);
 
-        r->common.pending_interrupt = -1;
-        r->common.pending_exception = -1;
-
         if (riscv_cpu_interp64(s, 1) != 0) {
             iregno = riscv_get_most_recently_written_reg(s);
             fregno = riscv_get_most_recently_written_fp_reg(s);
             break;
         }
+
+        r->common.pending_interrupt = -1;
+        r->common.pending_exception = -1;
+
     }
 
     if (check)

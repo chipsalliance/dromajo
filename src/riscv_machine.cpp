@@ -215,7 +215,6 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
     RISCVMachine *m = (RISCVMachine *)opaque;
     uint32_t val;
 
-    assert(size_log2 == 2);
     if (0 <= offset && offset < 0x4000) {
         int hartid = offset >> 2;
         if (m->ncpus <= hartid) {
@@ -249,6 +248,18 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
     fprintf(dromajo_stderr, "clint_read: offset=%x val=%x\n", offset, val);
 #endif
 
+    switch (size_log2) {
+        case 1:
+            val = val & 0xffff;
+            break;
+        case 2:
+            val = val & 0xffffffff;
+            break;
+        case 3:
+        default:
+            break;
+    }
+
     return val;
 }
 
@@ -257,7 +268,18 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val,
 {
     RISCVMachine *m = (RISCVMachine *)opaque;
 
-    assert(size_log2 == 2);
+    switch (size_log2) {
+        case 1:
+            val = val & 0xffff;
+            break;
+        case 2:
+            val = val & 0xffffffff;
+            break;
+        case 3:
+        default:
+            break;
+    }
+
     if (0 <= offset && offset < 0x4000) {
         int hartid = offset >> 2;
         if (m->ncpus <= hartid) {
@@ -681,7 +703,7 @@ void fdt_end(FDTState *s)
 
 static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, const char *cmd_line)
 {
-    FDTState *s;
+    FDTState *s = 0;
     int size;
     if (!dtb_name) {
         int intc_phandle = 0;
@@ -878,9 +900,9 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 #ifdef DUMP_DTB
     {
         FILE *f = fopen("dromajo.dtb", "wb");
-        if (f==nullptr) {
-          fprintf(dromajo_stderr,"DROMAJO failed to open dromajo.dtb dump file (disable DUMP_DTB?)\n");
-          return -1;
+        if (f == nullptr) {
+            fprintf(dromajo_stderr, "DROMAJO failed to open dromajo.dtb dump file (disable DUMP_DTB?)\n");
+            return -1;
         }
         fwrite(dst, 1, size, f);
         fclose(f);
@@ -1076,6 +1098,10 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
 
     /* clear mimpid, marchid, mvendorid */
     s->clear_ids = p->clear_ids;
+    s->plic_base_addr  = p->plic_base_addr;
+    s->plic_size       = p->plic_size;
+    s->clint_base_addr = p->clint_base_addr;
+    s->clint_size      = p->clint_size;
 
     if (MAX_CPUS < s->ncpus) {
         fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
@@ -1101,6 +1127,14 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
                             mmio_read, mmio_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
     }
 
+    if (p->mmio_addrset_size > 0) {
+        for (size_t i = 0; i < p->mmio_addrset_size; ++i) {
+            uint64_t sz = p->mmio_addrset[i].size;
+            cpu_register_device(s->mem_map, p->mmio_addrset[i].start, sz, 0,
+                                mmio_read, mmio_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
+        }
+    }
+
     SiFiveUARTState *uart = (SiFiveUARTState *)calloc(sizeof *uart, 1);
     uart->irq = UART0_IRQ;
     uart->cs  = p->console;
@@ -1115,7 +1149,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
                         DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
 
     cpu_register_device(s->mem_map, p->clint_base_addr, p->clint_size, s,
-                        clint_read, clint_write, DEVIO_SIZE32);
+                        clint_read, clint_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
     cpu_register_device(s->mem_map, p->plic_base_addr, p->plic_size, s,
                         plic_read, plic_write, DEVIO_SIZE32);
 
@@ -1205,6 +1239,13 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     /* mmio setup for cosim */
     s->mmio_start = p->mmio_start;
     s->mmio_end   = p->mmio_end;
+    s->mmio_addrset = p->mmio_addrset;
+    s->mmio_addrset_size = p->mmio_addrset_size;
+
+    /* interrupts and exception setup for cosim */
+    s->common.cosim = false;
+    s->common.pending_exception = -1;
+    s->common.pending_interrupt = -1;
 
     /* plic/clint setup */
     s->plic_base_addr  = p->plic_base_addr;
@@ -1239,6 +1280,9 @@ void virt_machine_end(RISCVMachine *s)
     for (int i = 0; i < s->ncpus; ++i) {
         riscv_cpu_end(s->cpu_state[i]);
     }
+
+    if (s->mmio_addrset_size > 0)
+        free(s->mmio_addrset);
 
     phys_mem_map_end(s->mem_map);
     free(s);

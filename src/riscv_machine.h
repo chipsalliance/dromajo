@@ -84,6 +84,8 @@ struct RISCVMachine {
     /* MMIO range (for co-simulation only) */
     uint64_t mmio_start;
     uint64_t mmio_end;
+    AddressSet *mmio_addrset;
+    uint64_t mmio_addrset_size;
 
     /* Reset vector */
     uint64_t reset_vector;
@@ -107,8 +109,8 @@ struct RISCVMachine {
     void *ext_state;
 };
 
-#define PLIC_BASE_ADDR  0xC000000
-#define PLIC_SIZE       0x4000000
+#define PLIC_BASE_ADDR  0x10000000
+#define PLIC_SIZE        0x2000000
 
 #define CLINT_BASE_ADDR 0x02000000
 #define CLINT_SIZE      0x000c0000
