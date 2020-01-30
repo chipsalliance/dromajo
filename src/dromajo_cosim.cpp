@@ -40,6 +40,7 @@ dromajo_cosim_state_t *dromajo_cosim_init(int argc, char *argv[])
     m->llc = new LiveCache("LLC", 1024*32); // Small 32KB for testing
 #endif
 
+    m->common.cosim = true;
     m->common.pending_interrupt = -1;
     m->common.pending_exception = -1;
 

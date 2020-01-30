@@ -190,6 +190,7 @@ typedef struct VirtMachine {
     uint64_t    trace;
 
     /* For co-simulation only, they are -1 if nothing is pending. */
+    bool        cosim;
     int         pending_interrupt;
     int         pending_exception;
 } VirtMachine;
