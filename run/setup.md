@@ -37,10 +37,10 @@ make -j16 -C buildroot-2019.08.1
 Assumption: you have the `riscv64-linux-gnu-` (GlibC) toolchain.
 
 ```
-wget -nc https://github.com/torvalds/linux/archive/v5.3.tar.gz
-tar xzf v5.3.tar.gz
-cp config-linux-5.3 linux-5.3/.config
-make -C linux-5.3 -j16 ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu-
+wget -nc https://github.com/torvalds/linux/archive/v5.5.tar.gz
+tar xzf v5.5.tar.gz
+cp config-linux-5.5 linux-5.5/.config
+make -C linux-5.5 -j16 ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu-
 ```
 
 ### openSBI (~ 1 min)
@@ -50,7 +50,7 @@ export CROSS_COMPILE=riscv64-unknown-elf-
 wget -nc https://github.com/riscv/opensbi/archive/v0.5.tar.gz
 tar xzf v0.5.tar.gz
 tar xzCf opensbi-0.5 opensbi.dromajo.tar.gz
-make -C opensbi-0.5 PLATFORM=dromajo FW_PAYLOAD_PATH=../linux-5.3/arch/riscv/boot/Image
+make -C opensbi-0.5 PLATFORM=dromajo FW_PAYLOAD_PATH=../linux-5.5/arch/riscv/boot/Image
 ```
 
 ### To boot Linux (login:root password:root)
