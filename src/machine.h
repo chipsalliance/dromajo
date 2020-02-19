@@ -138,7 +138,7 @@ typedef struct {
     /* maximum increment of instructions to execute */
     uint64_t maxinsns;
 
-    /* snaphot load file */
+    /* snapshot load file */
     const char *snapshot_load_name;
 
     /* bootrom params */
