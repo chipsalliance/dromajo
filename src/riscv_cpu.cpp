@@ -1739,6 +1739,12 @@ static inline uint32_t get_pending_irq_mask(RISCVCPUState *s)
 {
     uint32_t pending_ints, enabled_ints;
 
+#ifdef DUMP_INTERRUPTS
+    fprintf(dromajo_stderr,
+            "get_irq_mask: mip=0x%x mie=0x%x mideleg=0x%x\n",
+            s->mip, s->mie, s->mideleg);
+#endif
+
     pending_ints = s->mip & s->mie;
     if (pending_ints == 0)
         return 0;
@@ -1762,6 +1768,39 @@ static inline uint32_t get_pending_irq_mask(RISCVCPUState *s)
     return pending_ints & enabled_ints;
 }
 
+static inline int8_t get_irq_platspecific(uint32_t mask) {
+  uint32_t local_ints = mask & ((-1) << 12);
+
+  // get irq number from plat specific section (priority to MSB)
+  for (int8_t i = 31; i > 0; --i) {
+      if ( (local_ints >> i) & 0x1 ) {
+          return i;
+      }
+  }
+
+  // unknown value (expected a valid mask in the region)
+  return -1;
+}
+
+// matches how rocket-chip determines interrupt priorities
+static inline int8_t get_irq_num(uint32_t mask) {
+    // check if the int. is in the plat. specific region
+    if (mask >= (1 << 12)) {
+        return get_irq_platspecific(mask);
+    }
+    else {
+        // get int. from the other priorities
+        uint8_t priorities[] = {11, 3, 7, 10, 2, 6, 9, 1, 5, 8, 0, 4};
+        for (uint8_t i = 0; i < 12; ++i) {
+            if ( (mask >> priorities[i]) & 0x1 ) {
+                return priorities[i];
+            }
+        }
+        // should match by now
+        return -1;
+    }
+}
+
 static __exception int raise_interrupt(RISCVCPUState *s)
 {
     uint32_t mask;
@@ -1770,7 +1809,8 @@ static __exception int raise_interrupt(RISCVCPUState *s)
     mask = get_pending_irq_mask(s);
     if (mask == 0)
         return 0;
-    irq_num = ctz32(mask);
+
+    irq_num = get_irq_num(mask);
 #ifdef DUMP_INTERRUPTS
     fprintf(dromajo_stderr,
             "raise_interrupt: irq=%d priv=%d pc=%llx hartid=%d\n",

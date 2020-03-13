@@ -302,12 +302,19 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state,
             }
         }
 
-        if (r->common.pending_interrupt != -1)
+        if (r->common.pending_interrupt != -1) {
             riscv_cpu_set_mip(s, riscv_cpu_get_mip(s) | 1 << r->common.pending_interrupt);
+            fprintf(dromajo_stderr, "[DEBUG] Interrupt: MIP <- %d: Now MIP = %x\n", r->common.pending_interrupt, riscv_cpu_get_mip(s));
+        }
 
         if (riscv_cpu_interp64(s, 1) != 0) {
             iregno = riscv_get_most_recently_written_reg(s);
             fregno = riscv_get_most_recently_written_fp_reg(s);
+
+            //// ABE: I think this is the solution
+            //r->common.pending_interrupt = -1;
+            //r->common.pending_exception = -1;
+
             break;
         }
 
