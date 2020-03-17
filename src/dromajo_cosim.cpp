@@ -200,9 +200,10 @@ void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t 
     if (cause < 0) {
         assert(m->pending_interrupt == -1);
         m->pending_interrupt = cause & 63;
-        fprintf(dromajo_stderr, "DUT raised interrupt %d\n", m->pending_interrupt);
+        fprintf(dromajo_stderr, "[DEBUG] DUT raised interrupt %d\n", m->pending_interrupt);
     } else {
         m->pending_exception = cause;
+        fprintf(dromajo_stderr, "[DEBUG] DUT raised exception %d\n", m->pending_exception);
     }
 }
 
@@ -281,7 +282,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state,
             /* On the DUT, the interrupt can race the exception.
                Let's try to match that behavior */
 
-            fprintf(dromajo_stderr, "DUT also raised exception %d\n", r->common.pending_exception);
+            fprintf(dromajo_stderr, "[DEBUG] DUT also raised exception %d\n", r->common.pending_exception);
             riscv_cpu_interp64(s, 1); // Advance into the exception
 
             int cause = s->priv == PRV_S ? s->scause : s->mcause;
@@ -343,7 +344,8 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state,
         if (verbose)
             fprintf(dromajo_stderr, "f%-2d 0x%016" PRIx64, fregno, emu_wdata);
     } else
-        fprintf(dromajo_stderr, "                      ");
+        if (verbose)
+            fprintf(dromajo_stderr, "                      ");
 
     if (verbose)
         fprintf(dromajo_stderr, " DASM(0x%08x)\n", emu_insn);
