@@ -562,8 +562,8 @@ static void usage(const char *prog, const char *msg) {
             "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
             "       --reset_vector set reset vector for all cores (default 0x%lx)\n"
             "       --mmio_range START:END [START,END) mmio range for cosim (overridden by config file)\n"
-            "       --plic START:SIZE set PLIC start address and size (defaults to 0x%lx:0x%lx)\n"
-            "       --clint START:SIZE set CLINT start address and size (defaults to 0x%lx:0x%lx)\n"
+            "       --plic START:SIZE set PLIC start address and size in B (defaults to 0x%lx:0x%lx)\n"
+            "       --clint START:SIZE set CLINT start address and size in B (defaults to 0x%lx:0x%lx)\n"
             "       --custom_extension add X extension to misa for all cores\n"
             "       --clear_ids clear mvendorid, marchid, mimpid for all cores\n",
             msg,
@@ -720,7 +720,13 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
 
             case 'D': dump_memories = true; break;
 
-            case 'M': memory_size_override = atoi(optarg); break;
+            case 'M':
+                if (optarg[0] == '0' && optarg[1] == 'x')
+                    memory_size_override = strtoll(optarg + 2, NULL, 16);
+                else
+                    memory_size_override = atoi(optarg);
+            break;
+
 
             case 'A':
                 if (optarg[0] != '0' || optarg[1] != 'x')
