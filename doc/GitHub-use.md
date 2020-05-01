@@ -153,6 +153,11 @@ https://github.com/chipsalliance/dromajo/fork ) the dromajo repo.
 
 8. Create new [pull][pull] request to upstream
 
+If you created a branch in a fork repository, you can go to your repository
+website.  See the branch, and create a pull request to the upstream
+(chipsalliance master repo) directly. Alternatively, if you have a private
+repository, you can do this other flow to create a pull request.
+
     git clone https://github.com/chipsalliance/dromajo.git dromajo-upstream
     cd dromajo-upstream
     git remote add private https://github.com/yourname/private-repo.git
