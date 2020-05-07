@@ -274,6 +274,13 @@ static int virt_machine_parse_config(VirtMachineParams *p,
         p->files[VM_FILE_KERNEL].filename = strdup(str);
     }
 
+    tag_name = "initrd";
+    if (vm_get_str_opt(cfg, tag_name, &str) < 0)
+        goto tag_fail;
+    if (str) {
+        p->files[VM_FILE_INITRD].filename = strdup(str);
+    }
+
     if (vm_get_str_opt(cfg, "cmdline", &str) < 0)
         goto tag_fail;
     if (str) {

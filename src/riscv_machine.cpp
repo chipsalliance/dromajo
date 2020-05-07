@@ -591,6 +591,14 @@ static void fdt_prop_u32(FDTState *s, const char *prop_name, uint32_t val)
     fdt_prop_tab_u32(s, prop_name, &val, 1);
 }
 
+static void fdt_prop_u64(FDTState *s, const char *prop_name, uint64_t val)
+{
+    uint32_t tab[2];
+    tab[0] = val >> 32;
+    tab[1] = val;
+    fdt_prop_tab_u32(s, prop_name, tab, 2);
+}
+
 static void fdt_prop_tab_u64_2(FDTState *s, const char *prop_name,
                                uint64_t v0, uint64_t v1)
 {
@@ -701,7 +709,8 @@ void fdt_end(FDTState *s)
     free(s);
 }
 
-static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, const char *cmd_line)
+static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
+                           const char *cmd_line, uint64_t initrd_start, uint64_t initrd_end)
 {
     FDTState *s = 0;
     int size;
@@ -864,6 +873,10 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 
         fdt_begin_node(s, "chosen");
         fdt_prop_str(s, "bootargs", cmd_line ? cmd_line : "");
+        if (initrd_start && initrd_start < initrd_end) {
+            fdt_prop_u64(s, "linux,initrd-start", initrd_start);
+            fdt_prop_u64(s, "linux,initrd-end", initrd_end);
+        }
 
         fdt_end_node(s); /* chosen */
 
@@ -957,8 +970,15 @@ static int load_bootrom(const char *bootrom_name, uint32_t *location)
 }
 
 /* Return non-zero on failure */
-static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len, const uint8_t *kernel_buf, size_t kernel_buf_len, const char *bootrom_name, const char *dtb_name, const char *cmd_line)
+static int copy_kernel(RISCVMachine *s,
+                       const uint8_t *fw_buf, size_t fw_buf_len,
+                       const uint8_t *kernel_buf, size_t kernel_buf_len,
+                       const uint8_t *initrd_buf, size_t initrd_buf_len,
+                       const char *bootrom_name, const char *dtb_name,
+                       const char *cmd_line)
 {
+    uint64_t initrd_start = 0, initrd_end = 0;
+
     if (fw_buf_len > s->ram_size) {
         vm_error("Firmware too big\n");
         return 1;
@@ -1000,6 +1020,18 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
             return 1;
         }
         memcpy(get_ram_ptr(s, s->ram_base_addr + KERNEL_OFFSET), kernel_buf, kernel_buf_len);
+    }
+
+    // load initrd into ram
+    if (initrd_buf && initrd_buf_len) {
+        if (initrd_buf_len > s->ram_size) {
+            vm_error("Initrd too big\n");
+            return 1;
+        }
+        initrd_end = s->ram_base_addr + s->ram_size;
+        initrd_start = initrd_end - initrd_buf_len;
+        initrd_start = (initrd_start >> 12) << 12;
+        memcpy(get_ram_ptr(s, initrd_start), initrd_buf, initrd_buf_len);
     }
 
     // setup the bootrom
@@ -1051,7 +1083,8 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
     else
         fdt_off += 256;
 
-    if(riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line) < 0)
+    if(riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name,
+                       cmd_line, initrd_start, initrd_end) < 0)
         return -1;
 
     for (int i = 0; i < s->ncpus; ++i)
@@ -1245,6 +1278,8 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
                            p->files[VM_FILE_BIOS].len,
                            p->files[VM_FILE_KERNEL].buf,
                            p->files[VM_FILE_KERNEL].len,
+                           p->files[VM_FILE_INITRD].buf,
+                           p->files[VM_FILE_INITRD].len,
                            p->bootrom_name,
                            p->dtb_name,
                            p->cmdline))
