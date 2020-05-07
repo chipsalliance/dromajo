@@ -957,35 +957,49 @@ static int load_bootrom(const char *bootrom_name, uint32_t *location)
 }
 
 /* Return non-zero on failure */
-static int copy_kernel(RISCVMachine *s, const uint8_t *buf, size_t buf_len, const char *bootrom_name, const char *dtb_name, const char *cmd_line)
+static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len, const uint8_t *kernel_buf, size_t kernel_buf_len, const char *bootrom_name, const char *dtb_name, const char *cmd_line)
 {
-    if (buf_len > s->ram_size) {
-        vm_error("Kernel too big\n");
+    if (fw_buf_len > s->ram_size) {
+        vm_error("Firmware too big\n");
         return 1;
     }
 
-    if (elf64_is_riscv64(buf, buf_len)) {
+    // load firmware into ram
+    if (elf64_is_riscv64(fw_buf, fw_buf_len)) {
         // XXX if the ELF is given in the config file, then we don't get to set memory base based on that.
 
-        if (elf64_get_entrypoint(buf) != s->ram_base_addr) {
+        if (elf64_get_entrypoint(fw_buf) != s->ram_base_addr) {
             fprintf(dromajo_stderr,
                     "DROMAJO currently requires a 0x%" PRIx64 " starting address, image assumes 0x%0" PRIx64 "\n",
                     s->ram_base_addr,
-                    elf64_get_entrypoint(buf));
+                    elf64_get_entrypoint(fw_buf));
             return 1;
         }
 
-        load_elf_image(s, buf, buf_len);
+        load_elf_image(s, fw_buf, fw_buf_len);
     }
     else
-        memcpy(get_ram_ptr(s, s->ram_base_addr), buf, buf_len);
+        memcpy(get_ram_ptr(s, s->ram_base_addr), fw_buf, fw_buf_len);
 
     if (!(s->ram_base_addr == 0x80000000 || s->ram_base_addr == 0x8000000000 || s->ram_base_addr == 0xC000000000)) {
         fprintf(dromajo_stderr,
                 "DROMAJO currently requires a 0x80000000 or 0x8000000000 or 0xC000000000"
                 " ram starting address, image assumes 0x%0" PRIx64 "\n",
-                elf64_get_entrypoint(buf));
+                elf64_get_entrypoint(fw_buf));
         assert(0);
+    }
+
+    // load kernel into ram
+    if (kernel_buf && kernel_buf_len) {
+        if (s->ram_size <= KERNEL_OFFSET) {
+            vm_error("Can't load kernel at ram offset 0x%x\n", KERNEL_OFFSET);
+            return 1;
+        }
+        if (kernel_buf_len > (s->ram_size - KERNEL_OFFSET)) {
+            vm_error("Kernel too big\n");
+            return 1;
+        }
+        memcpy(get_ram_ptr(s, s->ram_base_addr + KERNEL_OFFSET), kernel_buf, kernel_buf_len);
     }
 
     // setup the bootrom
@@ -1229,6 +1243,8 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     } else if (copy_kernel(s,
                            p->files[VM_FILE_BIOS].buf,
                            p->files[VM_FILE_BIOS].len,
+                           p->files[VM_FILE_KERNEL].buf,
+                           p->files[VM_FILE_KERNEL].len,
                            p->bootrom_name,
                            p->dtb_name,
                            p->cmdline))

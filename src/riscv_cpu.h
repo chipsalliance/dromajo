@@ -50,6 +50,8 @@
 // The default RAM base, can be relocated with config "memory_base_addr"
 #define RAM_BASE_ADDR  0x80000000
 
+#define KERNEL_OFFSET      0x200000
+
 #ifndef FLEN
 #define FLEN 64
 #endif /* !FLEN */
