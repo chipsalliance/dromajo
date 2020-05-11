@@ -322,10 +322,8 @@ static void plic_update_mip(RISCVMachine *s, int hartid)
     uint32_t mask = s->plic_pending_irq & ~s->plic_served_irq;
     RISCVCPUState *cpu = s->cpu_state[hartid];
     if (mask) {
-        fprintf(stderr, "update_mip: hartid=%d mask=%x value=%x\n", hartid, mask, MIP_MEIP | MIP_SEIP);
         riscv_cpu_set_mip(cpu, MIP_MEIP | MIP_SEIP);
     } else {
-        fprintf(stderr, "update_mip: hartid=%d mask=%x value=%x\n", hartid, mask, 0);
         riscv_cpu_reset_mip(cpu, MIP_MEIP | MIP_SEIP);
     }
 }
@@ -850,10 +848,12 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
         fdt_end_node(s); /* uart */
 #endif
 
-        // Fake Synopsys™ DesignWare™ ABP™ UART
+        // Fake Synopsys™ DesignWare™ ABP™ UART (NS16550 compatible)
         fdt_begin_node_num(s, "uart", DW_APB_UART0_BASE_ADDR); {
-            fdt_prop_str(s, "compatible", "snps,dw-apb-uart");
+            fdt_prop_str(s, "compatible", "ns16550");
             fdt_prop_tab_u64_2(s, "reg", DW_APB_UART0_BASE_ADDR, DW_APB_UART0_SIZE);
+            fdt_prop_u32(s, "reg-shift", 2);
+            fdt_prop_u32(s, "reg-io-width", 4);
             // No interrupts?
         } fdt_end_node(s);
 
