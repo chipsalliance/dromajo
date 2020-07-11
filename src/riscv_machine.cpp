@@ -1238,6 +1238,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
         vbus->addr += VIRTIO_SIZE;
         irq_num++;
         s->virtio_count++;
+        //virtio_set_debug(blk_dev, 1);
     }
 
     /* virtio filesystem */

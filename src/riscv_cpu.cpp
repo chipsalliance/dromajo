@@ -1629,14 +1629,14 @@ static void raise_exception2(RISCVCPUState *s, uint64_t cause,
 
     if (cause & CAUSE_INTERRUPT)
         fprintf(dromajo_stderr, "hartid=%d: exception interrupt #%d, epc 0x%016jx\n",
-                (int)s->mhartid, cause & 63, (uintmax_t)s->pc);
+                (int)s->mhartid, (int)(cause & 63), (uintmax_t)s->pc);
     else if (cause <= CAUSE_STORE_PAGE_FAULT) {
         fprintf(dromajo_stderr, "hartid=%d priv: %d exception %s, epc 0x%016jx\n",
                (int)s->mhartid, s->priv, cause_s[cause], (uintmax_t)s->pc);
         fprintf(dromajo_stderr, "hartid=%d0           tval 0x%016jx\n", (int)s->mhartid, (uintmax_t)tval);
     } else {
         fprintf(dromajo_stderr, "hartid=%d: exception %d, epc 0x%016jx\n",
-               (int)s->mhartid, cause, (uintmax_t)s->pc);
+               (int)s->mhartid, (int)cause, (uintmax_t)s->pc);
         fprintf(dromajo_stderr, "hartid=%d:           tval 0x%016jx\n", (int)s->mhartid, (uintmax_t)tval);
     }
 #endif
