@@ -38,6 +38,8 @@
  * THE SOFTWARE.
  */
 
+#include <cstdint>
+
 /* FSQID.type */
 #define P9_QTDIR 0x80
 #define P9_QTAPPEND 0x40
