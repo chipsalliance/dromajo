@@ -28,7 +28,7 @@ The resulting artifacts are the `dromajo` simulator and the
 `libdromajo_cosim.a` library with associated `dromajo_cosim.h`
 header file.
 
-Check the [setup.md](run/setup.md) for instructions how to compile tests like
+Check the [setup.md](doc/setup.md) for instructions how to compile tests like
 booting Linux and baremetal for dromajo.
 
 ## Usage
