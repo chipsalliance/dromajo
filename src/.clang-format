@@ -1,0 +1,20 @@
+---
+BasedOnStyle: Google
+ColumnLimit: '132'
+AlignConsecutiveAssignments: 'true'
+AlignConsecutiveDeclarations: 'true'
+#AlignConsecutiveBitFields: 'true'
+AlignConsecutiveMacros: 'true'
+AlignTrailingComments: 'true'
+AlignEscapedNewlines: 'true'
+AlignAfterOpenBracket: 'Align'
+AlignOperands: 'true'
+AllowAllArgumentsOnNextLine: 'false'
+BinPackArguments: 'false'
+AllowShortIfStatementsOnASingleLine: 'false'
+AllowShortCaseLabelsOnASingleLine: 'true'
+BreakConstructorInitializers: 'BeforeComma'
+BreakBeforeBinaryOperators: 'true'
+BreakStringLiterals: 'true'
+AccessModifierOffset: -2
+...
