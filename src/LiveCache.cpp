@@ -49,152 +49,146 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-
 #include "LiveCacheCore.h"
 
 //#define MTRACE(a...)   do{ fprintf(stderr,"@%lld %s %d 0x%x:",(long long int)globalClock,getName(), (int)mreq->getID(), (unsigned
 // int)mreq->getAddr()); fprintf(stderr,##a); fprintf(stderr,"\n"); }while(0)
 #define MTRACE(a...)
 
-LiveCache::LiveCache(const std::string &_name, int size)
- :name(_name) {
+LiveCache::LiveCache(const std::string &_name, int size) : name(_name) {
+    cacheBank    = CacheType::create(size, 16, 64, "LRU", false);
+    lineSize     = cacheBank->getLineSize();
+    lineSizeBits = log2i(lineSize);
 
-  cacheBank    = CacheType::create(size, 16, 64, "LRU", false);
-  lineSize     = cacheBank->getLineSize();
-  lineSizeBits = log2i(lineSize);
+    nReadHit   = 0;
+    nReadMiss  = 0;
+    nWriteHit  = 0;
+    nWriteMiss = 0;
 
-  nReadHit   = 0;
-  nReadMiss  = 0;
-  nWriteHit  = 0;
-  nWriteMiss = 0;
+    assert(getLineSize() < 4096);  // To avoid bank selection conflict (insane LiveCache line)
 
-  assert(getLineSize() < 4096); // To avoid bank selection conflict (insane LiveCache line)
-
-  lineCount = (uint64_t)cacheBank->getNumLines();
-  maxOrder  = 0;
+    lineCount = (uint64_t)cacheBank->getNumLines();
+    maxOrder  = 0;
 }
 
 LiveCache::~LiveCache() {
+    if (nWriteMiss == 0 && nWriteHit == 0)
+        nWriteMiss = 1;
 
-  if (nWriteMiss==0 && nWriteHit==0)
-    nWriteMiss = 1;
+    if (nReadMiss == 0 && nReadHit == 0)
+        nReadMiss = 1;
 
-  if (nReadMiss==0 && nReadHit==0)
-    nReadMiss = 1;
+    fprintf(stderr,
+            "%s nReadHit:%lld nReadMiss:%lld nReadMissRate:%3.1f%% nWriteHit:%lld nWriteMiss:%lld nWriteMissRate:%3.1f%%\n",
+            name.c_str(),
+            nReadHit,
+            nReadMiss,
+            100.0 * ((double)nReadMiss) / (nReadHit + nReadMiss),
+            nWriteHit,
+            nWriteMiss,
+            100.0 * ((double)nWriteMiss) / (nWriteHit + nWriteMiss));
 
-  fprintf(stderr,"%s nReadHit:%lld nReadMiss:%lld nReadMissRate:%3.1f%% nWriteHit:%lld nWriteMiss:%lld nWriteMissRate:%3.1f%%\n"
-      ,name.c_str()
-      ,nReadHit
-      ,nReadMiss
-      ,100.0*((double)nReadMiss)/(nReadHit+nReadMiss)
-      ,nWriteHit
-      ,nWriteMiss
-      ,100.0*((double)nWriteMiss)/(nWriteHit+nWriteMiss)
-      );
-
-  cacheBank->destroy();
+    cacheBank->destroy();
 }
 
 void LiveCache::read(uint64_t addr) {
-  Line *l = cacheBank->findLine(addr);
-  if(l) {
-    l->order = maxOrder++;
-    nReadHit++;
-    return;
-  }
-  nReadMiss++;
+    Line *l = cacheBank->findLine(addr);
+    if (l) {
+        l->order = maxOrder++;
+        nReadHit++;
+        return;
+    }
+    nReadMiss++;
 
-  l = cacheBank->fillLine(addr);
-  l->st = false;
-  l->order = maxOrder++;
+    l        = cacheBank->fillLine(addr);
+    l->st    = false;
+    l->order = maxOrder++;
 }
 
 void LiveCache::write(uint64_t addr) {
-  Line *l = cacheBank->findLine(addr);
-  if(l) {
-    l->order = maxOrder++;
+    Line *l = cacheBank->findLine(addr);
+    if (l) {
+        l->order = maxOrder++;
+        l->st    = true;
+
+        nWriteHit++;
+        return;
+    }
+    nWriteMiss++;
+
+    l        = cacheBank->fillLine(addr);
     l->st    = true;
-
-    nWriteHit++;
-    return;
-  }
-  nWriteMiss++;
-
-  l = cacheBank->fillLine(addr);
-  l->st = true;
-  l->order = maxOrder++;
+    l->order = maxOrder++;
 }
 
 uint64_t *LiveCache::traverse(int &n_entries) {
-  // Creating an array of cache lines
-  Line *   arr[lineCount];
-  uint64_t cnt = 0;
-  for(uint64_t i = 0; i < lineCount; i++) {
-    if(cacheBank->getPLine(i) && cacheBank->getPLine(i)->order) {
-      arr[cnt] = cacheBank->getPLine(i);
-      cnt++;
+    // Creating an array of cache lines
+    Line *   arr[lineCount];
+    uint64_t cnt = 0;
+    for (uint64_t i = 0; i < lineCount; i++) {
+        if (cacheBank->getPLine(i) && cacheBank->getPLine(i)->order) {
+            arr[cnt] = cacheBank->getPLine(i);
+            cnt++;
+        }
     }
-  }
-  mergeSort(arr, cnt);
+    mergeSort(arr, cnt);
 
-  uint64_t *addrs = (uint64_t *)malloc(sizeof(uint64_t)*cnt);
+    uint64_t *addrs = (uint64_t *)malloc(sizeof(uint64_t) * cnt);
 
-  // creating loads and stores arrays
-  uint64_t in = 0;
-  for(uint64_t i = 0; i < cnt; i++) {
-    if(!arr[i]->getTag())
-      continue;
-    if (arr[i]->st) {
-      addrs[in] = 1 | (uint64_t)cacheBank->calcAddr4Tag(arr[i]->getTag());
-    }else{
-      addrs[in] = (uint64_t)cacheBank->calcAddr4Tag(arr[i]->getTag());
-      assert((addrs[in]&1)==0);
+    // creating loads and stores arrays
+    uint64_t in = 0;
+    for (uint64_t i = 0; i < cnt; i++) {
+        if (!arr[i]->getTag())
+            continue;
+        if (arr[i]->st) {
+            addrs[in] = 1 | (uint64_t)cacheBank->calcAddr4Tag(arr[i]->getTag());
+        } else {
+            addrs[in] = (uint64_t)cacheBank->calcAddr4Tag(arr[i]->getTag());
+            assert((addrs[in] & 1) == 0);
+        }
+        in++;
     }
-    in++;
-  }
 
-  n_entries = in;
+    n_entries = in;
 
-  return addrs;
+    return addrs;
 }
 
 void LiveCache::mergeSort(Line **arr, uint64_t len) {
-  // in case we had one element
-  if(len < 2)
-    return;
+    // in case we had one element
+    if (len < 2)
+        return;
 
-  // in case we had two elements
-  if(len == 2) {
-    if(arr[0]->order > arr[1]->order) {
-      // swap
-      Line *t = arr[0];
-      arr[0]  = arr[1];
-      arr[1]  = t;
+    // in case we had two elements
+    if (len == 2) {
+        if (arr[0]->order > arr[1]->order) {
+            // swap
+            Line *t = arr[0];
+            arr[0]  = arr[1];
+            arr[1]  = t;
+        }
+        return;
     }
-    return;
-  }
 
-  // divide and conquer
-  uint64_t mid = (uint64_t)(len / 2);
-  Line *   arr1[mid];
-  Line *   arr2[len - mid];
-  for(uint64_t i = 0; i < mid; i++)
-    arr1[i] = arr[i];
-  for(uint64_t i = 0; i < len - mid; i++)
-    arr2[i] = arr[mid + i];
-  mergeSort(arr1, mid);
-  mergeSort(arr2, len - mid);
+    // divide and conquer
+    uint64_t mid = (uint64_t)(len / 2);
+    Line *   arr1[mid];
+    Line *   arr2[len - mid];
+    for (uint64_t i = 0; i < mid; i++) arr1[i] = arr[i];
+    for (uint64_t i = 0; i < len - mid; i++) arr2[i] = arr[mid + i];
+    mergeSort(arr1, mid);
+    mergeSort(arr2, len - mid);
 
-  // merging
-  uint64_t m = 0;
-  uint64_t n = 0;
-  for(uint64_t i = 0; i < len; i++) {
-    if(n >= (len - mid) || (m < mid && arr1[m]->order <= arr2[n]->order)) {
-      arr[i] = arr1[m];
-      m++;
-    } else {
-      arr[i] = arr2[n];
-      n++;
+    // merging
+    uint64_t m = 0;
+    uint64_t n = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        if (n >= (len - mid) || (m < mid && arr1[m]->order <= arr2[n]->order)) {
+            arr[i] = arr1[m];
+            m++;
+        } else {
+            arr[i] = arr2[n];
+            n++;
+        }
     }
-  }
 }

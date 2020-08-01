@@ -16,36 +16,35 @@
  * limitations under the License.
  */
 #include "dromajo.h"
-#include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
-#include <inttypes.h>
-#include <assert.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <unistd.h>
-#include <time.h>
-#include <getopt.h>
-#include <termios.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
-#include <sys/stat.h>
-#include <signal.h>
 
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <getopt.h>
+#include <inttypes.h>
+#include <net/if.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <termios.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "LiveCacheCore.h"
 #include "cutils.h"
 #include "iomem.h"
-#include "virtio.h"
 #include "riscv_machine.h"
-#include "LiveCacheCore.h"
+#include "virtio.h"
 
 //#define REGRESS_COSIM 1
 #ifdef REGRESS_COSIM
 #include "dromajo_cosim.h"
 #endif
 
-
-int iterate_core(RISCVMachine *m, int hartid)
-{
+int iterate_core(RISCVMachine *m, int hartid) {
     if (m->common.maxinsns-- <= 0)
         /* Succeed after N instructions without failure. */
         return 0;
@@ -55,11 +54,11 @@ int iterate_core(RISCVMachine *m, int hartid)
     /* Instruction that raises exceptions should be marked as such in
      * the trace of retired instructions.
      */
-    uint64_t last_pc    = virt_machine_get_pc(m, hartid);
-    int      priv       = riscv_get_priv_level(cpu);
-    uint32_t insn_raw   = -1;
-    (void) riscv_read_insn(cpu, &insn_raw, last_pc);
-    int      keep_going = virt_machine_run(m, hartid);
+    uint64_t last_pc  = virt_machine_get_pc(m, hartid);
+    int      priv     = riscv_get_priv_level(cpu);
+    uint32_t insn_raw = -1;
+    (void)riscv_read_insn(cpu, &insn_raw, last_pc);
+    int keep_going = virt_machine_run(m, hartid);
 
     if (last_pc == virt_machine_get_pc(m, hartid))
         return 0;
@@ -69,14 +68,20 @@ int iterate_core(RISCVMachine *m, int hartid)
         return keep_going;
     }
 
-    fprintf(dromajo_stderr, "%d %d 0x%016" PRIx64 " (0x%08x)", hartid, priv, last_pc,
-            (insn_raw & 3) == 3 ? insn_raw : (uint16_t) insn_raw);
+    fprintf(dromajo_stderr,
+            "%d %d 0x%016" PRIx64 " (0x%08x)",
+            hartid,
+            priv,
+            last_pc,
+            (insn_raw & 3) == 3 ? insn_raw : (uint16_t)insn_raw);
 
     int iregno = riscv_get_most_recently_written_reg(cpu);
     int fregno = riscv_get_most_recently_written_fp_reg(cpu);
 
     if (cpu->pending_exception != -1)
-        fprintf(dromajo_stderr, " exception %d, tval %016" PRIx64, cpu->pending_exception,
+        fprintf(dromajo_stderr,
+                " exception %d, tval %016" PRIx64,
+                cpu->pending_exception,
                 riscv_get_priv_level(cpu) == PRV_M ? cpu->mtval : cpu->stval);
     else if (iregno > 0)
         fprintf(dromajo_stderr, " x%2d 0x%016" PRIx64, iregno, virt_machine_get_reg(m, hartid, iregno));
@@ -88,23 +93,23 @@ int iterate_core(RISCVMachine *m, int hartid)
     return keep_going;
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
 #ifdef REGRESS_COSIM
     dromajo_cosim_state_t *costate = 0;
-    costate = dromajo_cosim_init(argc, argv);
+    costate                        = dromajo_cosim_init(argc, argv);
 
     if (!costate)
         return 1;
 
-    while (!dromajo_cosim_step(costate, 0, 0, 0, 0, 0, false));
+    while (!dromajo_cosim_step(costate, 0, 0, 0, 0, 0, false))
+        ;
     dromajo_cosim_fini(costate);
 #else
     RISCVMachine *m = virt_machine_main(argc, argv);
 
 #ifdef LIVECACHE
-    //m->llc = new LiveCache("LLC", 1024*1024*32); // 32MB LLC (should be ~2x larger than real)
-    m->llc = new LiveCache("LLC", 1024*32); // Small 32KB for testing
+    // m->llc = new LiveCache("LLC", 1024*1024*32); // 32MB LLC (should be ~2x larger than real)
+    m->llc = new LiveCache("LLC", 1024 * 32);  // Small 32KB for testing
 #endif
 
     if (!m)
@@ -113,8 +118,7 @@ int main(int argc, char **argv)
     int keep_going;
     do {
         keep_going = 0;
-        for (int i = 0; i < m->ncpus; ++i)
-            keep_going |= iterate_core(m, i);
+        for (int i = 0; i < m->ncpus; ++i) keep_going |= iterate_core(m, i);
     } while (keep_going);
 
     for (int i = 0; i < m->ncpus; ++i) {
