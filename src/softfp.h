@@ -40,6 +40,7 @@
 #define SOFTFP_H
 
 #include <inttypes.h>
+
 #include "cutils.h"
 
 typedef enum {
@@ -86,19 +87,19 @@ sfloat32 fma_sf32(sfloat32 a, sfloat32 b, sfloat32 c, RoundingModeEnum rm, uint3
 
 sfloat32 min_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
 sfloat32 max_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
-int eq_quiet_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
-int le_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
-int lt_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
+int      eq_quiet_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
+int      le_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
+int      lt_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
 uint32_t fclass_sf32(sfloat32 a);
 
 sfloat64 cvt_sf32_sf64(sfloat32 a, uint32_t *pfflags);
 sfloat32 cvt_sf64_sf32(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
-int32_t cvt_sf32_i32(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
+int32_t  cvt_sf32_i32(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
 uint32_t cvt_sf32_u32(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
-int64_t cvt_sf32_i64(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
+int64_t  cvt_sf32_i64(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
 uint64_t cvt_sf32_u64(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
 #ifdef HAVE_INT128
-int128_t cvt_sf32_i128(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
+int128_t  cvt_sf32_i128(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
 uint128_t cvt_sf32_u128(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
 #endif
 sfloat32 cvt_i32_sf32(int32_t a, RoundingModeEnum rm, uint32_t *pfflags);
@@ -123,19 +124,19 @@ sfloat64 fma_sf64(sfloat64 a, sfloat64 b, sfloat64 c, RoundingModeEnum rm, uint3
 
 sfloat64 min_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
 sfloat64 max_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
-int eq_quiet_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
-int le_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
-int lt_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
+int      eq_quiet_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
+int      le_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
+int      lt_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
 uint32_t fclass_sf64(sfloat64 a);
 
 sfloat64 cvt_sf32_sf64(sfloat32 a, uint32_t *pfflags);
 sfloat32 cvt_sf64_sf32(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
-int32_t cvt_sf64_i32(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
+int32_t  cvt_sf64_i32(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
 uint32_t cvt_sf64_u32(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
-int64_t cvt_sf64_i64(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
+int64_t  cvt_sf64_i64(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
 uint64_t cvt_sf64_u64(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
 #ifdef HAVE_INT128
-int128_t cvt_sf64_i128(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
+int128_t  cvt_sf64_i128(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
 uint128_t cvt_sf64_u128(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
 #endif
 sfloat64 cvt_i32_sf64(int32_t a, RoundingModeEnum rm, uint32_t *pfflags);
@@ -162,21 +163,21 @@ sfloat128 fma_sf128(sfloat128 a, sfloat128 b, sfloat128 c, RoundingModeEnum rm, 
 
 sfloat128 min_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
 sfloat128 max_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
-int eq_quiet_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
-int le_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
-int lt_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
-uint32_t fclass_sf128(sfloat128 a);
+int       eq_quiet_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
+int       le_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
+int       lt_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
+uint32_t  fclass_sf128(sfloat128 a);
 
 sfloat128 cvt_sf32_sf128(sfloat32 a, uint32_t *pfflags);
-sfloat32 cvt_sf128_sf32(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
+sfloat32  cvt_sf128_sf32(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
 sfloat128 cvt_sf64_sf128(sfloat64 a, uint32_t *pfflags);
-sfloat64 cvt_sf128_sf64(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
+sfloat64  cvt_sf128_sf64(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
 
-int32_t cvt_sf128_i32(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
-uint32_t cvt_sf128_u32(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
-int64_t cvt_sf128_i64(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
-uint64_t cvt_sf128_u64(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
-int128_t cvt_sf128_i128(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
+int32_t   cvt_sf128_i32(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
+uint32_t  cvt_sf128_u32(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
+int64_t   cvt_sf128_i64(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
+uint64_t  cvt_sf128_u64(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
+int128_t  cvt_sf128_i128(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
 uint128_t cvt_sf128_u128(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
 sfloat128 cvt_i32_sf128(int32_t a, RoundingModeEnum rm, uint32_t *pfflags);
 sfloat128 cvt_u32_sf128(uint32_t a, RoundingModeEnum rm, uint32_t *pfflags);

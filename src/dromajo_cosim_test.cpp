@@ -17,27 +17,28 @@
  *
  * Parse the trace output and check that we cosim correctly.
  */
-#include "dromajo.h"
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
 #include "dromajo_cosim.h"
 
-void usage(char *progname)
-{
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "dromajo.h"
+
+void usage(char *progname) {
     fprintf(stderr,
             "Usage:\n"
             "  %s cosim $trace $dromajoargs ...\n"
             "  %s read $trace\n",
-            progname, progname);
+            progname,
+            progname);
     exit(EXIT_FAILURE);
 }
 
-int main(int argc, char *argv[])
-{
-    char *progname = argv[0];
-    bool cosim = false;
-    int  exit_code = EXIT_SUCCESS;
+int main(int argc, char *argv[]) {
+    char *progname  = argv[0];
+    bool  cosim     = false;
+    int   exit_code = EXIT_SUCCESS;
 
     if (argc < 3)
         usage(progname);
@@ -51,7 +52,7 @@ int main(int argc, char *argv[])
         usage(progname);
 
     char *trace_name = argv[2];
-    FILE *f = fopen(trace_name, "r");
+    FILE *f          = fopen(trace_name, "r");
     if (!f) {
         perror(trace_name);
         usage(progname);
@@ -70,41 +71,34 @@ int main(int argc, char *argv[])
     }
 
     for (int lineno = 1; !feof(f); ++lineno) {
-        char buf[99];
+        char     buf[99];
         uint64_t insn_addr, wdata;
         uint32_t insn, rd;
-        int priv;
+        int      priv;
 
         if (!fgets(buf, sizeof buf, f))
             break;
 
-        int got = sscanf(buf, "%d 0x%lx (0x%x) x%d 0x%lx", &priv, &insn_addr,
-                         &insn, &rd, &wdata);
+        int got = sscanf(buf, "%d 0x%lx (0x%x) x%d 0x%lx", &priv, &insn_addr, &insn, &rd, &wdata);
 
         switch (got) {
-        case 3:
-            fprintf(dromajo_stdout, "%d %016lx %08x                           DASM(%08x)\n",
-                   priv, insn_addr, insn, insn);
-            break;
+            case 3:
+                fprintf(dromajo_stdout, "%d %016lx %08x                           DASM(%08x)\n", priv, insn_addr, insn, insn);
+                break;
 
-        case 5: fprintf(dromajo_stdout, "%d %016lx %08x [x%-2d <- %016lx] DASM(%08x)\n",
-                       priv, insn_addr, insn, rd, wdata, insn);
-            break;
+            case 5:
+                fprintf(dromajo_stdout, "%d %016lx %08x [x%-2d <- %016lx] DASM(%08x)\n", priv, insn_addr, insn, rd, wdata, insn);
+                break;
 
-        default:
-            fprintf(dromajo_stderr, "%s:%d: couldn't parse %s\n",
-                    trace_name, lineno, buf);
-            goto fail;
+            default: fprintf(dromajo_stderr, "%s:%d: couldn't parse %s\n", trace_name, lineno, buf); goto fail;
 
-        case 0:
-        case -1:
-            continue;
+            case 0:
+            case -1: continue;
         }
 
         if (cosim) {
-            int hartid = 0; // FIXME: MULTICORE cosim. Must get hartid from commit
-            int r = dromajo_cosim_step(s, hartid, insn_addr, insn, wdata,
-                                        0, 0, 0, 0, true);
+            int hartid = 0;  // FIXME: MULTICORE cosim. Must get hartid from commit
+            int r      = dromajo_cosim_step(s, hartid, insn_addr, insn, wdata, 0, 0, 0, 0, true);
             if (r) {
                 fprintf(dromajo_stdout, "Exited with %08x\n", r);
                 goto fail;

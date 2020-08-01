@@ -53,7 +53,6 @@
 #define MIE_MEIE MIP_MEIP
 #define MIE_MCIP MIP_MCIP
 
-
 #define CAUSE_MISALIGNED_FETCH    0x0
 #define CAUSE_FAULT_FETCH         0x1
 #define CAUSE_ILLEGAL_INSTRUCTION 0x2
@@ -70,8 +69,8 @@
 #define CAUSE_LOAD_PAGE_FAULT     0xd
 #define CAUSE_STORE_PAGE_FAULT    0xf
 
-#define SCAUSE_MASK     0x800000000000001full // 5 writable bits+MSB
-#define MCAUSE_MASK     0x80000000000000ffull // 8 writable bits+MSB
+#define SCAUSE_MASK     0x800000000000001full  // 5 writable bits+MSB
+#define MCAUSE_MASK     0x80000000000000ffull  // 8 writable bits+MSB
 #define CAUSE_INTERRUPT 0x8000000000000000ull
 
 #define PRV_U 0
@@ -80,58 +79,58 @@
 #define PRV_M 3
 
 /* misa CSR */
-#define MCPUID_SUPER   (1 << ('S' - 'A'))
-#define MCPUID_USER    (1 << ('U' - 'A'))
-#define MCPUID_I       (1 << ('I' - 'A'))
-#define MCPUID_M       (1 << ('M' - 'A'))
-#define MCPUID_A       (1 << ('A' - 'A'))
-#define MCPUID_F       (1 << ('F' - 'A'))
-#define MCPUID_D       (1 << ('D' - 'A'))
-#define MCPUID_Q       (1 << ('Q' - 'A'))
-#define MCPUID_C       (1 << ('C' - 'A'))
-#define MCPUID_X       (1 << ('X' - 'A'))
+#define MCPUID_SUPER (1 << ('S' - 'A'))
+#define MCPUID_USER  (1 << ('U' - 'A'))
+#define MCPUID_I     (1 << ('I' - 'A'))
+#define MCPUID_M     (1 << ('M' - 'A'))
+#define MCPUID_A     (1 << ('A' - 'A'))
+#define MCPUID_F     (1 << ('F' - 'A'))
+#define MCPUID_D     (1 << ('D' - 'A'))
+#define MCPUID_Q     (1 << ('Q' - 'A'))
+#define MCPUID_C     (1 << ('C' - 'A'))
+#define MCPUID_X     (1 << ('X' - 'A'))
 
 /* mstatus CSR */
 
 #define MSTATUS_SPIE_SHIFT 5
 #define MSTATUS_MPIE_SHIFT 7
-#define MSTATUS_SPP_SHIFT 8
-#define MSTATUS_MPP_SHIFT 11
-#define MSTATUS_FS_SHIFT 13
-#define MSTATUS_UXL_SHIFT 32
-#define MSTATUS_SXL_SHIFT 34
+#define MSTATUS_SPP_SHIFT  8
+#define MSTATUS_MPP_SHIFT  11
+#define MSTATUS_FS_SHIFT   13
+#define MSTATUS_UXL_SHIFT  32
+#define MSTATUS_SXL_SHIFT  34
 
-#define MSTATUS_UIE (1 << 0)
-#define MSTATUS_SIE (1 << 1)
-#define MSTATUS_HIE (1 << 2)
-#define MSTATUS_MIE (1 << 3)
-#define MSTATUS_UPIE (1 << 4)
-#define MSTATUS_SPIE (1 << MSTATUS_SPIE_SHIFT)
-#define MSTATUS_HPIE (1 << 6)
-#define MSTATUS_MPIE (1 << MSTATUS_MPIE_SHIFT)
-#define MSTATUS_SPP (1 << MSTATUS_SPP_SHIFT)
-#define MSTATUS_HPP (3 << 9)
-#define MSTATUS_MPP (3 << MSTATUS_MPP_SHIFT)
-#define MSTATUS_FS (3 << MSTATUS_FS_SHIFT)
-#define MSTATUS_XS (3 << 15)
-#define MSTATUS_MPRV (1 << 17)
-#define MSTATUS_SUM (1 << 18)
-#define MSTATUS_MXR (1 << 19)
-#define MSTATUS_TVM (1 << 20)
-#define MSTATUS_TW (1 << 21)
-#define MSTATUS_TSR (1 << 22)
+#define MSTATUS_UIE      (1 << 0)
+#define MSTATUS_SIE      (1 << 1)
+#define MSTATUS_HIE      (1 << 2)
+#define MSTATUS_MIE      (1 << 3)
+#define MSTATUS_UPIE     (1 << 4)
+#define MSTATUS_SPIE     (1 << MSTATUS_SPIE_SHIFT)
+#define MSTATUS_HPIE     (1 << 6)
+#define MSTATUS_MPIE     (1 << MSTATUS_MPIE_SHIFT)
+#define MSTATUS_SPP      (1 << MSTATUS_SPP_SHIFT)
+#define MSTATUS_HPP      (3 << 9)
+#define MSTATUS_MPP      (3 << MSTATUS_MPP_SHIFT)
+#define MSTATUS_FS       (3 << MSTATUS_FS_SHIFT)
+#define MSTATUS_XS       (3 << 15)
+#define MSTATUS_MPRV     (1 << 17)
+#define MSTATUS_SUM      (1 << 18)
+#define MSTATUS_MXR      (1 << 19)
+#define MSTATUS_TVM      (1 << 20)
+#define MSTATUS_TW       (1 << 21)
+#define MSTATUS_TSR      (1 << 22)
 #define MSTATUS_UXL_MASK ((uint64_t)3 << MSTATUS_UXL_SHIFT)
 #define MSTATUS_SXL_MASK ((uint64_t)3 << MSTATUS_SXL_SHIFT)
 
 // A few of Debug Trigger Match Control bits (there are many more)
-#define MCONTROL_M         (1 << 6)
-#define MCONTROL_S         (1 << 4)
-#define MCONTROL_U         (1 << 3)
-#define MCONTROL_EXECUTE   (1 << 2)
-#define MCONTROL_STORE     (1 << 1)
-#define MCONTROL_LOAD      (1 << 0)
+#define MCONTROL_M       (1 << 6)
+#define MCONTROL_S       (1 << 4)
+#define MCONTROL_U       (1 << 3)
+#define MCONTROL_EXECUTE (1 << 2)
+#define MCONTROL_STORE   (1 << 1)
+#define MCONTROL_LOAD    (1 << 0)
 
-#define PHYSICAL_ADDR_LEN_DEFAULT               40
+#define PHYSICAL_ADDR_LEN_DEFAULT 40
 
 /* SBI calls */
 typedef enum {
@@ -151,18 +150,18 @@ typedef enum {
 
 /* PMP */
 
-#define CSR_PMPCFG(n)                           (0x3A0 + (n)) // n = 0 or 2
-#define CSR_PMPADDR(n)                          (0x3B0 + (n)) // n = 0..15
+#define CSR_PMPCFG(n)  (0x3A0 + (n))  // n = 0 or 2
+#define CSR_PMPADDR(n) (0x3B0 + (n))  // n = 0..15
 
-#define PMP_N           8 // Spec defines 16, we implement 8
+#define PMP_N 8  // Spec defines 16, we implement 8
 
 typedef enum {
-    PMPCFG_R       =    1, // NB: the three bottom bits follow the standard permissions order
-    PMPCFG_W       =    2,
-    PMPCFG_X       =    4,
+    PMPCFG_R       = 1,  // NB: the three bottom bits follow the standard permissions order
+    PMPCFG_W       = 2,
+    PMPCFG_X       = 4,
     PMPCFG_A_MASK  = 0x18,
-    PMPCFG_A_OFF   =    0,
-    PMPCFG_A_TOR   =    8,
+    PMPCFG_A_OFF   = 0,
+    PMPCFG_A_TOR   = 8,
     PMPCFG_A_NA4   = 0x10,
     PMPCFG_A_NAPOT = 0x18,
     PMPCFG_RES     = 0x60,
@@ -170,15 +169,15 @@ typedef enum {
 } pmpcfg_t;
 
 /* Copy & paste from qemu include/hw/riscv/virt.h */
-#define PLIC_HART_CONFIG      "MS"
-#define PLIC_NUM_SOURCES           127
-#define PLIC_NUM_PRIORITIES          7
-#define PLIC_PRIORITY_BASE           4
-#define PLIC_PENDING_BASE       0x1000
-#define PLIC_ENABLE_BASE        0x2000
-#define PLIC_ENABLE_STRIDE        0x80
-#define PLIC_CONTEXT_BASE     0x200000
-#define PLIC_CONTEXT_STRIDE     0x1000
+#define PLIC_HART_CONFIG    "MS"
+#define PLIC_NUM_SOURCES    127
+#define PLIC_NUM_PRIORITIES 7
+#define PLIC_PRIORITY_BASE  4
+#define PLIC_PENDING_BASE   0x1000
+#define PLIC_ENABLE_BASE    0x2000
+#define PLIC_ENABLE_STRIDE  0x80
+#define PLIC_CONTEXT_BASE   0x200000
+#define PLIC_CONTEXT_STRIDE 0x1000
 
 #define PLIC_BITFIELD_WORDS ((PLIC_NUM_SOURCES + 31) >> 5)
 

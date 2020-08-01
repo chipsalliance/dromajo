@@ -40,22 +40,22 @@
 #ifndef CUTILS_H
 #define CUTILS_H
 
-#include <stdlib.h>
 #include <inttypes.h>
+#include <stdlib.h>
 
-#define likely(x)       __builtin_expect(!!(x), 1)
-#define unlikely(x)     __builtin_expect(!!(x), 0)
-#define force_inline inline __attribute__((always_inline))
-#define no_inline __attribute__((noinline))
+#define likely(x)      __builtin_expect(!!(x), 1)
+#define unlikely(x)    __builtin_expect(!!(x), 0)
+#define force_inline   inline __attribute__((always_inline))
+#define no_inline      __attribute__((noinline))
 #define __maybe_unused __attribute__((unused))
 
-#define xglue(x, y) x ## y
-#define glue(x, y) xglue(x, y)
-#define stringify(s)    tostring(s)
-#define tostring(s)     #s
+#define xglue(x, y)  x##y
+#define glue(x, y)   xglue(x, y)
+#define stringify(s) tostring(s)
+#define tostring(s)  #s
 
 #ifndef offsetof
-#define offsetof(type, field) ((size_t) &((type *)0)->field)
+#define offsetof(type, field) ((size_t) & ((type *)0)->field)
 #endif
 #define countof(x) (sizeof(x) / sizeof(x[0]))
 
@@ -67,7 +67,7 @@
 typedef int BOOL;
 enum {
     FALSE = 0,
-    TRUE = 1,
+    TRUE  = 1,
 };
 #endif
 
@@ -77,20 +77,18 @@ enum {
 #endif
 
 #ifdef HAVE_INT128
-typedef __int128 int128_t;
+typedef __int128          int128_t;
 typedef unsigned __int128 uint128_t;
 #endif
 
-static inline int max_int(int a, int b)
-{
+static inline int max_int(int a, int b) {
     if (a > b)
         return a;
     else
         return b;
 }
 
-static inline int min_int(int a, int b)
-{
+static inline int min_int(int a, int b) {
     if (a < b)
         return a;
     else
@@ -100,84 +98,58 @@ static inline int min_int(int a, int b)
 void *mallocz(size_t size);
 
 #if defined(__APPLE__)
-static inline uint32_t bswap_32(uint32_t v)
-{
-    return ((v & 0xff000000) >> 24) | ((v & 0x00ff0000) >>  8) |
-        ((v & 0x0000ff00) <<  8) | ((v & 0x000000ff) << 24);
+static inline uint32_t bswap_32(uint32_t v) {
+    return ((v & 0xff000000) >> 24) | ((v & 0x00ff0000) >> 8) | ((v & 0x0000ff00) << 8) | ((v & 0x000000ff) << 24);
 }
 #include <sys/select.h>
 #else
 #include <byteswap.h>
 #endif
 
-static inline uint16_t get_le16(const uint8_t *ptr)
-{
-    return ptr[0] | (ptr[1] << 8);
-}
+static inline uint16_t get_le16(const uint8_t *ptr) { return ptr[0] | (ptr[1] << 8); }
 
-static inline uint32_t get_le32(const uint8_t *ptr)
-{
-    return ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24);
-}
+static inline uint32_t get_le32(const uint8_t *ptr) { return ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24); }
 
-static inline uint64_t get_le64(const uint8_t *ptr)
-{
-    return get_le32(ptr) | ((uint64_t)get_le32(ptr + 4) << 32);
-}
+static inline uint64_t get_le64(const uint8_t *ptr) { return get_le32(ptr) | ((uint64_t)get_le32(ptr + 4) << 32); }
 
-static inline void put_le16(uint8_t *ptr, uint16_t v)
-{
+static inline void put_le16(uint8_t *ptr, uint16_t v) {
     ptr[0] = v;
     ptr[1] = v >> 8;
 }
 
-static inline void put_le32(uint8_t *ptr, uint32_t v)
-{
+static inline void put_le32(uint8_t *ptr, uint32_t v) {
     ptr[0] = v;
     ptr[1] = v >> 8;
     ptr[2] = v >> 16;
     ptr[3] = v >> 24;
 }
 
-static inline void put_le64(uint8_t *ptr, uint64_t v)
-{
+static inline void put_le64(uint8_t *ptr, uint64_t v) {
     put_le32(ptr, v);
     put_le32(ptr + 4, v >> 32);
 }
 
-static inline uint32_t get_be32(const uint8_t *d)
-{
-    return (d[0] << 24) | (d[1] << 16) | (d[2] << 8) | d[3];
-}
+static inline uint32_t get_be32(const uint8_t *d) { return (d[0] << 24) | (d[1] << 16) | (d[2] << 8) | d[3]; }
 
-static inline void put_be32(uint8_t *d, uint32_t v)
-{
+static inline void put_be32(uint8_t *d, uint32_t v) {
     d[0] = v >> 24;
     d[1] = v >> 16;
     d[2] = v >> 8;
     d[3] = v >> 0;
 }
 
-static inline void put_be64(uint8_t *d, uint64_t v)
-{
+static inline void put_be64(uint8_t *d, uint64_t v) {
     put_be32(d, v >> 32);
     put_be32(d + 4, v);
 }
 
 #ifdef WORDS_BIGENDIAN
-static inline uint32_t cpu_to_be32(uint32_t v)
-{
-    return v;
-}
+static inline uint32_t cpu_to_be32(uint32_t v) { return v; }
 #else
-static inline uint32_t cpu_to_be32(uint32_t v)
-{
-    return bswap_32(v);
-}
+static inline uint32_t cpu_to_be32(uint32_t v) { return bswap_32(v); }
 #endif
 
-static inline int ctz32(uint32_t a)
-{
+static inline int ctz32(uint32_t a) {
     int i;
     if (a == 0)
         return 32;
@@ -188,16 +160,15 @@ static inline int ctz32(uint32_t a)
     return 32;
 }
 
-
 void *mallocz(size_t size);
-void pstrcpy(char *buf, int buf_size, const char *str);
+void  pstrcpy(char *buf, int buf_size, const char *str);
 char *pstrcat(char *buf, int buf_size, const char *s);
-int strstart(const char *str, const char *val, const char **ptr);
+int   strstart(const char *str, const char *val, const char **ptr);
 
 typedef struct {
     uint8_t *buf;
-    size_t size;
-    size_t allocated_size;
+    size_t   size;
+    size_t   allocated_size;
 } DynBuf;
 
 void dbuf_init(DynBuf *s);

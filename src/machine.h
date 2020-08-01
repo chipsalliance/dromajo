@@ -39,25 +39,24 @@
  */
 
 #include <stdint.h>
+
 #include "json.h"
 
 typedef struct RISCVMachine RISCVMachine;
 
 typedef struct FBDevice FBDevice;
 
-typedef void SimpleFBDrawFunc(FBDevice *fb_dev, void *opaque,
-                              int x, int y, int w, int h);
+typedef void SimpleFBDrawFunc(FBDevice *fb_dev, void *opaque, int x, int y, int w, int h);
 
 struct FBDevice {
     /* the following is set by the device */
-    int width;
-    int height;
-    int stride; /* current stride in bytes */
+    int      width;
+    int      height;
+    int      stride;  /* current stride in bytes */
     uint8_t *fb_data; /* current pointer to the pixel data */
-    int fb_size; /* frame buffer memory size (info only) */
-    void *device_opaque;
-    void (*refresh)(struct FBDevice *fb_dev,
-                    SimpleFBDrawFunc *redraw_func, void *opaque);
+    int      fb_size; /* frame buffer memory size (info only) */
+    void *   device_opaque;
+    void (*refresh)(struct FBDevice *fb_dev, SimpleFBDrawFunc *redraw_func, void *opaque);
 };
 
 #ifndef MACHINE_H
@@ -67,10 +66,9 @@ struct FBDevice {
 
 #include "virtio.h"
 
-
 #define MAX_DRIVE_DEVICE 4
-#define MAX_FS_DEVICE 4
-#define MAX_ETH_DEVICE 1
+#define MAX_FS_DEVICE    4
+#define MAX_ETH_DEVICE   1
 
 #define VM_CONFIG_VERSION 1
 
@@ -79,7 +77,7 @@ extern int simpoint_roi;
 
 //#define SIMPOINT_SIZE 1000000UL      // For Benchmarking Fine Grain
 //#define SIMPOINT_SIZE 10000UL        // For verification
-#define SIMPOINT_SIZE 100000000UL    // Traditional 100M simpoint
+#define SIMPOINT_SIZE 100000000UL  // Traditional 100M simpoint
 #endif
 
 typedef enum {
@@ -92,31 +90,31 @@ typedef enum {
 } VMFileTypeEnum;
 
 typedef struct {
-    char *filename;
+    char *   filename;
     uint8_t *buf;
-    int len;
+    int      len;
 } VMFileEntry;
 
 typedef struct {
-    char *device;
-    char *filename;
+    char *       device;
+    char *       filename;
     BlockDevice *block_dev;
 } VMDriveEntry;
 
 typedef struct {
-    char *device;
-    char *tag; /* 9p mount tag */
-    char *filename;
+    char *    device;
+    char *    tag; /* 9p mount tag */
+    char *    filename;
     FSDevice *fs_dev;
 } VMFSEntry;
 
 typedef struct {
-    char *driver;
-    char *ifname;
+    char *          driver;
+    char *          ifname;
     EthernetDevice *net;
 } VMEthEntry;
 
-typedef struct AddressSet{
+typedef struct AddressSet {
     uint64_t start;
     uint64_t size;
 } AddressSet;
@@ -124,88 +122,88 @@ typedef struct AddressSet{
 #ifdef SIMPOINT_BB
 #include <vector>
 struct Simpoint {
-  Simpoint(uint64_t i, int j) : start(i), id(j) {}
-  bool operator<(const Simpoint &j) const { return (start < j.start); }
+    Simpoint(uint64_t i, int j) : start(i), id(j) {}
+    bool operator<(const Simpoint &j) const { return (start < j.start); }
 
-  uint64_t start;
-  int      id;
+    uint64_t start;
+    int      id;
 };
 #endif
 
 typedef struct {
-  char *           cfg_filename;
-  uint64_t         ram_base_addr;
-  uint64_t         ram_size;
-  BOOL             rtc_local_time;
-  char *           display_device; /* NULL means no display */
-  int64_t          width, height;  /* graphic width & height */
-  CharacterDevice *console;
-  VMDriveEntry     tab_drive[MAX_DRIVE_DEVICE];
-  int              drive_count;
-  VMFSEntry        tab_fs[MAX_FS_DEVICE];
-  int              fs_count;
-  VMEthEntry       tab_eth[MAX_ETH_DEVICE];
-  int              eth_count;
-  uint64_t         htif_base_addr;
+    char *           cfg_filename;
+    uint64_t         ram_base_addr;
+    uint64_t         ram_size;
+    BOOL             rtc_local_time;
+    char *           display_device; /* NULL means no display */
+    int64_t          width, height;  /* graphic width & height */
+    CharacterDevice *console;
+    VMDriveEntry     tab_drive[MAX_DRIVE_DEVICE];
+    int              drive_count;
+    VMFSEntry        tab_fs[MAX_FS_DEVICE];
+    int              fs_count;
+    VMEthEntry       tab_eth[MAX_ETH_DEVICE];
+    int              eth_count;
+    uint64_t         htif_base_addr;
 
-  char *cmdline;      /* bios or kernel command line */
-  BOOL  accel_enable; /* enable acceleration (KVM) */
-  char *input_device; /* NULL means no input */
+    char *cmdline;      /* bios or kernel command line */
+    BOOL  accel_enable; /* enable acceleration (KVM) */
+    char *input_device; /* NULL means no input */
 
-  /* kernel, bios and other auxiliary files */
-  VMFileEntry files[VM_FILE_COUNT];
+    /* kernel, bios and other auxiliary files */
+    VMFileEntry files[VM_FILE_COUNT];
 
-  /* maximum increment of instructions to execute */
-  uint64_t maxinsns;
+    /* maximum increment of instructions to execute */
+    uint64_t maxinsns;
 
-  /* snapshot load file */
-  const char *snapshot_load_name;
+    /* snapshot load file */
+    const char *snapshot_load_name;
 
-  /* bootrom params */
-  const char *bootrom_name;
-  const char *dtb_name;
-  bool        compact_bootrom;
+    /* bootrom params */
+    const char *bootrom_name;
+    const char *dtb_name;
+    bool        compact_bootrom;
 
-  /* reset vector used at startup */
-  uint64_t reset_vector;
+    /* reset vector used at startup */
+    uint64_t reset_vector;
 
-  /* number of cpus */
-  uint64_t ncpus;
+    /* number of cpus */
+    uint64_t ncpus;
 
-  /* MMIO range (for co-simulation only) */
-  uint64_t    mmio_start;
-  uint64_t    mmio_end;
-  AddressSet *mmio_addrset;
-  uint64_t    mmio_addrset_size;
+    /* MMIO range (for co-simulation only) */
+    uint64_t    mmio_start;
+    uint64_t    mmio_end;
+    AddressSet *mmio_addrset;
+    uint64_t    mmio_addrset_size;
 
-  /* PLIC/CLINT Params */
-  uint64_t plic_base_addr;
-  uint64_t plic_size;
-  uint64_t clint_base_addr;
-  uint64_t clint_size;
+    /* PLIC/CLINT Params */
+    uint64_t plic_base_addr;
+    uint64_t plic_size;
+    uint64_t clint_base_addr;
+    uint64_t clint_size;
 
-  /* Add to misa custom extensions */
-  bool custom_extension;
+    /* Add to misa custom extensions */
+    bool custom_extension;
 
-  uint64_t physical_addr_len;
+    uint64_t physical_addr_len;
 
-  char *logfile;  // If non-zero, all output goes here, stderr and stdout
+    char *logfile;  // If non-zero, all output goes here, stderr and stdout
 
-  bool dump_memories;
+    bool dump_memories;
 } VirtMachineParams;
 
 typedef struct VirtMachine {
     /* network */
     EthernetDevice *net;
     /* console */
-    VIRTIODevice *console_dev;
+    VIRTIODevice *   console_dev;
     CharacterDevice *console;
     /* graphics */
     FBDevice *fb_dev;
 
 #ifdef SIMPOINT_BB
-    uint32_t               simpoint_next;
-    std::vector<Simpoint>  simpoints;
+    uint32_t              simpoint_next;
+    std::vector<Simpoint> simpoints;
 #endif
 
     const char *snapshot_load_name;
@@ -215,9 +213,9 @@ typedef struct VirtMachine {
     uint64_t    trace;
 
     /* For co-simulation only, they are -1 if nothing is pending. */
-    bool        cosim;
-    int         pending_interrupt;
-    int         pending_exception;
+    bool cosim;
+    int  pending_interrupt;
+    int  pending_exception;
 } VirtMachine;
 
 int load_file(uint8_t **pbuf, const char *filename);
@@ -225,20 +223,16 @@ void __attribute__((format(printf, 1, 2))) vm_error(const char *fmt, ...);
 int vm_get_int(JSONValue obj, const char *name, int64_t *pval);
 
 const char *virt_machine_get_name(void);
-void virt_machine_set_defaults(VirtMachineParams *p);
-void virt_machine_load_config_file(VirtMachineParams *p,
-                                   const char *filename,
-                                   void (*start_cb)(void *opaque),
-                                   void *opaque);
-void vm_add_cmdline(VirtMachineParams *p, const char *cmdline);
-char *get_file_path(const char *base_filename, const char *filename);
-void virt_machine_free_config(VirtMachineParams *p);
+void        virt_machine_set_defaults(VirtMachineParams *p);
+void        virt_machine_load_config_file(VirtMachineParams *p, const char *filename, void (*start_cb)(void *opaque), void *opaque);
+void        vm_add_cmdline(VirtMachineParams *p, const char *cmdline);
+char *      get_file_path(const char *base_filename, const char *filename);
+void        virt_machine_free_config(VirtMachineParams *p);
 RISCVMachine *virt_machine_init(const VirtMachineParams *p);
-int virt_machine_get_sleep_duration(RISCVMachine *s, int hartid, int delay);
-BOOL vm_mouse_is_absolute(RISCVMachine *s);
-void vm_send_mouse_event(RISCVMachine *s1, int dx, int dy, int dz,
-                         unsigned int buttons);
-void vm_send_key_event(RISCVMachine *s1, BOOL is_down, uint16_t key_code);
+int           virt_machine_get_sleep_duration(RISCVMachine *s, int hartid, int delay);
+BOOL          vm_mouse_is_absolute(RISCVMachine *s);
+void          vm_send_mouse_event(RISCVMachine *s1, int dx, int dy, int dz, unsigned int buttons);
+void          vm_send_key_event(RISCVMachine *s1, BOOL is_down, uint16_t key_code);
 
 /* gui */
 void sdl_refresh(RISCVMachine *m);
@@ -246,37 +240,28 @@ void sdl_init(int width, int height);
 
 /* simplefb.c */
 typedef struct SimpleFBState SimpleFBState;
-SimpleFBState *simplefb_init(PhysMemoryMap *map, uint64_t phys_addr,
-                             FBDevice *fb_dev, int width, int height);
-void simplefb_refresh(FBDevice *fb_dev,
-                      SimpleFBDrawFunc *redraw_func, void *opaque,
-                      PhysMemoryRange *mem_range,
-                      int fb_page_count);
+SimpleFBState *              simplefb_init(PhysMemoryMap *map, uint64_t phys_addr, FBDevice *fb_dev, int width, int height);
+void simplefb_refresh(FBDevice *fb_dev, SimpleFBDrawFunc *redraw_func, void *opaque, PhysMemoryRange *mem_range, int fb_page_count);
 
 /* vga.c */
 typedef struct VGAState VGAState;
-VGAState *pci_vga_init(PCIBus *bus, FBDevice *fb_dev,
-                       int width, int height,
-                       const uint8_t *vga_rom_buf, int vga_rom_size);
+VGAState *pci_vga_init(PCIBus *bus, FBDevice *fb_dev, int width, int height, const uint8_t *vga_rom_buf, int vga_rom_size);
 
 /* block_net.c */
-BlockDevice *block_device_init_http(const char *url,
-                                    int max_cache_size_kb,
-                                    void (*start_cb)(void *opaque),
-                                    void *start_opaque);
+BlockDevice *block_device_init_http(const char *url, int max_cache_size_kb, void (*start_cb)(void *opaque), void *start_opaque);
 #ifdef __cplusplus
 extern "C" {
 #endif
-RISCVMachine*virt_machine_main       (int argc, char **argv);
-void         virt_machine_end        (RISCVMachine *s);
-void         virt_machine_serialize  (RISCVMachine *m, const char *dump_name);
-void         virt_machine_deserialize(RISCVMachine *m, const char *dump_name);
-BOOL         virt_machine_run        (RISCVMachine *m, int hartid);
-uint64_t     virt_machine_get_pc     (RISCVMachine *m, int hartid);
-uint64_t     virt_machine_get_reg    (RISCVMachine *m, int hartid, int rn);
-uint64_t     virt_machine_get_fpreg  (RISCVMachine *m, int hartid, int rn);
+RISCVMachine *virt_machine_main(int argc, char **argv);
+void          virt_machine_end(RISCVMachine *s);
+void          virt_machine_serialize(RISCVMachine *m, const char *dump_name);
+void          virt_machine_deserialize(RISCVMachine *m, const char *dump_name);
+BOOL          virt_machine_run(RISCVMachine *m, int hartid);
+uint64_t      virt_machine_get_pc(RISCVMachine *m, int hartid);
+uint64_t      virt_machine_get_reg(RISCVMachine *m, int hartid, int rn);
+uint64_t      virt_machine_get_fpreg(RISCVMachine *m, int hartid, int rn);
 #ifdef __cplusplus
-} // extern C
+}  // extern C
 #endif
 
 #endif

@@ -18,8 +18,8 @@
 #ifndef _DROMAJO_COSIM_H
 #define _DROMAJO_COSIM_H 1
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,13 +56,8 @@ void dromajo_cosim_fini(dromajo_cosim_state_t *state);
  * time, and instret.  For all these cases the model will override
  * with the expected values.
  */
-int dromajo_cosim_step(dromajo_cosim_state_t *state,
-                       int                    hartid,
-                       uint64_t               dut_pc,
-                       uint32_t               dut_insn,
-                       uint64_t               dut_wdata,
-                       uint64_t               mstatus,
-                       bool                   check);
+int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc, uint32_t dut_insn, uint64_t dut_wdata,
+                       uint64_t mstatus, bool check);
 
 /*
  * dromajo_cosim_raise_trap --
@@ -71,11 +66,9 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state,
  * MSB indicates an asynchronous interrupt, synchronous exception
  * otherwise.
  */
-void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state,
-                              int                   hartid,
-                              int64_t               cause);
+void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t cause);
 #ifdef __cplusplus
-} // extern C
+}  // extern C
 #endif
 
 #endif

@@ -17,4 +17,5 @@ BreakConstructorInitializers: 'BeforeComma'
 BreakBeforeBinaryOperators: 'true'
 BreakStringLiterals: 'true'
 AccessModifierOffset: -2
+IndentWidth: 4
 ...
