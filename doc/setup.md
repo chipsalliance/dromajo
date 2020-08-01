@@ -24,23 +24,32 @@ To run one of the benchmarks with trace enabled
 
 ### Get a trivial buildroot (~ 23 min)
 
+The buildroot config builts its own gcc (does not use installed cross compiler)
+because it is sensitive with the cross compiler build options and it is easier
+to just build it. The libc library setup is muslc.
+
 ```
-wget -nc https://github.com/buildroot/buildroot/archive/2019.08.1.tar.gz
-tar xzf 2019.08.1.tar.gz
-cp config-buildroot-2019.08.1 buildroot-2019.08.1/.config
-make -j16 -C buildroot-2019.08.1
+wget https://github.com/buildroot/buildroot/archive/2020.05.1.tar.gz
+tar xvf 2020.05.1.tar.gz
+cp config-buildroot-2020.05.1 buildroot-2020.05.1/.config
+make -j16 -C buildroot-2020.05.1
 ```
 
 ### Get the Linux kernel up and running (~ 3 min)
 
 Assumption: you have the `riscv64-linux-gnu-` (GlibC) toolchain.
 
+If not and you built the buildroot, you may be able to reuse the buildroot gcc installed by
+adding buildroot-2020.05.1/output/host/bin to your path, and use the
+riscv64-linux-gcc (fix the CROSS_COMPILE to use riscv64-linux- instead of
+riscv64-linux-gnu-)
+
 ```
 export CROSS_COMPILE=riscv64-linux-gnu-
-wget -nc https://github.com/torvalds/linux/archive/v5.7-rc4.tar.gz
-tar -xvf v5.7-rc4.tar.gz
-make -C linux-5.7-rc4 ARCH=riscv defconfig
-make -C linux-5.7-rc4 ARCH=riscv -j16
+wget -nc https://git.kernel.org/torvalds/t/linux-5.8-rc4.tar.gz
+tar -xf linux-5.8-rc4.tar.gz
+make -C linux-5.8-rc4 ARCH=riscv defconfig
+make -C linux-5.8-rc4 ARCH=riscv -j16
 ```
 
 ### OpenSBI (~ 1 min)
@@ -49,7 +58,8 @@ make -C linux-5.7-rc4 ARCH=riscv -j16
 export CROSS_COMPILE=riscv64-linux-gnu-
 git clone https://github.com/riscv/opensbi.git
 cd opensbi
-git checkout 7be75f519f7705367030258c4410d9ff9ea24a6f -b temp
+git checkout tags/v0.8 -b temp2
+# works too: git checkout 7be75f519f7705367030258c4410d9ff9ea24a6f -b temp
 make PLATFORM=generic
 cd ..
 ```
@@ -57,8 +67,8 @@ cd ..
 ### To boot Linux (login:root password:root)
 
 ```
-cp buildroot-2019.08.1/output/images/rootfs.* .
-cp linux-5.7-rc4/arch/riscv/boot/Image .
+cp buildroot-2020.05.1/output/images/rootfs.cpio .
+cp linux-5.8-rc4/arch/riscv/boot/Image .
 cp opensbi/build/platform/generic/firmware/fw_jump.bin .
 ../src/dromajo boot.cfg
 ```

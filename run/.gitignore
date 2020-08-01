@@ -1,0 +1,5 @@
+*bootram
+*mainram
+*re_regs
+*.tar.gz
+simpoint*

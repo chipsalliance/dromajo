@@ -112,8 +112,11 @@ struct RISCVMachine {
 #define CLINT_BASE_ADDR 0x02000000
 #define CLINT_SIZE      0x000c0000
 
-#define RTC_FREQ_DIV 16 /* arbitrary, relative to CPU freq to have a
-                           10 MHz frequency */
+// CPU_FREQUENCY is a u32, so less than 4GHz
+#define CPU_FREQUENCY           2000000000
+#define RTC_FREQ                  1000000
+
+#define RTC_FREQ_DIV   (CPU_FREQUENCY/RTC_FREQ)
 
 #define HTIF_BASE_ADDR          0x40008000
 #define IDE_BASE_ADDR           0x40009000
@@ -123,10 +126,14 @@ struct RISCVMachine {
 #define FRAMEBUFFER_BASE_ADDR   0x41000000
 
 // sifive,uart, same as qemu UART0 (qemu has 2 sifive uarts)
+#ifndef ARIANE_UART
+#define UART0_BASE_ADDR         0x10000000
+#define UART0_SIZE                  0x1000
+#else
 #define UART0_BASE_ADDR         0x54000000
 #define UART0_SIZE                      32
+#endif
 #define UART0_IRQ                        3
 
-#define RTC_FREQ                  10000000
 
 #endif

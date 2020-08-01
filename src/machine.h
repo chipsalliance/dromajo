@@ -74,6 +74,14 @@ struct FBDevice {
 
 #define VM_CONFIG_VERSION 1
 
+#ifdef SIMPOINT_BB
+extern int simpoint_roi;
+
+//#define SIMPOINT_SIZE 1000000UL      // For Benchmarking Fine Grain
+//#define SIMPOINT_SIZE 10000UL        // For verification
+#define SIMPOINT_SIZE 100000000UL    // Traditional 100M simpoint
+#endif
+
 typedef enum {
     VM_FILE_BIOS,
     VM_FILE_VGA_BIOS,
@@ -113,66 +121,77 @@ typedef struct AddressSet{
     uint64_t size;
 } AddressSet;
 
+#ifdef SIMPOINT_BB
+#include <vector>
+struct Simpoint {
+  Simpoint(uint64_t i, int j) : start(i), id(j) {}
+  bool operator<(const Simpoint &j) const { return (start < j.start); }
+
+  uint64_t start;
+  int      id;
+};
+#endif
+
 typedef struct {
-    char *cfg_filename;
-    uint64_t ram_base_addr;
-    uint64_t ram_size;
-    BOOL rtc_local_time;
-    char *display_device; /* NULL means no display */
-    int64_t width, height; /* graphic width & height */
-    CharacterDevice *console;
-    VMDriveEntry tab_drive[MAX_DRIVE_DEVICE];
-    int drive_count;
-    VMFSEntry tab_fs[MAX_FS_DEVICE];
-    int fs_count;
-    VMEthEntry tab_eth[MAX_ETH_DEVICE];
-    int eth_count;
-    uint64_t htif_base_addr;
+  char *           cfg_filename;
+  uint64_t         ram_base_addr;
+  uint64_t         ram_size;
+  BOOL             rtc_local_time;
+  char *           display_device; /* NULL means no display */
+  int64_t          width, height;  /* graphic width & height */
+  CharacterDevice *console;
+  VMDriveEntry     tab_drive[MAX_DRIVE_DEVICE];
+  int              drive_count;
+  VMFSEntry        tab_fs[MAX_FS_DEVICE];
+  int              fs_count;
+  VMEthEntry       tab_eth[MAX_ETH_DEVICE];
+  int              eth_count;
+  uint64_t         htif_base_addr;
 
-    char *cmdline; /* bios or kernel command line */
-    BOOL accel_enable; /* enable acceleration (KVM) */
-    char *input_device; /* NULL means no input */
+  char *cmdline;      /* bios or kernel command line */
+  BOOL  accel_enable; /* enable acceleration (KVM) */
+  char *input_device; /* NULL means no input */
 
-    /* kernel, bios and other auxiliary files */
-    VMFileEntry files[VM_FILE_COUNT];
+  /* kernel, bios and other auxiliary files */
+  VMFileEntry files[VM_FILE_COUNT];
 
-    /* maximum increment of instructions to execute */
-    uint64_t maxinsns;
+  /* maximum increment of instructions to execute */
+  uint64_t maxinsns;
 
-    /* snapshot load file */
-    const char *snapshot_load_name;
+  /* snapshot load file */
+  const char *snapshot_load_name;
 
-    /* bootrom params */
-    const char *bootrom_name;
-    const char *dtb_name;
-    bool compact_bootrom;
+  /* bootrom params */
+  const char *bootrom_name;
+  const char *dtb_name;
+  bool        compact_bootrom;
 
-    /* reset vector used at startup */
-    uint64_t reset_vector;
+  /* reset vector used at startup */
+  uint64_t reset_vector;
 
-    /* number of cpus */
-    uint64_t ncpus;
+  /* number of cpus */
+  uint64_t ncpus;
 
-    /* MMIO range (for co-simulation only) */
-    uint64_t mmio_start;
-    uint64_t mmio_end;
-    AddressSet *mmio_addrset;
-    uint64_t mmio_addrset_size;
+  /* MMIO range (for co-simulation only) */
+  uint64_t    mmio_start;
+  uint64_t    mmio_end;
+  AddressSet *mmio_addrset;
+  uint64_t    mmio_addrset_size;
 
-    /* PLIC/CLINT Params */
-    uint64_t plic_base_addr;
-    uint64_t plic_size;
-    uint64_t clint_base_addr;
-    uint64_t clint_size;
+  /* PLIC/CLINT Params */
+  uint64_t plic_base_addr;
+  uint64_t plic_size;
+  uint64_t clint_base_addr;
+  uint64_t clint_size;
 
-    /* Add to misa custom extensions */
-    bool custom_extension;
+  /* Add to misa custom extensions */
+  bool custom_extension;
 
-    uint64_t physical_addr_len;
+  uint64_t physical_addr_len;
 
-    char    *logfile; // If non-zero, all output goes here, stderr and stdout
+  char *logfile;  // If non-zero, all output goes here, stderr and stdout
 
-    bool dump_memories;
+  bool dump_memories;
 } VirtMachineParams;
 
 typedef struct VirtMachine {
@@ -183,6 +202,11 @@ typedef struct VirtMachine {
     CharacterDevice *console;
     /* graphics */
     FBDevice *fb_dev;
+
+#ifdef SIMPOINT_BB
+    uint32_t               simpoint_next;
+    std::vector<Simpoint>  simpoints;
+#endif
 
     const char *snapshot_load_name;
     const char *snapshot_save_name;

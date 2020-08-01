@@ -1201,6 +1201,11 @@ static int csr_read(RISCVCPUState *s, target_ulong *pval, uint32_t csr,
     case CSR_PMPADDR(15):
         val = s->csr_pmpaddr[csr - CSR_PMPADDR(0)];
         break;
+#ifdef SIMPOINT_BB
+    case 0x8C2:
+        val = 0;
+        break;
+#endif
 
     default:
     invalid_csr:
@@ -1580,6 +1585,29 @@ static int csr_write(RISCVCPUState *s, uint32_t csr, target_ulong val)
     case 0xb1f:
         // Allow, but ignore to write to performance counters mhpmcounter
         break;
+#ifdef SIMPOINT_BB
+    case 0x8C2:
+      if ((val & 3) == 3) {
+        fprintf(dromajo_stderr, "simpoint adjust maxinsns to %lld\n",(long long)val>>2);
+        s->machine->common.maxinsns = val >> 2;
+      }else if ((val & 3) == 2) {
+        fprintf(dromajo_stderr, "simpoint terminate\n");
+        s->benchmark_exit_code = val>>2;
+        s->terminate_simulation = 1;
+      } else if ((val & 1) && simpoint_roi) {
+        fprintf(dromajo_stderr, "simpoint ROI already started\n");
+      } else if ((val & 1) == 0 && simpoint_roi) {
+        fprintf(dromajo_stderr, "simpoint ROI finished\n");
+        simpoint_roi = 0;
+      } else if ((val & 1) == 0 && simpoint_roi == 0) {
+        fprintf(dromajo_stderr, "simpoint ROI already finished\n");
+      } else {
+        fprintf(dromajo_stderr, "simpoint ROI started\n");
+        simpoint_roi = 1;
+      }
+
+      break;
+#endif
 
     default:
         if (s->machine->hooks.csr_write)
