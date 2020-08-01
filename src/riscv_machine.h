@@ -40,37 +40,37 @@
 #ifndef RISCV_MACHINE_H
 #define RISCV_MACHINE_H
 
-#include "virtio.h"
 #include "machine.h"
 #include "riscv_cpu.h"
+#include "virtio.h"
 
 #ifdef LIVECACHE
 #include "LiveCacheCore.h"
 #endif
 
-#define MAX_CPUS  8
+#define MAX_CPUS 8
 
 /* Hooks */
 typedef struct RISCVMachineHooks {
     /* Returns -1 if invalid CSR, 0 if OK. */
-    int (*csr_read) (RISCVCPUState *s, uint32_t csr, uint64_t *pval);
-    int (*csr_write)(RISCVCPUState *s, uint32_t csr, uint64_t   val);
+    int (*csr_read)(RISCVCPUState *s, uint32_t csr, uint64_t *pval);
+    int (*csr_write)(RISCVCPUState *s, uint32_t csr, uint64_t val);
 } RISCVMachineHooks;
 
 struct RISCVMachine {
-    VirtMachine common;
+    VirtMachine       common;
     RISCVMachineHooks hooks;
-    PhysMemoryMap *mem_map;
+    PhysMemoryMap *   mem_map;
 #ifdef LIVECACHE
     LiveCache *llc;
 #endif
     RISCVCPUState *cpu_state[MAX_CPUS];
-    int      ncpus;
-    uint64_t ram_size;
-    uint64_t ram_base_addr;
+    int            ncpus;
+    uint64_t       ram_size;
+    uint64_t       ram_base_addr;
     /* PLIC */
-    uint32_t plic_pending_irq;
-    uint32_t plic_served_irq;
+    uint32_t  plic_pending_irq;
+    uint32_t  plic_served_irq;
     IRQSignal plic_irq[32]; /* IRQ 0 is not used */
 
     /* HTIF */
@@ -82,10 +82,10 @@ struct RISCVMachine {
     int virtio_count;
 
     /* MMIO range (for co-simulation only) */
-    uint64_t mmio_start;
-    uint64_t mmio_end;
+    uint64_t    mmio_start;
+    uint64_t    mmio_end;
     AddressSet *mmio_addrset;
-    uint64_t mmio_addrset_size;
+    uint64_t    mmio_addrset_size;
 
     /* Reset vector */
     uint64_t reset_vector;
@@ -106,34 +106,33 @@ struct RISCVMachine {
     void *ext_state;
 };
 
-#define PLIC_BASE_ADDR  0x10000000
-#define PLIC_SIZE        0x2000000
+#define PLIC_BASE_ADDR 0x10000000
+#define PLIC_SIZE      0x2000000
 
 #define CLINT_BASE_ADDR 0x02000000
 #define CLINT_SIZE      0x000c0000
 
 // CPU_FREQUENCY is a u32, so less than 4GHz
-#define CPU_FREQUENCY           2000000000
-#define RTC_FREQ                  1000000
+#define CPU_FREQUENCY 2000000000
+#define RTC_FREQ      1000000
 
-#define RTC_FREQ_DIV   (CPU_FREQUENCY/RTC_FREQ)
+#define RTC_FREQ_DIV (CPU_FREQUENCY / RTC_FREQ)
 
-#define HTIF_BASE_ADDR          0x40008000
-#define IDE_BASE_ADDR           0x40009000
-#define VIRTIO_BASE_ADDR        0x40010000
-#define VIRTIO_SIZE                 0x1000
-#define VIRTIO_IRQ                       1
-#define FRAMEBUFFER_BASE_ADDR   0x41000000
+#define HTIF_BASE_ADDR        0x40008000
+#define IDE_BASE_ADDR         0x40009000
+#define VIRTIO_BASE_ADDR      0x40010000
+#define VIRTIO_SIZE           0x1000
+#define VIRTIO_IRQ            1
+#define FRAMEBUFFER_BASE_ADDR 0x41000000
 
 // sifive,uart, same as qemu UART0 (qemu has 2 sifive uarts)
 #ifndef ARIANE_UART
-#define UART0_BASE_ADDR         0x10000000
-#define UART0_SIZE                  0x1000
+#define UART0_BASE_ADDR 0x10000000
+#define UART0_SIZE      0x1000
 #else
-#define UART0_BASE_ADDR         0x54000000
-#define UART0_SIZE                      32
+#define UART0_BASE_ADDR 0x54000000
+#define UART0_SIZE      32
 #endif
-#define UART0_IRQ                        3
-
+#define UART0_IRQ 3
 
 #endif

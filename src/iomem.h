@@ -42,8 +42,7 @@
 
 #include "cutils.h"
 
-typedef void DeviceWriteFunc(void *opaque, uint32_t offset,
-                             uint32_t val, int size_log2);
+typedef void     DeviceWriteFunc(void *opaque, uint32_t offset, uint32_t val, int size_log2);
 typedef uint32_t DeviceReadFunc(void *opaque, uint32_t offset, int size_log2);
 
 #define DEVIO_SIZE8  (1 << 0)
@@ -56,88 +55,77 @@ typedef uint32_t DeviceReadFunc(void *opaque, uint32_t offset, int size_log2);
 #define DEVRAM_FLAG_ROM        (1 << 0) /* not writable */
 #define DEVRAM_FLAG_DIRTY_BITS (1 << 1) /* maintain dirty bits */
 #define DEVRAM_FLAG_DISABLED   (1 << 2) /* allocated but not mapped */
-#define DEVRAM_PAGE_SIZE_LOG2 12
-#define DEVRAM_PAGE_SIZE (1 << DEVRAM_PAGE_SIZE_LOG2)
+#define DEVRAM_PAGE_SIZE_LOG2  12
+#define DEVRAM_PAGE_SIZE       (1 << DEVRAM_PAGE_SIZE_LOG2)
 
 typedef struct PhysMemoryMap PhysMemoryMap;
 
 typedef struct {
     PhysMemoryMap *map;
-    uint64_t addr;
-    uint64_t org_size; /* original size */
-    uint64_t size; /* =org_size or 0 if the mapping is disabled */
-    BOOL is_ram;
+    uint64_t       addr;
+    uint64_t       org_size; /* original size */
+    uint64_t       size;     /* =org_size or 0 if the mapping is disabled */
+    BOOL           is_ram;
     /* the following is used for RAM access */
-    int devram_flags;
-    uint8_t *phys_mem;
-    int dirty_bits_size; /* in bytes */
-    uint32_t *dirty_bits; /* NULL if not used */
+    int       devram_flags;
+    uint8_t * phys_mem;
+    int       dirty_bits_size; /* in bytes */
+    uint32_t *dirty_bits;      /* NULL if not used */
     uint32_t *dirty_bits_tab[2];
-    int dirty_bits_index; /* 0-1 */
+    int       dirty_bits_index; /* 0-1 */
     /* the following is used for I/O access */
-    void *opaque;
-    DeviceReadFunc *read_func;
+    void *           opaque;
+    DeviceReadFunc * read_func;
     DeviceWriteFunc *write_func;
-    int devio_flags;
+    int              devio_flags;
 } PhysMemoryRange;
 
 #define PHYS_MEM_RANGE_MAX 32
 
 struct PhysMemoryMap {
-    int n_phys_mem_range;
+    int             n_phys_mem_range;
     PhysMemoryRange phys_mem_range[PHYS_MEM_RANGE_MAX];
-    PhysMemoryRange *(*register_ram)(PhysMemoryMap *s, uint64_t addr,
-                                     uint64_t size, int devram_flags);
+    PhysMemoryRange *(*register_ram)(PhysMemoryMap *s, uint64_t addr, uint64_t size, int devram_flags);
     void (*free_ram)(PhysMemoryMap *s, PhysMemoryRange *pr);
     const uint32_t *(*get_dirty_bits)(PhysMemoryMap *s, PhysMemoryRange *pr);
-    void (*set_ram_addr)(PhysMemoryMap *s, PhysMemoryRange *pr, uint64_t addr,
-                         BOOL enabled);
+    void (*set_ram_addr)(PhysMemoryMap *s, PhysMemoryRange *pr, uint64_t addr, BOOL enabled);
     void *opaque;
-    void (*flush_tlb_write_range)(void *opaque, uint8_t *ram_addr,
-                                  size_t ram_size);
+    void (*flush_tlb_write_range)(void *opaque, uint8_t *ram_addr, size_t ram_size);
 };
 
-PhysMemoryMap *phys_mem_map_init(void);
-void phys_mem_map_end(PhysMemoryMap *s);
-PhysMemoryRange *register_ram_entry(PhysMemoryMap *s, uint64_t addr,
-                                    uint64_t size, int devram_flags);
-static inline PhysMemoryRange *cpu_register_ram(PhysMemoryMap *s, uint64_t addr,
-                                  uint64_t size, int devram_flags)
-{
+PhysMemoryMap *                phys_mem_map_init(void);
+void                           phys_mem_map_end(PhysMemoryMap *s);
+PhysMemoryRange *              register_ram_entry(PhysMemoryMap *s, uint64_t addr, uint64_t size, int devram_flags);
+static inline PhysMemoryRange *cpu_register_ram(PhysMemoryMap *s, uint64_t addr, uint64_t size, int devram_flags) {
     return s->register_ram(s, addr, size, devram_flags);
 }
-PhysMemoryRange *cpu_register_device(PhysMemoryMap *s, uint64_t addr,
-                                     uint64_t size, void *opaque,
-                                     DeviceReadFunc *read_func, DeviceWriteFunc *write_func,
-                                     int devio_flags);
+PhysMemoryRange *cpu_register_device(PhysMemoryMap *s, uint64_t addr, uint64_t size, void *opaque, DeviceReadFunc *read_func,
+                                     DeviceWriteFunc *write_func, int devio_flags);
 PhysMemoryRange *get_phys_mem_range(PhysMemoryMap *s, uint64_t paddr);
-void phys_mem_set_addr(PhysMemoryRange *pr, uint64_t addr, BOOL enabled);
+void             phys_mem_set_addr(PhysMemoryRange *pr, uint64_t addr, BOOL enabled);
 
-static inline const uint32_t *phys_mem_get_dirty_bits(PhysMemoryRange *pr)
-{
+static inline const uint32_t *phys_mem_get_dirty_bits(PhysMemoryRange *pr) {
     PhysMemoryMap *map = pr->map;
     return map->get_dirty_bits(map, pr);
 }
 
-static inline void phys_mem_set_dirty_bit(PhysMemoryRange *pr, size_t offset)
-{
-    size_t page_index;
+static inline void phys_mem_set_dirty_bit(PhysMemoryRange *pr, size_t offset) {
+    size_t   page_index;
     uint32_t mask, *dirty_bits_ptr;
     if (pr->dirty_bits) {
-        page_index = offset >> DEVRAM_PAGE_SIZE_LOG2;
-        mask = 1 << (page_index & 0x1f);
+        page_index     = offset >> DEVRAM_PAGE_SIZE_LOG2;
+        mask           = 1 << (page_index & 0x1f);
         dirty_bits_ptr = pr->dirty_bits + (page_index >> 5);
         *dirty_bits_ptr |= mask;
     }
 }
 
-static inline BOOL phys_mem_is_dirty_bit(PhysMemoryRange *pr, size_t offset)
-{
-    size_t page_index;
+static inline BOOL phys_mem_is_dirty_bit(PhysMemoryRange *pr, size_t offset) {
+    size_t    page_index;
     uint32_t *dirty_bits_ptr;
     if (!pr->dirty_bits)
         return TRUE;
-    page_index = offset >> DEVRAM_PAGE_SIZE_LOG2;
+    page_index     = offset >> DEVRAM_PAGE_SIZE_LOG2;
     dirty_bits_ptr = pr->dirty_bits + (page_index >> 5);
     return (*dirty_bits_ptr >> (page_index & 0x1f)) & 1;
 }
@@ -148,15 +136,12 @@ typedef void SetIRQFunc(void *opaque, int irq_num, int level);
 
 typedef struct {
     SetIRQFunc *set_irq;
-    void *opaque;
-    int irq_num;
+    void *      opaque;
+    int         irq_num;
 } IRQSignal;
 
 void irq_init(IRQSignal *irq, SetIRQFunc *set_irq, void *opaque, int irq_num);
 
-static inline void set_irq(IRQSignal *irq, int level)
-{
-    irq->set_irq(irq->opaque, irq->irq_num, level);
-}
+static inline void set_irq(IRQSignal *irq, int level) { irq->set_irq(irq->opaque, irq->irq_num, level); }
 
 #endif /* IOMEM_H */

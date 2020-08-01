@@ -38,23 +38,24 @@
  * THE SOFTWARE.
  */
 
-#include "dromajo.h"
-#include <stdlib.h>
+#include "riscv_machine.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
-#include <inttypes.h>
-#include <assert.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <unistd.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "cutils.h"
-#include "iomem.h"
-#include "riscv_machine.h"
+#include "dromajo.h"
 #include "dw_apb_uart.h"
 #include "elf64.h"
+#include "iomem.h"
 
 /* RISCV machine */
 
@@ -67,47 +68,43 @@
 #define USE_SIFIVE_UART
 
 enum {
-    SIFIVE_UART_TXFIFO        = 0,
-    SIFIVE_UART_RXFIFO        = 4,
-    SIFIVE_UART_TXCTRL        = 8,
-    SIFIVE_UART_TXMARK        = 10,
-    SIFIVE_UART_RXCTRL        = 12,
-    SIFIVE_UART_RXMARK        = 14,
-    SIFIVE_UART_IE            = 16,
-    SIFIVE_UART_IP            = 20,
-    SIFIVE_UART_DIV           = 24,
-    SIFIVE_UART_MAX           = 32
+    SIFIVE_UART_TXFIFO = 0,
+    SIFIVE_UART_RXFIFO = 4,
+    SIFIVE_UART_TXCTRL = 8,
+    SIFIVE_UART_TXMARK = 10,
+    SIFIVE_UART_RXCTRL = 12,
+    SIFIVE_UART_RXMARK = 14,
+    SIFIVE_UART_IE     = 16,
+    SIFIVE_UART_IP     = 20,
+    SIFIVE_UART_DIV    = 24,
+    SIFIVE_UART_MAX    = 32
 };
 
 enum {
-    SIFIVE_UART_IE_TXWM       = 1, /* Transmit watermark interrupt enable */
-    SIFIVE_UART_IE_RXWM       = 2  /* Receive watermark interrupt enable */
+    SIFIVE_UART_IE_TXWM = 1, /* Transmit watermark interrupt enable */
+    SIFIVE_UART_IE_RXWM = 2  /* Receive watermark interrupt enable */
 };
 
 enum {
-    SIFIVE_UART_IP_TXWM       = 1, /* Transmit watermark interrupt pending */
-    SIFIVE_UART_IP_RXWM       = 2  /* Receive watermark interrupt pending */
+    SIFIVE_UART_IP_TXWM = 1, /* Transmit watermark interrupt pending */
+    SIFIVE_UART_IP_RXWM = 2  /* Receive watermark interrupt pending */
 };
 
-static uint64_t rtc_get_time(RISCVMachine *m)
-{
-    return m->cpu_state[0]->mcycle / RTC_FREQ_DIV;
-}
+static uint64_t rtc_get_time(RISCVMachine *m) { return m->cpu_state[0]->mcycle / RTC_FREQ_DIV; }
 
 typedef struct SiFiveUARTState {
-    CharacterDevice *cs; // Console
-    uint32_t irq;
-    uint8_t rx_fifo[8];
-    unsigned int rx_fifo_len;
-    uint32_t ie;
-    uint32_t ip;
-    uint32_t txctrl;
-    uint32_t rxctrl;
-    uint32_t div;
+    CharacterDevice *cs;  // Console
+    uint32_t         irq;
+    uint8_t          rx_fifo[8];
+    unsigned int     rx_fifo_len;
+    uint32_t         ie;
+    uint32_t         ip;
+    uint32_t         txctrl;
+    uint32_t         rxctrl;
+    uint32_t         div;
 } SiFiveUARTState;
 
-static void uart_update_irq(SiFiveUARTState *s)
-{
+static void uart_update_irq(SiFiveUARTState *s) {
     int cond = 0;
     if ((s->ie & SIFIVE_UART_IE_RXWM) && s->rx_fifo_len) {
         cond = 1;
@@ -117,83 +114,65 @@ static void uart_update_irq(SiFiveUARTState *s)
     }
 }
 
-static uint32_t mmio_read(void *opaque, uint32_t offset, int size_log2)
-{
+static uint32_t mmio_read(void *opaque, uint32_t offset, int size_log2) {
     fprintf(dromajo_stderr, "mmio_read: offset=%x size_log2=%d\n", offset, size_log2);
 
     return 0;
 }
 
-static void mmio_write(void *opaque, uint32_t offset, uint32_t val, int size_log2)
-{
+static void mmio_write(void *opaque, uint32_t offset, uint32_t val, int size_log2) {
     fprintf(dromajo_stderr, "mmio_write: offset=%x size_log2=%d val=%x\n", offset, size_log2, val);
 }
 
-static uint32_t uart_read(void *opaque, uint32_t offset, int size_log2)
-{
+static uint32_t uart_read(void *opaque, uint32_t offset, int size_log2) {
     SiFiveUARTState *s = (SiFiveUARTState *)opaque;
 
 #ifdef DUMP_UART
     fprintf(dromajo_stderr, "uart_read: offset=%x size_log2=%d\n", offset, size_log2);
 #endif
     switch (offset) {
-    case SIFIVE_UART_RXFIFO: {
-        CharacterDevice *cs = s->cs;
-        unsigned char r;
-        int ret = cs->read_data(cs->opaque, &r, 1);
-        if (ret) {
+        case SIFIVE_UART_RXFIFO: {
+            CharacterDevice *cs = s->cs;
+            unsigned char    r;
+            int              ret = cs->read_data(cs->opaque, &r, 1);
+            if (ret) {
 #ifdef DUMP_UART
-            fprintf(dromajo_stderr, "uart_read: val=%x\n", r);
+                fprintf(dromajo_stderr, "uart_read: val=%x\n", r);
 #endif
-            return r;
+                return r;
+            }
+            return 0x80000000;
         }
-        return 0x80000000;
-    }
-    case SIFIVE_UART_TXFIFO:
-        return 0; /* Should check tx fifo */
-    case SIFIVE_UART_IE:
-        return s->ie;
-    case SIFIVE_UART_IP:
-        return s->rx_fifo_len ? SIFIVE_UART_IP_RXWM : 0;
-    case SIFIVE_UART_TXCTRL:
-        return s->txctrl;
-    case SIFIVE_UART_RXCTRL:
-        return s->rxctrl;
-    case SIFIVE_UART_DIV:
-        return s->div;
+        case SIFIVE_UART_TXFIFO: return 0; /* Should check tx fifo */
+        case SIFIVE_UART_IE: return s->ie;
+        case SIFIVE_UART_IP: return s->rx_fifo_len ? SIFIVE_UART_IP_RXWM : 0;
+        case SIFIVE_UART_TXCTRL: return s->txctrl;
+        case SIFIVE_UART_RXCTRL: return s->rxctrl;
+        case SIFIVE_UART_DIV: return s->div;
     }
 
     fprintf(dromajo_stderr, "%s: bad read: offset=0x%x\n", __func__, (int)offset);
     return 0;
 }
 
-static void uart_write(void *opaque, uint32_t offset, uint32_t val, int size_log2)
-{
-    SiFiveUARTState *s = (SiFiveUARTState *)opaque;
+static void uart_write(void *opaque, uint32_t offset, uint32_t val, int size_log2) {
+    SiFiveUARTState *s  = (SiFiveUARTState *)opaque;
     CharacterDevice *cs = s->cs;
-    unsigned char ch = val;
+    unsigned char    ch = val;
 
 #ifdef DUMP_UART
     fprintf(dromajo_stderr, "uart_write: offset=%x val=%x size_log2=%d\n", offset, val, size_log2);
 #endif
 
     switch (offset) {
-    case SIFIVE_UART_TXFIFO:
-        cs->write_data(cs->opaque, &ch, 1);
-        return;
-    case SIFIVE_UART_IE:
-        s->ie = val;
-        uart_update_irq(s);
-        return;
-    case SIFIVE_UART_TXCTRL:
-        s->txctrl = val;
-        return;
-    case SIFIVE_UART_RXCTRL:
-        s->rxctrl = val;
-        return;
-    case SIFIVE_UART_DIV:
-        s->div = val;
-        return;
+        case SIFIVE_UART_TXFIFO: cs->write_data(cs->opaque, &ch, 1); return;
+        case SIFIVE_UART_IE:
+            s->ie = val;
+            uart_update_irq(s);
+            return;
+        case SIFIVE_UART_TXCTRL: s->txctrl = val; return;
+        case SIFIVE_UART_RXCTRL: s->rxctrl = val; return;
+        case SIFIVE_UART_DIV: s->div = val; return;
     }
 
     fprintf(dromajo_stderr, "%s: bad write: addr=0x%x v=0x%x\n", __func__, (int)offset, (int)val);
@@ -210,10 +189,9 @@ static void uart_write(void *opaque, uint32_t offset, uint32_t val, int size_log
  * bffc mtime hi
  */
 
-static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
-{
+static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2) {
     RISCVMachine *m = (RISCVMachine *)opaque;
-    uint32_t val;
+    uint32_t      val;
 
     if (0 <= offset && offset < 0x4000) {
         int hartid = offset >> 2;
@@ -224,11 +202,11 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
             val = (riscv_cpu_get_mip(m->cpu_state[hartid]) & MIP_MSIP) != 0;
         }
     } else if (offset == 0xbff8) {
-        uint64_t mtime = m->cpu_state[0]->mcycle / RTC_FREQ_DIV; // WARNING: mcycle may need to move to RISCVMachine
-        val = mtime;
+        uint64_t mtime = m->cpu_state[0]->mcycle / RTC_FREQ_DIV;  // WARNING: mcycle may need to move to RISCVMachine
+        val            = mtime;
     } else if (offset == 0xbffc) {
         uint64_t mtime = m->cpu_state[0]->mcycle / RTC_FREQ_DIV;
-        val = mtime >> 32;
+        val            = mtime >> 32;
     } else if (0x4000 <= offset && offset < 0xbff8) {
         int hartid = (offset - 0x4000) >> 3;
         if (m->ncpus <= hartid) {
@@ -249,35 +227,23 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2)
 #endif
 
     switch (size_log2) {
-        case 1:
-            val = val & 0xffff;
-            break;
-        case 2:
-            val = val & 0xffffffff;
-            break;
+        case 1: val = val & 0xffff; break;
+        case 2: val = val & 0xffffffff; break;
         case 3:
-        default:
-            break;
+        default: break;
     }
 
     return val;
 }
 
-static void clint_write(void *opaque, uint32_t offset, uint32_t val,
-                        int size_log2)
-{
+static void clint_write(void *opaque, uint32_t offset, uint32_t val, int size_log2) {
     RISCVMachine *m = (RISCVMachine *)opaque;
 
     switch (size_log2) {
-        case 1:
-            val = val & 0xffff;
-            break;
-        case 2:
-            val = val & 0xffffffff;
-            break;
+        case 1: val = val & 0xffff; break;
+        case 2: val = val & 0xffffffff; break;
         case 3:
-        default:
-            break;
+        default: break;
     }
 
     if (0 <= offset && offset < 0x4000) {
@@ -289,12 +255,12 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val,
         else
             riscv_cpu_reset_mip(m->cpu_state[hartid], MIP_MSIP);
     } else if (offset == 0xbff8) {
-        uint64_t mtime = m->cpu_state[0]->mcycle / RTC_FREQ_DIV; // WARNING: move mcycle to RISCVMachine
-        mtime = (mtime & 0xFFFFFFFF00000000L) + val;
+        uint64_t mtime          = m->cpu_state[0]->mcycle / RTC_FREQ_DIV;  // WARNING: move mcycle to RISCVMachine
+        mtime                   = (mtime & 0xFFFFFFFF00000000L) + val;
         m->cpu_state[0]->mcycle = mtime * RTC_FREQ_DIV;
     } else if (offset == 0xbffc) {
-        uint64_t mtime = m->cpu_state[0]->mcycle / RTC_FREQ_DIV;
-        mtime = (mtime & 0x00000000FFFFFFFFL) + ((uint64_t)val << 32);
+        uint64_t mtime          = m->cpu_state[0]->mcycle / RTC_FREQ_DIV;
+        mtime                   = (mtime & 0x00000000FFFFFFFFL) + ((uint64_t)val << 32);
         m->cpu_state[0]->mcycle = mtime * RTC_FREQ_DIV;
     } else if (0x4000 <= offset && offset < 0xbff8) {
         int hartid = (offset - 0x4000) >> 3;
@@ -317,10 +283,9 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val,
 #endif
 }
 
-static void plic_update_mip(RISCVMachine *s, int hartid)
-{
-    uint32_t mask = s->plic_pending_irq & ~s->plic_served_irq;
-    RISCVCPUState *cpu = s->cpu_state[hartid];
+static void plic_update_mip(RISCVMachine *s, int hartid) {
+    uint32_t       mask = s->plic_pending_irq & ~s->plic_served_irq;
+    RISCVCPUState *cpu  = s->cpu_state[hartid];
     if (mask) {
         riscv_cpu_set_mip(cpu, MIP_MEIP | MIP_SEIP);
     } else {
@@ -328,12 +293,11 @@ static void plic_update_mip(RISCVMachine *s, int hartid)
     }
 }
 
-static uint32_t plic_priority[PLIC_NUM_SOURCES + 1]; // XXX migrate to VirtMachine!
+static uint32_t plic_priority[PLIC_NUM_SOURCES + 1];  // XXX migrate to VirtMachine!
 
-static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2)
-{
-    uint32_t val = 0;
-    RISCVMachine *s = (RISCVMachine *)opaque;
+static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2) {
+    uint32_t      val = 0;
+    RISCVMachine *s   = (RISCVMachine *)opaque;
 
     assert(size_log2 == 2);
     if (PLIC_PRIORITY_BASE <= offset && offset < PLIC_PRIORITY_BASE + (PLIC_NUM_SOURCES << 2)) {
@@ -347,11 +311,11 @@ static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2)
             val = 0;
     } else if (PLIC_ENABLE_BASE <= offset && offset < PLIC_ENABLE_BASE + (PLIC_ENABLE_STRIDE * MAX_CPUS)) {
         int addrid = (offset - PLIC_ENABLE_BASE) / PLIC_ENABLE_STRIDE;
-        int hartid = addrid / 2; // PLIC_HART_CONFIG is "MS"
+        int hartid = addrid / 2;  // PLIC_HART_CONFIG is "MS"
         if (hartid <= s->ncpus) {
-            //uint32_t wordid = (offset & (PLIC_ENABLE_STRIDE-1))>>2;
+            // uint32_t wordid = (offset & (PLIC_ENABLE_STRIDE-1))>>2;
             RISCVCPUState *cpu = s->cpu_state[hartid];
-            val = cpu->plic_enable_irq;
+            val                = cpu->plic_enable_irq;
         } else {
             val = 0;
         }
@@ -359,7 +323,7 @@ static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2)
         uint32_t hartid = (offset - PLIC_CONTEXT_BASE) / PLIC_CONTEXT_STRIDE;
         uint32_t wordid = (offset & (PLIC_CONTEXT_STRIDE - 1)) >> 2;
         if (wordid == 0) {
-            val = 0; // target_priority in qemu
+            val = 0;  // target_priority in qemu
         } else if (wordid == 4) {
             uint32_t mask = s->plic_pending_irq & ~s->plic_served_irq;
             if (mask != 0) {
@@ -382,8 +346,7 @@ static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2)
     return val;
 }
 
-static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log2)
-{
+static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log2) {
     RISCVMachine *s = (RISCVMachine *)opaque;
 
     assert(size_log2 == 2);
@@ -396,10 +359,10 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
         fprintf(stderr, "plic_write: INVALID pending write to offset=0x%x\n", offset);
     } else if (PLIC_ENABLE_BASE <= offset && offset < PLIC_ENABLE_BASE + PLIC_ENABLE_STRIDE * MAX_CPUS) {
         int addrid = (offset - PLIC_ENABLE_BASE) / PLIC_ENABLE_STRIDE;
-        int hartid = addrid / 2; // PLIC_HART_CONFIG is "MS"
+        int hartid = addrid / 2;  // PLIC_HART_CONFIG is "MS"
         if (hartid <= s->ncpus) {
-            //uint32_t wordid = (offset & (PLIC_ENABLE_STRIDE - 1)) >> 2;
-            RISCVCPUState *cpu = s->cpu_state[hartid];
+            // uint32_t wordid = (offset & (PLIC_ENABLE_STRIDE - 1)) >> 2;
+            RISCVCPUState *cpu   = s->cpu_state[hartid];
             cpu->plic_enable_irq = val;
         }
     } else if (PLIC_CONTEXT_BASE <= offset && offset < PLIC_CONTEXT_BASE + PLIC_CONTEXT_STRIDE * MAX_CPUS) {
@@ -409,13 +372,11 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
             plic_priority[wordid] = val;
         } else if (wordid == 4) {
             int irq = val & 31;
-            fprintf(stderr, "plic_write: hartid=%d claim wordid=%d offset=%x val=%x irq=%d\n",
-                    hartid, wordid, offset, val, irq);
+            fprintf(stderr, "plic_write: hartid=%d claim wordid=%d offset=%x val=%x irq=%d\n", hartid, wordid, offset, val, irq);
             uint32_t mask = 1 << (irq - 1);
             s->plic_served_irq &= ~mask;
         } else {
-            fprintf(stderr, "plic_write: hartid=%d ERROR?? unexpected wordid=%d offset=%x val=%x\n",
-                    hartid, wordid, offset, val);
+            fprintf(stderr, "plic_write: hartid=%d ERROR?? unexpected wordid=%d offset=%x val=%x\n", hartid, wordid, offset, val);
         }
     } else {
         fprintf(stderr, "plic_write: ERROR: unexpected offset=%x val=%x\n", offset, val);
@@ -425,8 +386,7 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
 #endif
 }
 
-static void plic_set_irq(void *opaque, int irq_num, int state)
-{
+static void plic_set_irq(void *opaque, int irq_num, int state) {
     RISCVMachine *m = (RISCVMachine *)opaque;
 
     uint32_t mask = 1 << (irq_num - 1);
@@ -441,8 +401,7 @@ static void plic_set_irq(void *opaque, int irq_num, int state)
     }
 }
 
-static uint8_t *get_ram_ptr(RISCVMachine *s, uint64_t paddr)
-{
+static uint8_t *get_ram_ptr(RISCVMachine *s, uint64_t paddr) {
     PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
     if (!pr || !pr->is_ram)
         return NULL;
@@ -451,8 +410,8 @@ static uint8_t *get_ram_ptr(RISCVMachine *s, uint64_t paddr)
 
 /* FDT machine description */
 
-#define FDT_MAGIC       0xd00dfeed
-#define FDT_VERSION     17
+#define FDT_MAGIC   0xd00dfeed
+#define FDT_VERSION 17
 
 struct fdt_header {
     uint32_t magic;
@@ -472,47 +431,43 @@ struct fdt_reserve_entry {
     uint64_t size;
 };
 
-#define FDT_BEGIN_NODE  1
-#define FDT_END_NODE    2
-#define FDT_PROP        3
-#define FDT_NOP         4
-#define FDT_END         9
+#define FDT_BEGIN_NODE 1
+#define FDT_END_NODE   2
+#define FDT_PROP       3
+#define FDT_NOP        4
+#define FDT_END        9
 
 typedef struct {
     uint32_t *tab;
-    int tab_len;
-    int tab_size;
-    int open_node_count;
+    int       tab_len;
+    int       tab_size;
+    int       open_node_count;
 
     char *string_table;
-    int string_table_len;
-    int string_table_size;
+    int   string_table_len;
+    int   string_table_size;
 } FDTState;
 
-static FDTState *fdt_init(void)
-{
+static FDTState *fdt_init(void) {
     FDTState *s = (FDTState *)mallocz(sizeof *s);
     return s;
 }
 
-static void fdt_alloc_len(FDTState *s, int len)
-{
+static void fdt_alloc_len(FDTState *s, int len) {
     if (unlikely(len > s->tab_size)) {
         int new_size = max_int(len, s->tab_size * 3 / 2);
-        s->tab = (uint32_t *)realloc(s->tab, new_size * sizeof(uint32_t));
-        s->tab_size = new_size;
+        s->tab       = (uint32_t *)realloc(s->tab, new_size * sizeof(uint32_t));
+        s->tab_size  = new_size;
     }
 }
 
-static void fdt_put32(FDTState *s, int v)
-{
+static void fdt_put32(FDTState *s, int v) {
     fdt_alloc_len(s, s->tab_len + 1);
     s->tab[s->tab_len++] = cpu_to_be32(v);
 }
 
 /* the data is zero padded */
-static void fdt_put_data(FDTState *s, const uint8_t *data, int len)
-{
+static void fdt_put_data(FDTState *s, const uint8_t *data, int len) {
     int len1 = (len + 3) / 4;
     fdt_alloc_len(s, s->tab_len + len1);
     memcpy(s->tab + s->tab_len, data, len);
@@ -520,28 +475,24 @@ static void fdt_put_data(FDTState *s, const uint8_t *data, int len)
     s->tab_len += len1;
 }
 
-static void fdt_begin_node(FDTState *s, const char *name)
-{
+static void fdt_begin_node(FDTState *s, const char *name) {
     fdt_put32(s, FDT_BEGIN_NODE);
     fdt_put_data(s, (const uint8_t *)name, strlen(name) + 1);
     s->open_node_count++;
 }
 
-static void fdt_begin_node_num(FDTState *s, const char *name, uint64_t n)
-{
+static void fdt_begin_node_num(FDTState *s, const char *name, uint64_t n) {
     char buf[256];
     snprintf(buf, sizeof(buf), "%s@%" PRIx64, name, n);
     fdt_begin_node(s, buf);
 }
 
-static void fdt_end_node(FDTState *s)
-{
+static void fdt_end_node(FDTState *s) {
     fdt_put32(s, FDT_END_NODE);
     s->open_node_count--;
 }
 
-static int fdt_get_string_offset(FDTState *s, const char *name)
-{
+static int fdt_get_string_offset(FDTState *s, const char *name) {
     int pos, new_size, name_size, new_len;
 
     pos = 0;
@@ -552,10 +503,10 @@ static int fdt_get_string_offset(FDTState *s, const char *name)
     }
     /* add a new string */
     name_size = strlen(name) + 1;
-    new_len = s->string_table_len + name_size;
+    new_len   = s->string_table_len + name_size;
     if (new_len > s->string_table_size) {
-        new_size = max_int(new_len, s->string_table_size * 3 / 2);
-        s->string_table = (char *)realloc(s->string_table, new_size);
+        new_size             = max_int(new_len, s->string_table_size * 3 / 2);
+        s->string_table      = (char *)realloc(s->string_table, new_size);
         s->string_table_size = new_size;
     }
     pos = s->string_table_len;
@@ -564,42 +515,31 @@ static int fdt_get_string_offset(FDTState *s, const char *name)
     return pos;
 }
 
-static void fdt_prop(FDTState *s, const char *prop_name,
-                     const char *data, int data_len)
-{
+static void fdt_prop(FDTState *s, const char *prop_name, const char *data, int data_len) {
     fdt_put32(s, FDT_PROP);
     fdt_put32(s, data_len);
     fdt_put32(s, fdt_get_string_offset(s, prop_name));
     fdt_put_data(s, (const uint8_t *)data, data_len);
 }
 
-static void fdt_prop_tab_u32(FDTState *s, const char *prop_name,
-                             uint32_t *tab, int tab_len)
-{
+static void fdt_prop_tab_u32(FDTState *s, const char *prop_name, uint32_t *tab, int tab_len) {
     int i;
     fdt_put32(s, FDT_PROP);
     fdt_put32(s, tab_len * sizeof(uint32_t));
     fdt_put32(s, fdt_get_string_offset(s, prop_name));
-    for (i = 0; i < tab_len; i++)
-        fdt_put32(s, tab[i]);
+    for (i = 0; i < tab_len; i++) fdt_put32(s, tab[i]);
 }
 
-static void fdt_prop_u32(FDTState *s, const char *prop_name, uint32_t val)
-{
-    fdt_prop_tab_u32(s, prop_name, &val, 1);
-}
+static void fdt_prop_u32(FDTState *s, const char *prop_name, uint32_t val) { fdt_prop_tab_u32(s, prop_name, &val, 1); }
 
-static void fdt_prop_u64(FDTState *s, const char *prop_name, uint64_t val)
-{
+static void fdt_prop_u64(FDTState *s, const char *prop_name, uint64_t val) {
     uint32_t tab[2];
     tab[0] = val >> 32;
     tab[1] = val;
     fdt_prop_tab_u32(s, prop_name, tab, 2);
 }
 
-static void fdt_prop_tab_u64_2(FDTState *s, const char *prop_name,
-                               uint64_t v0, uint64_t v1)
-{
+static void fdt_prop_tab_u64_2(FDTState *s, const char *prop_name, uint64_t v0, uint64_t v1) {
     uint32_t tab[4];
     tab[0] = v0 >> 32;
     tab[1] = v0;
@@ -608,15 +548,10 @@ static void fdt_prop_tab_u64_2(FDTState *s, const char *prop_name,
     fdt_prop_tab_u32(s, prop_name, tab, 4);
 }
 
-static void fdt_prop_str(FDTState *s, const char *prop_name,
-                         const char *str)
-{
-    fdt_prop(s, prop_name, str, strlen(str) + 1);
-}
+static void fdt_prop_str(FDTState *s, const char *prop_name, const char *str) { fdt_prop(s, prop_name, str, strlen(str) + 1); }
 
 /* NULL terminated string list */
-static void fdt_prop_tab_str(FDTState *s, const char *prop_name, ...)
-{
+static void fdt_prop_tab_str(FDTState *s, const char *prop_name, ...) {
     va_list ap;
 
     va_start(ap, prop_name);
@@ -648,28 +583,27 @@ static void fdt_prop_tab_str(FDTState *s, const char *prop_name, ...)
 }
 
 /* write the FDT to 'dst1'. return the FDT size in bytes */
-int fdt_output(FDTState *s, uint8_t *dst)
-{
-    struct fdt_header *h;
+int fdt_output(FDTState *s, uint8_t *dst) {
+    struct fdt_header *       h;
     struct fdt_reserve_entry *re;
-    int dt_struct_size;
-    int dt_strings_size;
-    int pos;
+    int                       dt_struct_size;
+    int                       dt_strings_size;
+    int                       pos;
 
     assert(s->open_node_count == 0);
 
     fdt_put32(s, FDT_END);
 
-    dt_struct_size = s->tab_len * sizeof(uint32_t);
+    dt_struct_size  = s->tab_len * sizeof(uint32_t);
     dt_strings_size = s->string_table_len;
 
-    h = (struct fdt_header *)dst;
-    h->magic = cpu_to_be32(FDT_MAGIC);
-    h->version = cpu_to_be32(FDT_VERSION);
+    h                    = (struct fdt_header *)dst;
+    h->magic             = cpu_to_be32(FDT_MAGIC);
+    h->version           = cpu_to_be32(FDT_VERSION);
     h->last_comp_version = cpu_to_be32(16);
-    h->boot_cpuid_phys = cpu_to_be32(0);
-    h->size_dt_strings = cpu_to_be32(dt_strings_size);
-    h->size_dt_struct = cpu_to_be32(dt_struct_size);
+    h->boot_cpuid_phys   = cpu_to_be32(0);
+    h->size_dt_strings   = cpu_to_be32(dt_strings_size);
+    h->size_dt_struct    = cpu_to_be32(dt_struct_size);
 
     pos = sizeof(struct fdt_header);
 
@@ -682,9 +616,9 @@ int fdt_output(FDTState *s, uint8_t *dst)
         dst[pos++] = 0;
     }
     h->off_mem_rsvmap = cpu_to_be32(pos);
-    re = (struct fdt_reserve_entry *)(dst + pos);
-    re->address = 0; /* no reserved entry */
-    re->size = 0;
+    re                = (struct fdt_reserve_entry *)(dst + pos);
+    re->address       = 0; /* no reserved entry */
+    re->size          = 0;
     pos += sizeof(struct fdt_reserve_entry);
 
     h->off_dt_strings = cpu_to_be32(pos);
@@ -700,24 +634,22 @@ int fdt_output(FDTState *s, uint8_t *dst)
     return pos;
 }
 
-void fdt_end(FDTState *s)
-{
+void fdt_end(FDTState *s) {
     free(s->tab);
     free(s->string_table);
     free(s);
 }
 
-static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
-                           const char *cmd_line, uint64_t initrd_start, uint64_t initrd_end)
-{
+static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, const char *cmd_line, uint64_t initrd_start,
+                           uint64_t initrd_end) {
     FDTState *s = 0;
-    int size;
+    int       size;
     if (!dtb_name) {
-        int intc_phandle = 0;
-        int max_xlen, i, cur_phandle, plic_phandle;
-        char isa_string[128], *q;
-        uint32_t misa;
-        uint32_t tab[4*MAX_CPUS];
+        int       intc_phandle = 0;
+        int       max_xlen, i, cur_phandle, plic_phandle;
+        char      isa_string[128], *q;
+        uint32_t  misa;
+        uint32_t  tab[4 * MAX_CPUS];
         FBDevice *fb_dev;
 
         s = fdt_init();
@@ -747,8 +679,8 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
             fdt_prop_str(s, "compatible", "riscv");
 
             max_xlen = 64;
-            misa = riscv_cpu_get_misa(m->cpu_state[hartid]);
-            q = isa_string;
+            misa     = riscv_cpu_get_misa(m->cpu_state[hartid]);
+            q        = isa_string;
             q += snprintf(isa_string, sizeof(isa_string), "rv%d", max_xlen);
             for (i = 0; i < 26; ++i) {
                 if (misa & (1 << i))
@@ -764,7 +696,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
             fdt_prop_u32(s, "#interrupt-cells", 1);
             fdt_prop(s, "interrupt-controller", NULL, 0);
             fdt_prop_str(s, "compatible", "riscv,cpu-intc");
-            intc_phandle = cur_phandle++;
+            intc_phandle          = cur_phandle++;
             hartid2handle[hartid] = intc_phandle;
             fdt_prop_u32(s, "phandle", intc_phandle);
             fdt_prop_u32(s, "linux,phandle", intc_phandle);
@@ -788,8 +720,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
         fdt_begin_node(s, "soc");
         fdt_prop_u32(s, "#address-cells", 2);
         fdt_prop_u32(s, "#size-cells", 2);
-        fdt_prop_tab_str(s, "compatible",
-                        "ucbbar,dromajo-bar-soc", "simple-bus", NULL);
+        fdt_prop_tab_str(s, "compatible", "ucbbar,dromajo-bar-soc", "simple-bus", NULL);
         fdt_prop(s, "ranges", NULL, 0);
 
         fdt_begin_node_num(s, "clint", m->clint_base_addr);
@@ -849,13 +780,15 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
 #endif
 
         // Fake Synopsys™ DesignWare™ ABP™ UART (NS16550 compatible)
-        fdt_begin_node_num(s, "uart", DW_APB_UART0_BASE_ADDR); {
+        fdt_begin_node_num(s, "uart", DW_APB_UART0_BASE_ADDR);
+        {
             fdt_prop_str(s, "compatible", "ns16550");
             fdt_prop_tab_u64_2(s, "reg", DW_APB_UART0_BASE_ADDR, DW_APB_UART0_SIZE);
             fdt_prop_u32(s, "reg-shift", 2);
             fdt_prop_u32(s, "reg-io-width", 4);
             // No interrupts?
-        } fdt_end_node(s);
+        }
+        fdt_end_node(s);
 
         fb_dev = m->common.fb_dev;
         if (fb_dev) {
@@ -885,27 +818,26 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
         size = fdt_output(s, dst);
     } else {
         // write from other dts
-        FILE *fPtr;
+        FILE *        fPtr;
         unsigned long fLen;
 
         fPtr = fopen(dtb_name, "rb");  // Open the file in binary mode
-        fseek(fPtr, 0, SEEK_END);  // Jump to the end of the file
-        fLen = ftell(fPtr);     // Get the current byte offset in the file
-        rewind(fPtr);              // Jump back to the beginning of the file
+        fseek(fPtr, 0, SEEK_END);      // Jump to the end of the file
+        fLen = ftell(fPtr);            // Get the current byte offset in the file
+        rewind(fPtr);                  // Jump back to the beginning of the file
 
-        size_t result = fread((char*)dst, sizeof(uint8_t), fLen, fPtr); // Read in the entire file
+        size_t result = fread((char *)dst, sizeof(uint8_t), fLen, fPtr);  // Read in the entire file
         if (result != fLen) {
-            fprintf(dromajo_stderr,
-                    "DROMAJO failed reading the dts string\n");
+            fprintf(dromajo_stderr, "DROMAJO failed reading the dts string\n");
             return -1;
         }
 
         // DEBUG
-        //for (unsigned long i = 0; i < fLen; ++i)
+        // for (unsigned long i = 0; i < fLen; ++i)
         //    printf("[DEBUG][%p][%ld/%ld] == 0x%x\n", &dst[i], i, fLen, dst[i]);
-        //printf("[DEBUG] Done printing\n");
+        // printf("[DEBUG] Done printing\n");
 
-        fclose(fPtr); // Close the file
+        fclose(fPtr);  // Close the file
 
         size = fLen;
     }
@@ -928,55 +860,48 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name,
     return size;
 }
 
-static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len)
-{
-    Elf64_Ehdr *ehdr = (Elf64_Ehdr *)image;
-    const Elf64_Phdr *ph = (Elf64_Phdr *)(image + ehdr->e_phoff);
+static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len) {
+    Elf64_Ehdr *      ehdr = (Elf64_Ehdr *)image;
+    const Elf64_Phdr *ph   = (Elf64_Phdr *)(image + ehdr->e_phoff);
 
     for (int i = 0; i < ehdr->e_phnum; ++i, ++ph)
         if (ph->p_type == PT_LOAD) {
             size_t rounded_size = ph->p_memsz;
-            rounded_size = (rounded_size + DEVRAM_PAGE_SIZE - 1) & ~(DEVRAM_PAGE_SIZE - 1);
+            rounded_size        = (rounded_size + DEVRAM_PAGE_SIZE - 1) & ~(DEVRAM_PAGE_SIZE - 1);
             if (ph->p_vaddr != RAM_BASE_ADDR)
                 cpu_register_ram(s->mem_map, ph->p_vaddr, rounded_size, 0);
             memcpy(get_ram_ptr(s, ph->p_vaddr), image + ph->p_offset, ph->p_filesz);
         }
 }
 
-static int load_bootrom(const char *bootrom_name, uint32_t *location)
-{
-    FILE *fPtr;
+static int load_bootrom(const char *bootrom_name, uint32_t *location) {
+    FILE *        fPtr;
     unsigned long fLen;
 
     fPtr = fopen(bootrom_name, "rb");  // Open the file in binary mode
-    fseek(fPtr, 0, SEEK_END);  // Jump to the end of the file
-    fLen = ftell(fPtr);     // Get the current byte offset in the file
-    rewind(fPtr);              // Jump back to the beginning of the file
+    fseek(fPtr, 0, SEEK_END);          // Jump to the end of the file
+    fLen = ftell(fPtr);                // Get the current byte offset in the file
+    rewind(fPtr);                      // Jump back to the beginning of the file
 
-    size_t result = fread((char*)location, sizeof(uint8_t), fLen, fPtr); // Read in the entire file
+    size_t result = fread((char *)location, sizeof(uint8_t), fLen, fPtr);  // Read in the entire file
     if (result != fLen) {
-        fprintf(dromajo_stderr,
-                "DROMAJO failed reading the bootrom image\n");
+        fprintf(dromajo_stderr, "DROMAJO failed reading the bootrom image\n");
         return -1;
     }
 
     // DEBUG
-    //for (unsigned long i = 0; i < (fLen/sizeof(uint32_t)); ++i)
+    // for (unsigned long i = 0; i < (fLen/sizeof(uint32_t)); ++i)
     //    printf("[DEBUG][%p][%ld/%ld] == 0x%x\n", &location[i], i, fLen/sizeof(uint32_t), location[i]);
 
-    fclose(fPtr); // Close the file
+    fclose(fPtr);  // Close the file
 
     return fLen;
 }
 
 /* Return non-zero on failure */
-static int copy_kernel(RISCVMachine *s,
-                       const uint8_t *fw_buf, size_t fw_buf_len,
-                       const uint8_t *kernel_buf, size_t kernel_buf_len,
-                       const uint8_t *initrd_buf, size_t initrd_buf_len,
-                       const char *bootrom_name, const char *dtb_name,
-                       const char *cmd_line)
-{
+static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len, const uint8_t *kernel_buf, size_t kernel_buf_len,
+                       const uint8_t *initrd_buf, size_t initrd_buf_len, const char *bootrom_name, const char *dtb_name,
+                       const char *cmd_line) {
     uint64_t initrd_start = 0, initrd_end = 0;
 
     if (fw_buf_len > s->ram_size) {
@@ -997,8 +922,7 @@ static int copy_kernel(RISCVMachine *s,
         }
 
         load_elf_image(s, fw_buf, fw_buf_len);
-    }
-    else
+    } else
         memcpy(get_ram_ptr(s, s->ram_base_addr), fw_buf, fw_buf_len);
 
     if (!(s->ram_base_addr == 0x80000000 || s->ram_base_addr == 0x8000000000 || s->ram_base_addr == 0xC000000000)) {
@@ -1028,16 +952,16 @@ static int copy_kernel(RISCVMachine *s,
             vm_error("Initrd too big\n");
             return 1;
         }
-        initrd_end = s->ram_base_addr + s->ram_size;
+        initrd_end   = s->ram_base_addr + s->ram_size;
         initrd_start = initrd_end - initrd_buf_len;
         initrd_start = (initrd_start >> 12) << 12;
         memcpy(get_ram_ptr(s, initrd_start), initrd_buf, initrd_buf_len);
     }
 
     // setup the bootrom
-    uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
-    uint32_t *q      = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
-    uint32_t bootromSzBytes = 0;
+    uint8_t * ram_ptr        = get_ram_ptr(s, ROM_BASE_ADDR);
+    uint32_t *q              = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
+    uint32_t  bootromSzBytes = 0;
 
     /* KEEP THIS IN SYNC WITH THE TARGET BOOTROM */
     if (bootrom_name) {
@@ -1053,9 +977,9 @@ static int copy_kernel(RISCVMachine *s,
             *q++ = 0x10500073;  // 0:      wfi
             *q++ = 0xffdff06f;  //         j      0b
         } else {
-            *q++ = 0x00000013; // nop
-            *q++ = 0x00000013; // nop
-            *q++ = 0x00000013; // nop
+            *q++ = 0x00000013;  // nop
+            *q++ = 0x00000013;  // nop
+            *q++ = 0x00000013;  // nop
         }
         *q++ = 0x00000597;  // 1:      auipc  a1, 0x0
         *q++ = 0x0f058593;  //         addi   a1, a1, 240 # _start + 256
@@ -1067,13 +991,13 @@ static int copy_kernel(RISCVMachine *s,
         } else {
             *q++ = 0x0010041b;  //         addiw  s0, zero, 1
             if (s->ram_base_addr == 0x80000000)
-                *q++ = 0x01f41413; //     slli s0, s0, 31
+                *q++ = 0x01f41413;  //     slli s0, s0, 31
             else
                 *q++ = 0x02741413;  //         slli   s0, s0, 39
         }
-        *q++ = 0x7b141073;  //         csrw   dpc, s0
-        *q++ = 0x7b200073;  //         dret
-        bootromSzBytes = 13*sizeof(uint32_t);
+        *q++           = 0x7b141073;  //         csrw   dpc, s0
+        *q++           = 0x7b200073;  //         dret
+        bootromSzBytes = 13 * sizeof(uint32_t);
     }
 
     // setup the dtb
@@ -1083,26 +1007,20 @@ static int copy_kernel(RISCVMachine *s,
     else
         fdt_off += 256;
 
-    if(riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name,
-                       cmd_line, initrd_start, initrd_end) < 0)
+    if (riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line, initrd_start, initrd_end) < 0)
         return -1;
 
-    for (int i = 0; i < s->ncpus; ++i)
-        riscv_set_debug_mode(s->cpu_state[i], TRUE);
+    for (int i = 0; i < s->ncpus; ++i) riscv_set_debug_mode(s->cpu_state[i], TRUE);
 
     return 0;
 }
 
-static void riscv_flush_tlb_write_range(void *opaque, uint8_t *ram_addr,
-                                        size_t ram_size)
-{
+static void riscv_flush_tlb_write_range(void *opaque, uint8_t *ram_addr, size_t ram_size) {
     RISCVMachine *s = (RISCVMachine *)opaque;
-    for (int i = 0; i < s->ncpus; ++i)
-        riscv_cpu_flush_tlb_write_range_ram(s->cpu_state[i], ram_addr, ram_size);
+    for (int i = 0; i < s->ncpus; ++i) riscv_cpu_flush_tlb_write_range_ram(s->cpu_state[i], ram_addr, ram_size);
 }
 
-void virt_machine_set_defaults(VirtMachineParams *p)
-{
+void virt_machine_set_defaults(VirtMachineParams *p) {
     memset(p, 0, sizeof *p);
     p->physical_addr_len = PHYSICAL_ADDR_LEN_DEFAULT;
     p->ram_base_addr     = RAM_BASE_ADDR;
@@ -1113,22 +1031,21 @@ void virt_machine_set_defaults(VirtMachineParams *p)
     p->clint_size        = CLINT_SIZE;
 }
 
-RISCVMachine *virt_machine_init(const VirtMachineParams *p)
-{
+RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     VIRTIODevice *blk_dev;
-    int irq_num, i;
-    VIRTIOBusDef vbus_s, *vbus = &vbus_s;
+    int           irq_num, i;
+    VIRTIOBusDef  vbus_s, *vbus = &vbus_s;
     RISCVMachine *s = (RISCVMachine *)mallocz(sizeof *s);
 
-    s->ram_size = p->ram_size;
+    s->ram_size      = p->ram_size;
     s->ram_base_addr = p->ram_base_addr;
 
     s->mem_map = phys_mem_map_init();
     /* needed to handle the RAM dirty bits */
-    s->mem_map->opaque = s;
+    s->mem_map->opaque                = s;
     s->mem_map->flush_tlb_write_range = riscv_flush_tlb_write_range;
-    s->common.maxinsns = p->maxinsns;
-    s->common.snapshot_load_name = p->snapshot_load_name;
+    s->common.maxinsns                = p->maxinsns;
+    s->common.snapshot_load_name      = p->snapshot_load_name;
 
     s->ncpus = p->ncpus;
 
@@ -1158,7 +1075,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     }
 
     /* RAM */
-    cpu_register_ram(s->mem_map, 0, 4096, 0); // Have memory at 0 for uaccess-etcsr to pass
+    cpu_register_ram(s->mem_map, 0, 4096, 0);  // Have memory at 0 for uaccess-etcsr to pass
     cpu_register_ram(s->mem_map, s->ram_base_addr, s->ram_size, 0);
     cpu_register_ram(s->mem_map, ROM_BASE_ADDR, ROM_SIZE, 0);
 
@@ -1168,35 +1085,46 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
 
     if (p->mmio_start) {
         uint64_t sz = p->mmio_end - p->mmio_start;
-        cpu_register_device(s->mem_map, p->mmio_start, sz, 0,
-                            mmio_read, mmio_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
+        cpu_register_device(s->mem_map, p->mmio_start, sz, 0, mmio_read, mmio_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
     }
 
     if (p->mmio_addrset_size > 0) {
         for (size_t i = 0; i < p->mmio_addrset_size; ++i) {
             uint64_t sz = p->mmio_addrset[i].size;
-            cpu_register_device(s->mem_map, p->mmio_addrset[i].start, sz, 0,
-                                mmio_read, mmio_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
+            cpu_register_device(s->mem_map,
+                                p->mmio_addrset[i].start,
+                                sz,
+                                0,
+                                mmio_read,
+                                mmio_write,
+                                DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
         }
     }
 
     SiFiveUARTState *uart = (SiFiveUARTState *)calloc(sizeof *uart, 1);
-    uart->irq = UART0_IRQ;
-    uart->cs  = p->console;
-    cpu_register_device(s->mem_map, UART0_BASE_ADDR, UART0_SIZE, uart,
-                        uart_read, uart_write, DEVIO_SIZE32);
+    uart->irq             = UART0_IRQ;
+    uart->cs              = p->console;
+    cpu_register_device(s->mem_map, UART0_BASE_ADDR, UART0_SIZE, uart, uart_read, uart_write, DEVIO_SIZE32);
 
     DW_apb_uart_state *dw_apb_uart = (DW_apb_uart_state *)calloc(sizeof *dw_apb_uart, 1);
-    dw_apb_uart->irq = DW_APB_UART0_IRQ;
-    dw_apb_uart->cs  = p->console;
-    cpu_register_device(s->mem_map, DW_APB_UART0_BASE_ADDR, DW_APB_UART0_SIZE,
-                        dw_apb_uart, dw_apb_uart_read, dw_apb_uart_write,
+    dw_apb_uart->irq               = DW_APB_UART0_IRQ;
+    dw_apb_uart->cs                = p->console;
+    cpu_register_device(s->mem_map,
+                        DW_APB_UART0_BASE_ADDR,
+                        DW_APB_UART0_SIZE,
+                        dw_apb_uart,
+                        dw_apb_uart_read,
+                        dw_apb_uart_write,
                         DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
 
-    cpu_register_device(s->mem_map, p->clint_base_addr, p->clint_size, s,
-                        clint_read, clint_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
-    cpu_register_device(s->mem_map, p->plic_base_addr, p->plic_size, s,
-                        plic_read, plic_write, DEVIO_SIZE32);
+    cpu_register_device(s->mem_map,
+                        p->clint_base_addr,
+                        p->clint_size,
+                        s,
+                        clint_read,
+                        clint_write,
+                        DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
+    cpu_register_device(s->mem_map, p->plic_base_addr, p->plic_size, s, plic_read, plic_write, DEVIO_SIZE32);
 
     for (int j = 1; j < 32; j++) {
         irq_init(&s->plic_irq[j], plic_set_irq, s, j);
@@ -1208,12 +1136,12 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
 
     memset(vbus, 0, sizeof(*vbus));
     vbus->mem_map = s->mem_map;
-    vbus->addr = VIRTIO_BASE_ADDR;
-    irq_num = VIRTIO_IRQ;
+    vbus->addr    = VIRTIO_BASE_ADDR;
+    irq_num       = VIRTIO_IRQ;
 
     /* virtio console */
     if (p->console) {
-        vbus->irq = &s->plic_irq[irq_num];
+        vbus->irq             = &s->plic_irq[irq_num];
         s->common.console_dev = virtio_console_init(vbus, p->console);
         vbus->addr += VIRTIO_SIZE;
         irq_num++;
@@ -1233,19 +1161,19 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     /* virtio block device */
     for (i = 0; i < p->drive_count; ++i) {
         vbus->irq = &s->plic_irq[irq_num];
-        blk_dev = virtio_block_init(vbus, p->tab_drive[i].block_dev);
+        blk_dev   = virtio_block_init(vbus, p->tab_drive[i].block_dev);
         (void)blk_dev;
         vbus->addr += VIRTIO_SIZE;
         irq_num++;
         s->virtio_count++;
-        //virtio_set_debug(blk_dev, 1);
+        // virtio_set_debug(blk_dev, 1);
     }
 
     /* virtio filesystem */
     for (i = 0; i < p->fs_count; ++i) {
         VIRTIODevice *fs_dev;
         vbus->irq = &s->plic_irq[irq_num];
-        fs_dev = virtio_9p_init(vbus, p->tab_fs[i].fs_dev, p->tab_fs[i].tag);
+        fs_dev    = virtio_9p_init(vbus, p->tab_fs[i].fs_dev, p->tab_fs[i].tag);
         (void)fs_dev;
         vbus->addr += VIRTIO_SIZE;
         irq_num++;
@@ -1254,13 +1182,13 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
 
     if (p->input_device) {
         if (!strcmp(p->input_device, "virtio")) {
-            vbus->irq = &s->plic_irq[irq_num];
+            vbus->irq       = &s->plic_irq[irq_num];
             s->keyboard_dev = virtio_input_init(vbus, VIRTIO_INPUT_TYPE_KEYBOARD);
             vbus->addr += VIRTIO_SIZE;
             irq_num++;
             s->virtio_count++;
 
-            vbus->irq = &s->plic_irq[irq_num];
+            vbus->irq    = &s->plic_irq[irq_num];
             s->mouse_dev = virtio_input_init(vbus, VIRTIO_INPUT_TYPE_TABLET);
             vbus->addr += VIRTIO_SIZE;
             irq_num++;
@@ -1287,13 +1215,13 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
         return NULL;
 
     /* mmio setup for cosim */
-    s->mmio_start = p->mmio_start;
-    s->mmio_end   = p->mmio_end;
-    s->mmio_addrset = p->mmio_addrset;
+    s->mmio_start        = p->mmio_start;
+    s->mmio_end          = p->mmio_end;
+    s->mmio_addrset      = p->mmio_addrset;
     s->mmio_addrset_size = p->mmio_addrset_size;
 
     /* interrupts and exception setup for cosim */
-    s->common.cosim = false;
+    s->common.cosim             = false;
     s->common.pending_exception = -1;
     s->common.pending_interrupt = -1;
 
@@ -1304,25 +1232,24 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
     s->clint_size      = p->clint_size;
 
     if (p->dump_memories) {
-      FILE *fd = fopen("BootRAM.hex", "w+");
-      if (fd==0) {
-        fprintf(stderr, "ERROR: could not create BootRAM.hex\n");
-        exit(-3);
-      }
+        FILE *fd = fopen("BootRAM.hex", "w+");
+        if (fd == 0) {
+            fprintf(stderr, "ERROR: could not create BootRAM.hex\n");
+            exit(-3);
+        }
 
-      uint8_t *ram_ptr  = get_ram_ptr(s, ROM_BASE_ADDR);
-      for(int i=0;i<ROM_SIZE/4;++i) {
-        uint32_t *q_base = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
-        fprintf(fd,"@%06x %08x\n",i, q_base[i]);
-      }
-      fclose(fd);
+        uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
+        for (int i = 0; i < ROM_SIZE / 4; ++i) {
+            uint32_t *q_base = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
+            fprintf(fd, "@%06x %08x\n", i, q_base[i]);
+        }
+        fclose(fd);
     }
 
     return s;
 }
 
-void virt_machine_end(RISCVMachine *s)
-{
+void virt_machine_end(RISCVMachine *s) {
     if (s->common.snapshot_save_name)
         virt_machine_serialize(s, s->common.snapshot_save_name);
 
@@ -1338,29 +1265,25 @@ void virt_machine_end(RISCVMachine *s)
     free(s);
 }
 
-void virt_machine_serialize(RISCVMachine *m, const char *dump_name)
-{
-    RISCVCPUState *s = m->cpu_state[0]; // FIXME: MULTICORE
+void virt_machine_serialize(RISCVMachine *m, const char *dump_name) {
+    RISCVCPUState *s = m->cpu_state[0];  // FIXME: MULTICORE
 
-    fprintf(dromajo_stderr, "plic: %x %x timecmp=%llx\n",
-            m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
+    fprintf(dromajo_stderr, "plic: %x %x timecmp=%llx\n", m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
 
-    assert(m->ncpus == 1); // FIXME: riscv_cpu_serialize must be patched for multicore
+    assert(m->ncpus == 1);  // FIXME: riscv_cpu_serialize must be patched for multicore
     riscv_cpu_serialize(s, dump_name, m->clint_base_addr);
 }
 
-void virt_machine_deserialize(RISCVMachine *m, const char *dump_name)
-{
-    RISCVCPUState *s = m->cpu_state[0]; // FIXME: MULTICORE
+void virt_machine_deserialize(RISCVMachine *m, const char *dump_name) {
+    RISCVCPUState *s = m->cpu_state[0];  // FIXME: MULTICORE
 
-    assert(m->ncpus == 1); // FIXME: riscv_cpu_serialize must be patched for multicore
+    assert(m->ncpus == 1);  // FIXME: riscv_cpu_serialize must be patched for multicore
     riscv_cpu_deserialize(s, dump_name);
 }
 
-int virt_machine_get_sleep_duration(RISCVMachine *m, int hartid, int ms_delay)
-{
+int virt_machine_get_sleep_duration(RISCVMachine *m, int hartid, int ms_delay) {
     RISCVCPUState *s = m->cpu_state[hartid];
-    int64_t ms_delay1;
+    int64_t        ms_delay1;
 
     /* wait for an event: the only asynchronous event is the RTC timer */
     if (!(riscv_cpu_get_mip(s) & MIP_MTIP) && rtc_get_time(m) > 0) {
@@ -1382,40 +1305,23 @@ int virt_machine_get_sleep_duration(RISCVMachine *m, int hartid, int ms_delay)
     return ms_delay;
 }
 
-uint64_t virt_machine_get_pc(RISCVMachine *s, int hartid)
-{
-    return riscv_get_pc(s->cpu_state[hartid]);
-}
+uint64_t virt_machine_get_pc(RISCVMachine *s, int hartid) { return riscv_get_pc(s->cpu_state[hartid]); }
 
-uint64_t virt_machine_get_reg(RISCVMachine *s, int hartid, int rn)
-{
-    return riscv_get_reg(s->cpu_state[hartid], rn);
-}
+uint64_t virt_machine_get_reg(RISCVMachine *s, int hartid, int rn) { return riscv_get_reg(s->cpu_state[hartid], rn); }
 
-uint64_t virt_machine_get_fpreg(RISCVMachine *s, int hartid, int rn)
-{
-    return riscv_get_fpreg(s->cpu_state[hartid], rn);
-}
+uint64_t virt_machine_get_fpreg(RISCVMachine *s, int hartid, int rn) { return riscv_get_fpreg(s->cpu_state[hartid], rn); }
 
-const char *virt_machine_get_name(void)
-{
-    return "riscv64";
-}
+const char *virt_machine_get_name(void) { return "riscv64"; }
 
-void vm_send_key_event(RISCVMachine *s, BOOL is_down, uint16_t key_code)
-{
+void vm_send_key_event(RISCVMachine *s, BOOL is_down, uint16_t key_code) {
     if (s->keyboard_dev) {
         virtio_input_send_key_event(s->keyboard_dev, is_down, key_code);
     }
 }
 
-BOOL vm_mouse_is_absolute(RISCVMachine *s)
-{
-    return TRUE;
-}
+BOOL vm_mouse_is_absolute(RISCVMachine *s) { return TRUE; }
 
-void vm_send_mouse_event(RISCVMachine *s, int dx, int dy, int dz, unsigned buttons)
-{
+void vm_send_mouse_event(RISCVMachine *s, int dx, int dy, int dz, unsigned buttons) {
     if (s->mouse_dev) {
         virtio_input_send_mouse_event(s->mouse_dev, dx, dy, dz, buttons);
     }

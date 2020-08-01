@@ -37,16 +37,16 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include <stdlib.h>
-#include <stdio.h>
+#include "softfp.h"
+
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cutils.h"
-#include "softfp.h"
 
-static inline int clz32(uint32_t a)
-{
+static inline int clz32(uint32_t a) {
     int r;
     if (a == 0) {
         r = 32;
@@ -56,26 +56,22 @@ static inline int clz32(uint32_t a)
     return r;
 }
 
-static inline int clz64(uint64_t a)
-{
+static inline int clz64(uint64_t a) {
     int r;
     if (a == 0) {
         r = 64;
-    } else
-    {
+    } else {
         r = __builtin_clzll(a);
     }
     return r;
 }
 
 #ifdef HAVE_INT128
-static inline int clz128(uint128_t a)
-{
+static inline int clz128(uint128_t a) {
     int r;
     if (a == 0) {
         r = 128;
-    } else
-    {
+    } else {
         uint64_t ah, al;
         ah = a >> 64;
         al = a;

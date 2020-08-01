@@ -37,19 +37,18 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <inttypes.h>
-#include <assert.h>
-#include <stdarg.h>
-#include <sys/time.h>
-#include <ctype.h>
-
 #include "cutils.h"
 
-void *mallocz(size_t size)
-{
+#include <assert.h>
+#include <ctype.h>
+#include <inttypes.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
+
+void *mallocz(size_t size) {
     void *ptr;
     ptr = malloc(size);
     if (!ptr)
@@ -58,9 +57,8 @@ void *mallocz(size_t size)
     return ptr;
 }
 
-void pstrcpy(char *buf, int buf_size, const char *str)
-{
-    int c;
+void pstrcpy(char *buf, int buf_size, const char *str) {
+    int   c;
     char *q = buf;
 
     if (buf_size <= 0)
@@ -75,8 +73,7 @@ void pstrcpy(char *buf, int buf_size, const char *str)
     *q = '\0';
 }
 
-char *pstrcat(char *buf, int buf_size, const char *s)
-{
+char *pstrcat(char *buf, int buf_size, const char *s) {
     int len;
     len = strlen(buf);
     if (len < buf_size)
@@ -84,8 +81,7 @@ char *pstrcat(char *buf, int buf_size, const char *s)
     return buf;
 }
 
-int strstart(const char *str, const char *val, const char **ptr)
-{
+int strstart(const char *str, const char *val, const char **ptr) {
     const char *p, *q;
     p = str;
     q = val;
@@ -100,18 +96,14 @@ int strstart(const char *str, const char *val, const char **ptr)
     return 1;
 }
 
-void dbuf_init(DynBuf *s)
-{
-    memset(s, 0, sizeof *s);
-}
+void dbuf_init(DynBuf *s) { memset(s, 0, sizeof *s); }
 
-void dbuf_write(DynBuf *s, size_t offset, const uint8_t *data, size_t len)
-{
+void dbuf_write(DynBuf *s, size_t offset, const uint8_t *data, size_t len) {
     size_t end, new_size;
     new_size = end = offset + len;
     if (new_size > s->allocated_size) {
-        new_size = max_int(new_size, s->allocated_size * 3 / 2);
-        s->buf = (uint8_t *)realloc(s->buf, new_size);
+        new_size          = max_int(new_size, s->allocated_size * 3 / 2);
+        s->buf            = (uint8_t *)realloc(s->buf, new_size);
         s->allocated_size = new_size;
     }
     memcpy(s->buf + offset, data, len);
@@ -119,18 +111,11 @@ void dbuf_write(DynBuf *s, size_t offset, const uint8_t *data, size_t len)
         s->size = end;
 }
 
-void dbuf_putc(DynBuf *s, uint8_t c)
-{
-    dbuf_write(s, s->size, &c, 1);
-}
+void dbuf_putc(DynBuf *s, uint8_t c) { dbuf_write(s, s->size, &c, 1); }
 
-void dbuf_putstr(DynBuf *s, const char *str)
-{
-    dbuf_write(s, s->size, (const uint8_t *)str, strlen(str));
-}
+void dbuf_putstr(DynBuf *s, const char *str) { dbuf_write(s, s->size, (const uint8_t *)str, strlen(str)); }
 
-void dbuf_free(DynBuf *s)
-{
+void dbuf_free(DynBuf *s) {
     free(s->buf);
     memset(s, 0, sizeof *s);
 }

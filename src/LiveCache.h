@@ -52,85 +52,70 @@
 #ifndef LiveCache_H
 #define LiveCache_H
 
-#include <stdint.h>
 #include <assert.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <limits.h>
 
 #include <string>
 
 class LiveCache {
-protected:
-  class CState : public StateGeneric<uint64_t> {
-  private:
-    enum StateType { M, E, S, I };
-    StateType state;
+  protected:
+    class CState : public StateGeneric<uint64_t> {
+      private:
+        enum StateType { M, E, S, I };
+        StateType state;
 
-  public:
-    bool     st;
-    uint64_t order;
+      public:
+        bool     st;
+        uint64_t order;
 
-    CState() {
-      state = I;
-      clearTag();
-    }
+        CState() {
+            state = I;
+            clearTag();
+        }
 
-    bool isModified() const {
-      return state == M;
-    }
-    void setModified() {
-      state = M;
-    }
-    bool isValid() const {
-      return state != I;
-    }
-    bool isInvalid() const {
-      return state == I;
-    }
+        bool isModified() const { return state == M; }
+        void setModified() { state = M; }
+        bool isValid() const { return state != I; }
+        bool isInvalid() const { return state == I; }
 
-    StateType getState() const {
-      return state;
+        StateType getState() const { return state; };
+
+        void invalidate() { state = I; }
     };
 
-    void invalidate() {
-      state = I;
-    }
-  };
+    typedef CacheGeneric<CState, uint64_t>            CacheType;
+    typedef CacheGeneric<CState, uint64_t>::CacheLine Line;
 
-  typedef CacheGeneric<CState, uint64_t>            CacheType;
-  typedef CacheGeneric<CState, uint64_t>::CacheLine Line;
+    const std::string name;
 
-  const std::string name;
+    CacheType *cacheBank;
 
-  CacheType *cacheBank;
+    int32_t  lineSize;
+    int32_t  lineSizeBits;
+    uint64_t lineCount;
+    uint64_t maxOrder;
 
-  int32_t  lineSize;
-  int32_t  lineSizeBits;
-  uint64_t lineCount;
-  uint64_t maxOrder;
+    long long nReadHit;
+    long long nReadMiss;
+    long long nWriteHit;
+    long long nWriteMiss;
 
-  long long  nReadHit;
-  long long  nReadMiss;
-  long long  nWriteHit;
-  long long  nWriteMiss;
+    void mergeSort(Line **arr, uint64_t len);
 
-  void mergeSort(Line **arr, uint64_t len);
+  public:
+    LiveCache(const std::string &_name, int size);
+    virtual ~LiveCache();
 
-public:
-  LiveCache(const std::string &_name, int size);
-  virtual ~LiveCache();
+    int32_t getLineSize() const { return lineSize; }
 
-  int32_t getLineSize() const {
-    return lineSize;
-  }
-
-  void     read(uint64_t addr);
-  void     write(uint64_t addr);
-  uint64_t *traverse(int &n_entries);
+    void      read(uint64_t addr);
+    void      write(uint64_t addr);
+    uint64_t *traverse(int &n_entries);
 };
 
 #endif

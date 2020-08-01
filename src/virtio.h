@@ -40,9 +40,9 @@
 #ifndef VIRTIO_H
 #define VIRTIO_H
 
+#include "cutils.h"
 #include "iomem.h"
 #include "pci.h"
-#include "cutils.h"
 
 #define VIRTIO_PAGE_SIZE 4096
 #define VIRTIO_ADDR_BITS 64
@@ -54,8 +54,8 @@ typedef struct {
     PCIBus *pci_bus;
     /* MMIO only: */
     PhysMemoryMap *mem_map;
-    uint64_t addr;
-    IRQSignal *irq;
+    uint64_t       addr;
+    IRQSignal *    irq;
 } VIRTIOBusDef;
 
 typedef struct VIRTIODevice VIRTIODevice;
@@ -73,12 +73,9 @@ typedef struct BlockDevice BlockDevice;
 
 struct BlockDevice {
     int64_t (*get_sector_count)(BlockDevice *bs);
-    int (*read_async)(BlockDevice *bs,
-                      uint64_t sector_num, uint8_t *buf, int n,
-                      BlockDeviceCompletionFunc *cb, void *opaque);
-    int (*write_async)(BlockDevice *bs,
-                       uint64_t sector_num, const uint8_t *buf, int n,
-                       BlockDeviceCompletionFunc *cb, void *opaque);
+    int (*read_async)(BlockDevice *bs, uint64_t sector_num, uint8_t *buf, int n, BlockDeviceCompletionFunc *cb, void *opaque);
+    int (*write_async)(BlockDevice *bs, uint64_t sector_num, const uint8_t *buf, int n, BlockDeviceCompletionFunc *cb,
+                       void *opaque);
     void *opaque;
 };
 
@@ -90,20 +87,14 @@ typedef struct EthernetDevice EthernetDevice;
 
 struct EthernetDevice {
     uint8_t mac_addr[6]; /* mac address of the interface */
-    void (*write_packet)(EthernetDevice *net,
-                         const uint8_t *buf, int len);
+    void (*write_packet)(EthernetDevice *net, const uint8_t *buf, int len);
     void *opaque;
-    void (*select_fill)(EthernetDevice *net, int *pfd_max,
-                        fd_set *rfds, fd_set *wfds, fd_set *efds,
-                        int *pdelay);
-    void (*select_poll)(EthernetDevice *net,
-                        fd_set *rfds, fd_set *wfds, fd_set *efds,
-                        int select_ret);
+    void (*select_fill)(EthernetDevice *net, int *pfd_max, fd_set *rfds, fd_set *wfds, fd_set *efds, int *pdelay);
+    void (*select_poll)(EthernetDevice *net, fd_set *rfds, fd_set *wfds, fd_set *efds, int select_ret);
     /* the following is set by the device */
     void *device_opaque;
     BOOL (*device_can_write_packet)(EthernetDevice *net);
-    void (*device_write_packet)(EthernetDevice *net,
-                                const uint8_t *buf, int len);
+    void (*device_write_packet)(EthernetDevice *net, const uint8_t *buf, int len);
     void (*device_set_carrier)(EthernetDevice *net, BOOL carrier_state);
 };
 
@@ -118,10 +109,10 @@ typedef struct {
 } CharacterDevice;
 
 VIRTIODevice *virtio_console_init(VIRTIOBusDef *bus, CharacterDevice *cs);
-BOOL virtio_console_can_write_data(VIRTIODevice *s);
-int virtio_console_get_write_len(VIRTIODevice *s);
-int virtio_console_write_data(VIRTIODevice *s, const uint8_t *buf, int buf_len);
-void virtio_console_resize_event(VIRTIODevice *s, int width, int height);
+BOOL          virtio_console_can_write_data(VIRTIODevice *s);
+int           virtio_console_get_write_len(VIRTIODevice *s);
+int           virtio_console_write_data(VIRTIODevice *s, const uint8_t *buf, int buf_len);
+void          virtio_console_resize_event(VIRTIODevice *s, int width, int height);
 
 /* input device */
 
@@ -133,10 +124,8 @@ typedef enum {
 
 #define VIRTIO_INPUT_ABS_SCALE 32768
 
-int virtio_input_send_key_event(VIRTIODevice *s, BOOL is_down,
-                                uint16_t key_code);
-int virtio_input_send_mouse_event(VIRTIODevice *s, int dx, int dy, int dz,
-                                  unsigned int buttons);
+int virtio_input_send_key_event(VIRTIODevice *s, BOOL is_down, uint16_t key_code);
+int virtio_input_send_mouse_event(VIRTIODevice *s, int dx, int dy, int dz, unsigned int buttons);
 
 VIRTIODevice *virtio_input_init(VIRTIOBusDef *bus, VirtioInputTypeEnum type);
 
@@ -144,7 +133,6 @@ VIRTIODevice *virtio_input_init(VIRTIOBusDef *bus, VirtioInputTypeEnum type);
 
 #include "fs.h"
 
-VIRTIODevice *virtio_9p_init(VIRTIOBusDef *bus, FSDevice *fs,
-                             const char *mount_tag);
+VIRTIODevice *virtio_9p_init(VIRTIOBusDef *bus, FSDevice *fs, const char *mount_tag);
 
 #endif /* VIRTIO_H */

@@ -37,27 +37,27 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <string.h>
-#include <inttypes.h>
+#include "json.h"
+
 #include <assert.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <unistd.h>
-#include <time.h>
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "cutils.h"
-#include "json.h"
 #include "fs_utils.h"
 
-static JSONValue parse_string(const char **pp)
-{
-    char buf[4096], *q;
+static JSONValue parse_string(const char **pp) {
+    char        buf[4096], *q;
     const char *p;
-    int c, h;
+    int         c, h;
 
     q = buf;
     p = *pp;
@@ -68,22 +68,15 @@ static JSONValue parse_string(const char **pp)
             return json_error_new("unterminated string");
         } else if (c == '\"') {
             break;
-            } else if (c == '\\') {
-                c = *p++;
-                switch (c) {
+        } else if (c == '\\') {
+            c = *p++;
+            switch (c) {
                 case '\'':
                 case '\"':
-                case '\\':
-                    goto add_char;
-                case 'n':
-                    c = '\n';
-                    goto add_char;
-                case 'r':
-                    c = '\r';
-                    goto add_char;
-                case 't':
-                    c = '\t';
-                    goto add_char;
+                case '\\': goto add_char;
+                case 'n': c = '\n'; goto add_char;
+                case 'r': c = '\r'; goto add_char;
+                case 't': c = '\t'; goto add_char;
                 case 'x':
                     h = from_hex(*p++);
                     if (h < 0)
@@ -94,25 +87,23 @@ static JSONValue parse_string(const char **pp)
                         return json_error_new("invalid hex digit");
                     c |= h;
                     goto add_char;
-                default:
-                    return json_error_new("unknown escape code");
-                }
-            } else {
-            add_char:
+                default: return json_error_new("unknown escape code");
+            }
+        } else {
+        add_char:
             if (q >= buf + sizeof(buf) - 1)
                 return json_error_new("string too long");
             *q++ = c;
         }
     }
-    *q = '\0';
+    *q  = '\0';
     *pp = p;
     return json_string_new(buf);
 }
 
-static JSONProperty *json_object_get2(JSONObject *obj, const char *name)
-{
+static JSONProperty *json_object_get2(JSONObject *obj, const char *name) {
     JSONProperty *f;
-    int i;
+    int           i;
     for (i = 0; i < obj->len; i++) {
         f = &obj->props[i];
         if (!strcmp(f->name.u.str->data, name))
@@ -121,48 +112,45 @@ static JSONProperty *json_object_get2(JSONObject *obj, const char *name)
     return NULL;
 }
 
-JSONValue json_object_get(JSONValue val, const char *name)
-{
+JSONValue json_object_get(JSONValue val, const char *name) {
     JSONProperty *f;
-    JSONObject *obj;
+    JSONObject *  obj;
 
     if (val.type != JSON_OBJ)
         return json_undefined_new();
     obj = val.u.obj;
-    f = json_object_get2(obj, name);
+    f   = json_object_get2(obj, name);
     if (!f)
         return json_undefined_new();
     return f->value;
 }
 
-int json_object_set(JSONValue val, const char *name, JSONValue prop_val)
-{
-    JSONObject *obj;
+int json_object_set(JSONValue val, const char *name, JSONValue prop_val) {
+    JSONObject *  obj;
     JSONProperty *f;
-    int new_size;
+    int           new_size;
 
     if (val.type != JSON_OBJ)
         return -1;
     obj = val.u.obj;
-    f = json_object_get2(obj, name);
+    f   = json_object_get2(obj, name);
     if (f) {
         json_free(f->value);
         f->value = prop_val;
     } else {
         if (obj->len >= obj->size) {
-            new_size = max_int(obj->len + 1, obj->size * 3 / 2);
+            new_size   = max_int(obj->len + 1, obj->size * 3 / 2);
             obj->props = (JSONProperty *)realloc(obj->props, new_size * sizeof(JSONProperty));
-            obj->size = new_size;
+            obj->size  = new_size;
         }
-        f = &obj->props[obj->len++];
-        f->name = json_string_new(name);
+        f        = &obj->props[obj->len++];
+        f->name  = json_string_new(name);
         f->value = prop_val;
     }
     return 0;
 }
 
-JSONValue json_array_get(JSONValue val, int idx)
-{
+JSONValue json_array_get(JSONValue val, int idx) {
     JSONArray *array;
 
     if (val.type != JSON_ARRAY)
@@ -175,10 +163,9 @@ JSONValue json_array_get(JSONValue val, int idx)
     }
 }
 
-int json_array_set(JSONValue val, int idx, JSONValue prop_val)
-{
+int json_array_set(JSONValue val, int idx, JSONValue prop_val) {
     JSONArray *array;
-    int new_size;
+    int        new_size;
 
     if (val.type != JSON_ARRAY)
         return -1;
@@ -188,8 +175,8 @@ int json_array_set(JSONValue val, int idx, JSONValue prop_val)
         array->tab[idx] = prop_val;
     } else if (idx == array->len) {
         if (array->len >= array->size) {
-            new_size = max_int(array->len + 1, array->size * 3 / 2);
-            array->tab = (JSONValue *)realloc(array->tab, new_size * sizeof(JSONValue));
+            new_size    = max_int(array->len + 1, array->size * 3 / 2);
+            array->tab  = (JSONValue *)realloc(array->tab, new_size * sizeof(JSONValue));
             array->size = new_size;
         }
         array->tab[array->len++] = prop_val;
@@ -199,100 +186,84 @@ int json_array_set(JSONValue val, int idx, JSONValue prop_val)
     return 0;
 }
 
-const char *json_get_str(JSONValue val)
-{
+const char *json_get_str(JSONValue val) {
     if (val.type != JSON_STR)
         return NULL;
     return val.u.str->data;
 }
 
-const char *json_get_error(JSONValue val)
-{
+const char *json_get_error(JSONValue val) {
     if (val.type != JSON_EXCEPTION)
         return NULL;
     return val.u.str->data;
 }
 
-JSONValue json_string_new2(const char *str, int len)
-{
+JSONValue json_string_new2(const char *str, int len) {
     JSONString *str1 = (JSONString *)malloc(sizeof(JSONString) + len + 1);
 
     str1->len = len;
     memcpy(str1->data, str, len + 1);
 
     JSONValue val;
-    val.type = JSON_STR;
+    val.type  = JSON_STR;
     val.u.str = str1;
     return val;
 }
 
-JSONValue json_string_new(const char *str)
-{
-    return json_string_new2(str, strlen(str));
-}
+JSONValue json_string_new(const char *str) { return json_string_new2(str, strlen(str)); }
 
-JSONValue __attribute__((format(printf, 1, 2))) json_error_new(const char *fmt, ...)
-{
+JSONValue __attribute__((format(printf, 1, 2))) json_error_new(const char *fmt, ...) {
     JSONValue val;
-    va_list ap;
-    char buf[256];
+    va_list   ap;
+    char      buf[256];
 
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    val = json_string_new(buf);
+    val      = json_string_new(buf);
     val.type = JSON_EXCEPTION;
     return val;
 }
 
-JSONValue json_object_new(void)
-{
+JSONValue json_object_new(void) {
     JSONObject *obj = (JSONObject *)mallocz(sizeof(JSONObject));
 
     JSONValue val;
-    val.type = JSON_OBJ;
+    val.type  = JSON_OBJ;
     val.u.obj = obj;
     return val;
 }
 
-JSONValue json_array_new(void)
-{
+JSONValue json_array_new(void) {
     JSONArray *array = (JSONArray *)mallocz(sizeof(JSONArray));
 
     JSONValue val;
-    val.type = JSON_ARRAY;
+    val.type    = JSON_ARRAY;
     val.u.array = array;
     return val;
 }
 
-void json_free(JSONValue val)
-{
+void json_free(JSONValue val) {
     switch (val.type) {
-    case JSON_STR:
-    case JSON_EXCEPTION:
-        free(val.u.str);
-        break;
-    case JSON_INT:
-    case JSON_BOOL:
-    case JSON_NULL:
-    case JSON_UNDEFINED:
-        break;
-    case JSON_ARRAY:
-        {
+        case JSON_STR:
+        case JSON_EXCEPTION: free(val.u.str); break;
+        case JSON_INT:
+        case JSON_BOOL:
+        case JSON_NULL:
+        case JSON_UNDEFINED: break;
+        case JSON_ARRAY: {
             JSONArray *array = val.u.array;
-            int i;
+            int        i;
 
             for (i = 0; i < array->len; i++) {
                 json_free(array->tab[i]);
             }
             free(array);
-        }
-        break;
-    case JSON_OBJ:
-        {
-            JSONObject *obj = val.u.obj;
+        } break;
+        case JSON_OBJ: {
+            JSONObject *  obj = val.u.obj;
             JSONProperty *f;
-            int i;
+            int           i;
 
             for (i = 0; i < obj->len; i++) {
                 f = &obj->props[i];
@@ -300,15 +271,12 @@ void json_free(JSONValue val)
                 json_free(f->value);
             }
             free(obj);
-        }
-        break;
-    default:
-        abort();
+        } break;
+        default: abort();
     }
 }
 
-static void skip_spaces(const char **pp)
-{
+static void skip_spaces(const char **pp) {
     const char *p;
     p = *pp;
     for (;;) {
@@ -316,12 +284,10 @@ static void skip_spaces(const char **pp)
             p++;
         } else if (p[0] == '/' && p[1] == '/') {
             p += 2;
-            while (*p != '\0' && *p != '\n')
-                p++;
+            while (*p != '\0' && *p != '\n') p++;
         } else if (p[0] == '/' && p[1] == '*') {
             p += 2;
-            while (*p != '\0' && (p[0] != '*' || p[1] != '/'))
-                p++;
+            while (*p != '\0' && (p[0] != '*' || p[1] != '/')) p++;
             if (*p != '\0')
                 p += 2;
         } else {
@@ -331,19 +297,13 @@ static void skip_spaces(const char **pp)
     *pp = p;
 }
 
-static inline BOOL is_ident_first(int c)
-{
-    return (c >= 'a' && c <= 'z') ||
-        (c >= 'A' && c <= 'Z') ||
-        c == '_' || c == '$';
-}
+static inline BOOL is_ident_first(int c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$'; }
 
-static int parse_ident(char *buf, int buf_size, const char **pp)
-{
-    char *q;
+static int parse_ident(char *buf, int buf_size, const char **pp) {
+    char *      q;
     const char *p;
-    p = *pp;
-    q = buf;
+    p    = *pp;
+    q    = buf;
     *q++ = *p++; /* first char is already tested */
     while (is_ident_first(*p) || isdigit(*p)) {
         if ((q - buf) >= buf_size - 1)
@@ -351,15 +311,14 @@ static int parse_ident(char *buf, int buf_size, const char **pp)
         *q++ = *p++;
     }
     *pp = p;
-    *q = '\0';
+    *q  = '\0';
     return 0;
 }
 
-JSONValue json_parse_value2(const char **pp)
-{
-    char buf[128];
+JSONValue json_parse_value2(const char **pp) {
+    char        buf[128];
     const char *p;
-    JSONValue val, val1, tag;
+    JSONValue   val, val1, tag;
 
     p = *pp;
     skip_spaces(&p);
@@ -456,8 +415,7 @@ JSONValue json_parse_value2(const char **pp)
     return val;
 }
 
-JSONValue json_parse_value(const char *p)
-{
+JSONValue json_parse_value(const char *p) {
     JSONValue val;
     val = json_parse_value2(&p);
     if (json_is_error(val))
@@ -470,8 +428,7 @@ JSONValue json_parse_value(const char *p)
     return val;
 }
 
-JSONValue json_parse_value_len(const char *p, int len)
-{
+JSONValue json_parse_value_len(const char *p, int len) {
     char *str = (char *)malloc(len + 1);
     memcpy(str, p, len);
     str[len] = '\0';
