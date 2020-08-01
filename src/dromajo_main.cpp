@@ -61,6 +61,8 @@
 #include <signal.h>
 #include <err.h>
 
+#include <algorithm>
+
 #include "cutils.h"
 #include "iomem.h"
 #include "virtio.h"
@@ -598,6 +600,7 @@ static void usage(const char *prog, const char *msg)
             "       --cmdline Kernel command line arguments to append\n"
             "       --ncpus number of cpus to simulate (default 1)\n"
             "       --load resumes a previously saved snapshot\n"
+            "       --simpoint reads a simpoint file to create multiple checkpoints\n"
             "       --save saves a snapshot upon exit\n"
             "       --maxinsns terminates execution after a number of instructions\n"
             "       --terminate-event name of the validate event to terminate execution\n"
@@ -671,6 +674,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     uint64_t    clint_base_addr_override = 0;
     uint64_t    clint_size_override      = 0;
     bool        custom_extension         = false;
+    const char *simpoint_file            = 0;
 
     dromajo_stdout = stdout;
     dromajo_stderr = stderr;
@@ -684,6 +688,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             {"ncpus",                   required_argument, 0,  'n' }, // CFG
             {"load",                    required_argument, 0,  'l' },
             {"save",                    required_argument, 0,  's' },
+            {"simpoint",                required_argument, 0,  'S' },
             {"maxinsns",                required_argument, 0,  'm' }, // CFG
             {"trace   ",                required_argument, 0,  't' },
             {"ignore_sbi_shutdown",     required_argument, 0,  'P' }, // CFG
@@ -728,6 +733,12 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
             if (snapshot_save_name)
                 usage(prog, "already had a snapshot to save");
             snapshot_save_name = strdup(optarg);
+            break;
+
+        case 'S':
+            if (simpoint_file)
+                usage(prog, "already had a simpoint file");
+            simpoint_file = strdup(optarg);
             break;
 
         case 'm':
@@ -1010,6 +1021,41 @@ RISCVMachine *virt_machine_main(int argc, char **argv)
     // Overwrite the value specified in the configuration file
     if (snapshot_load_name) {
         s->common.snapshot_load_name = snapshot_load_name;
+    }
+
+    if (simpoint_file) {
+#ifdef SIMPOINT_BB
+      FILE *file = fopen(simpoint_file,"r");
+      if (file == 0) {
+        fprintf(stderr,"could not open simpoint file %s\n", simpoint_file);
+        exit(1);
+      }
+      int distance;
+      int num;
+      while (fscanf(file, "%d %d", &distance, &num) == 2) {
+        uint64_t start = distance *SIMPOINT_SIZE;
+
+        if (start == 0) {  // skip boot ROM
+          start = ROM_SIZE;
+        }
+
+        s->common.simpoints.push_back({start, num});
+      }
+
+      std::sort(s->common.simpoints.begin(), s->common.simpoints.end());
+      for (auto sp : s->common.simpoints) {
+        printf("simpoint %d starts at %dK\n", sp.id, (int)sp.start / 1000);
+      }
+
+      if (s->common.simpoints.empty()) {
+        fprintf(stderr,"simpoint file %s appears empty or invalid\n", simpoint_file);
+        exit(1);
+      }
+      s->common.simpoint_next = 0;
+#else
+      fprintf(stderr,"simpoint flag requires to recompile with SIMPOINT_BB\n");
+      exit(1);
+#endif
     }
 
     s->common.snapshot_save_name = snapshot_save_name;

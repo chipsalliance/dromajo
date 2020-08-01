@@ -1,0 +1,32 @@
+#!/bin/sh
+
+case "$1" in
+  start)
+  BENCH=`cat /proc/cmdline | grep bench | sed -e 's/^.*bench=//' -e 's/ .*$//'`
+  if [ "${BENCH}" = "" ]; then
+    echo "No benchmark specified"
+  elif [ "${BENCH}" = "spec06_gcc" ]; then
+    echo "Launching spec06_gcc"
+    cd /bench
+    # Set cosim to run for 10G inst only
+    /sbin/roi 10G
+    /sbin/roi begin
+    ./scripts/spec06_gcc.sh
+    /sbin/roi terminate
+  else
+    echo "Could not find benchmark '${BENCH}' to run"
+  fi
+	;;
+  stop)
+	;;
+  restart|reload)
+	"$0" stop
+	"$0" start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
+

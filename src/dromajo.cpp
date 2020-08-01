@@ -32,6 +32,8 @@
 #include <sys/stat.h>
 #include <signal.h>
 
+#include <unordered_map>
+
 #include "cutils.h"
 #include "iomem.h"
 #include "virtio.h"
@@ -43,6 +45,80 @@
 #include "dromajo_cosim.h"
 #endif
 
+#ifdef SIMPOINT_BB
+FILE *simpoint_bb_file=nullptr;
+int simpoint_roi=0; // start without ROI enabled
+
+int simpoint_step(RISCVMachine *m, int hartid) {
+  assert(hartid==0); // Only single core for simpoint creation
+
+  static uint64_t ninst = 0; // ninst in BB
+  ninst++;
+
+  if(simpoint_bb_file==0) { // Creating checkpoints mode
+
+    assert(!m->common.simpoints.empty());
+
+    auto &sp = m->common.simpoints[m->common.simpoint_next];
+    if (ninst > sp.start) {
+      char str[100];
+      sprintf(str, "sp%d", sp.id);
+      virt_machine_serialize(m, str);
+
+      m->common.simpoint_next++;
+      if (m->common.simpoint_next == m->common.simpoints.size()) {
+        return 0; // notify to terminate nicely
+      }
+    }
+    return 1;
+  }
+
+  // Creating bb trace mode
+  assert(m->common.simpoints.empty());
+
+  uint64_t pc      = virt_machine_get_pc(m, hartid);
+  static uint64_t next_bbv_dump = UINT64_MAX;
+  static std::unordered_map<uint64_t,int> bbv;
+  static std::unordered_map<uint64_t,int> pc2id;
+  static int next_id = 1;
+  if (m->common.maxinsns <= next_bbv_dump) {
+    if (m->common.maxinsns > SIMPOINT_SIZE)
+      next_bbv_dump = m->common.maxinsns - SIMPOINT_SIZE;
+    else
+      next_bbv_dump = 0;
+
+    if (bbv.size()) {
+      fprintf(simpoint_bb_file,"T");
+      for(const auto ent:bbv) {
+        auto it = pc2id.find(ent.first);
+        int id = 0;
+        if (it == pc2id.end()) {
+          id = next_id;
+          next_id++;
+          pc2id[ent.first] = next_id;
+        } else {
+          id = it->second;
+        }
+
+        fprintf(simpoint_bb_file, ":%d:%d ", id, ent.second);
+      }
+      fprintf(simpoint_bb_file, "\n");
+      fflush(simpoint_bb_file);
+      bbv.clear();
+    }
+  }
+
+  static uint64_t last_pc    = 0;
+  if ((last_pc + 2) != pc && (last_pc + 4) != pc) {
+    bbv[last_pc] += ninst;
+    // fprintf(simpoint_bb_file,"xxxBB 0x%" PRIx64 " %d\n", pc, ninst);
+    ninst = 0;
+  }
+  last_pc = pc;
+
+  return 1;
+}
+#endif
 
 int iterate_core(RISCVMachine *m, int hartid)
 {
@@ -60,7 +136,6 @@ int iterate_core(RISCVMachine *m, int hartid)
     uint32_t insn_raw   = -1;
     (void) riscv_read_insn(cpu, &insn_raw, last_pc);
     int      keep_going = virt_machine_run(m, hartid);
-
     if (last_pc == virt_machine_get_pc(m, hartid))
         return 0;
 
@@ -102,6 +177,16 @@ int main(int argc, char **argv)
 #else
     RISCVMachine *m = virt_machine_main(argc, argv);
 
+#ifdef SIMPOINT_BB
+    if (m->common.simpoints.empty()) {
+      simpoint_bb_file = fopen("dromajo_simpoint.bb", "w");
+      if (simpoint_bb_file == nullptr) {
+        fprintf(dromajo_stderr, "\nerror: could not open dromajo_simpoint.bb for dumping trace\n");
+        exit(-3);
+      }
+    }
+#endif
+
 #ifdef LIVECACHE
     //m->llc = new LiveCache("LLC", 1024*1024*32); // 32MB LLC (should be ~2x larger than real)
     m->llc = new LiveCache("LLC", 1024*32); // Small 32KB for testing
@@ -115,6 +200,12 @@ int main(int argc, char **argv)
         keep_going = 0;
         for (int i = 0; i < m->ncpus; ++i)
             keep_going |= iterate_core(m, i);
+#ifdef SIMPOINT_BB
+        if (simpoint_roi) {
+          if (!simpoint_step(m, 0))
+            break;
+        }
+#endif
     } while (keep_going);
 
     for (int i = 0; i < m->ncpus; ++i) {
