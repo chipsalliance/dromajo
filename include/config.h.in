@@ -1,0 +1,1 @@
+#cmakedefine CONFIG_VERSION "@CONFIG_VERSION@"

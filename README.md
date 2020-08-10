@@ -21,7 +21,10 @@ take it to ISA 2.3/priv 1.11.
 ## Building
 
 ```
-make -C src
+mkdir build
+cd build
+cmake ..
+make
 ```
 
 The resulting artifacts are the `dromajo` simulator and the
@@ -38,7 +41,6 @@ will depend on that, but the `src/dromajo.c` utility allows for standalone
 simulation of RISC-V ELF binaries.
 
 ```
-cd src
 ./dromajo
 error: missing config file
 usage: ./dromajo [--load snapshot_name] [--save snapshot_name] [--maxinsns N] [--memory_size MB] config
