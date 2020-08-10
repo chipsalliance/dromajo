@@ -541,8 +541,8 @@ static BOOL net_poll_cb(void *arg) { return net_completed; }
 
 static void usage(const char *prog, const char *msg) {
     fprintf(dromajo_stderr,
-            "error: %s\n" CONFIG_VERSION
-            ", Copyright (c) 2016-2017 Fabrice Bellard,"
+            "error: %s\n"
+            "%s, Copyright (c) 2016-2017 Fabrice Bellard,"
             " Copyright (c) 2018,2019 Esperanto Technologies\n"
             "usage: %s {options} [config|elf-file]\n"
             "       --cmdline Kernel command line arguments to append\n"
@@ -566,6 +566,7 @@ static void usage(const char *prog, const char *msg) {
             "       --clint START:SIZE set CLINT start address and size (defaults to 0x%lx:0x%lx)\n"
             "       --custom_extension add X extension to isa\n",
             msg,
+            CONFIG_VERSION,
             prog,
             (long)BOOT_BASE_ADDR,
             (long)RAM_BASE_ADDR,

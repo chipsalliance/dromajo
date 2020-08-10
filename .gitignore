@@ -5,3 +5,4 @@ dromajo
 libdromajo_cosim.a
 *.swp
 tags
+build
