@@ -72,7 +72,7 @@
 #include "softfp.h"
 #endif
 
-#define __exception __attribute__((warn_unused_result))
+#define __must_use_result __attribute__((warn_unused_result))
 
 typedef uint64_t target_ulong;
 typedef int64_t  target_long;
