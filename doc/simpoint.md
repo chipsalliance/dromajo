@@ -59,7 +59,7 @@ Dromajo will generate a dromajo_simpoint.bb trace for your execution
 
 ```
 cd run
-../src/dromajo ./boot.cfg
+../build/dromajo ./boot.cfg
 ```
 
 The simpoint_size constant at dromajo.cpp sets the simpoint size. Make sure
@@ -109,7 +109,7 @@ checkpoints have the same size of simpoint_size.
 ```
 
 ```
-../src/dromajo --simpoint simpoints ./boot.cfg
+../build/dromajo --simpoint simpoints ./boot.cfg
 ```
 
 
@@ -120,7 +120,7 @@ Given the previous example and simpoint_size of 1M instructions, to create
 the sp01 (89 1 entry), run dromajo:
 
 ```
-../src/dromajo --save sp01 --maxinsn 89000000 ./boot.cfg
+../build/dromajo --save sp01 --maxinsn 89000000 ./boot.cfg
 ```
 
 Repeat the checkpoint creation for each simpoint, and they are ready.
@@ -140,7 +140,7 @@ the checkpoint and execute only for the simpoint_size selected (1M in this
 example).
 
 ```
-../src/dromajo --load sp01 --maxinsn 1000000 ./boot.cfg
+../build/dromajo --load sp01 --maxinsn 1000000 ./boot.cfg
 ```
 
 Congratulations, You run your first dromajo simpoint created checkpoint!

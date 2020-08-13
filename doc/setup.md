@@ -17,7 +17,7 @@ cd ..
 To run one of the benchmarks with trace enabled
 
 ```
-../src/dromajo --trace 0 riscv-tests-root/share/riscv-tests/isa/rv64ua-p-amoadd_d
+../build/dromajo --trace 0 riscv-tests-root/share/riscv-tests/isa/rv64ua-p-amoadd_d
 ```
 
 ## Linux with buildroot
@@ -70,13 +70,13 @@ cd ..
 cp buildroot-2020.05.1/output/images/rootfs.cpio .
 cp linux-5.8-rc4/arch/riscv/boot/Image .
 cp opensbi/build/platform/generic/firmware/fw_jump.bin .
-../src/dromajo boot.cfg
+../build/dromajo boot.cfg
 ```
 
 ### To boot a quad-core RISC-V CPU
 
 ```
-../src/dromajo --ncpus 4 boot.cfg
+../build/dromajo --ncpus 4 boot.cfg
 ```
 
 ### Create and run checkpoints
@@ -92,7 +92,7 @@ It allows to create Linux boot checkpoints. E.g:
 Run 1M instructions and create a checkpoint from a Linux+openSBI boot:
 
 ```
-../src/dromajo --save ck1 --maxinsn 2000000 ./boot.cfg
+../build/dromajo --save ck1 --maxinsn 2000000 ./boot.cfg
 
 OpenSBI v0.7-39-g7be75f5
    ____                    _____ ____ _____
@@ -130,7 +130,7 @@ The ck1.bootram is the new bootram needed to recover the state.
 To continue booting Linux:
 
 ```
-../src/dromajo --load ck1 ./boot.cfg
+../build/dromajo --load ck1 ./boot.cfg
 [    0.000000] OF: fdt: Ignoring memory range 0x80000000 - 0x80200000
 [    0.000000] Linux version 5.7.0-rc4 (anup@anup-ubuntu64) (gcc version 9.2.0 (GCC), GNU ld (GNU Binutils) 2.32) #1 SMP Fri May 8 10:04:14 IST 2020
 [    0.000000] earlycon: sbi0 at I/O port 0x0 (options '')
