@@ -245,7 +245,7 @@ PHYS_MEM_READ_WRITE(64, uint64_t)
 
 /* return 0 if OK, != 0 if exception */
 #define TARGET_READ_WRITE(size, uint_type, size_log2)                                                                       \
-    static inline __exception int target_read_u##size(RISCVCPUState *s, uint_type *pval, target_ulong addr) {               \
+    static inline __must_use_result int target_read_u##size(RISCVCPUState *s, uint_type *pval, target_ulong addr) {               \
         uint32_t tlb_idx;                                                                                                   \
         if (!CONFIG_ALLOW_MISALIGNED_ACCESS && (addr & (size / 8 - 1)) != 0) {                                              \
             s->pending_tval      = addr;                                                                                    \
@@ -268,7 +268,7 @@ PHYS_MEM_READ_WRITE(64, uint64_t)
         return 0;                                                                                                           \
     }                                                                                                                       \
                                                                                                                             \
-    static inline __exception int target_write_u##size(RISCVCPUState *s, target_ulong addr, uint_type val) {                \
+    static inline __must_use_result int target_write_u##size(RISCVCPUState *s, target_ulong addr, uint_type val) {                \
         uint32_t tlb_idx;                                                                                                   \
         if (!CONFIG_ALLOW_MISALIGNED_ACCESS && (addr & (size / 8 - 1)) != 0) {                                              \
             s->pending_tval      = addr;                                                                                    \
@@ -652,7 +652,7 @@ struct __attribute__((packed)) unaligned_u32 {
 static uint32_t get_insn32(uint8_t *ptr) { return ((struct unaligned_u32 *)ptr)->u32; }
 
 /* return 0 if OK, != 0 if exception */
-static no_inline __exception int target_read_insn_slow(RISCVCPUState *s, uint32_t *insn, int size, target_ulong addr) {
+static no_inline __must_use_result int target_read_insn_slow(RISCVCPUState *s, uint32_t *insn, int size, target_ulong addr) {
     int              tlb_idx;
     target_ulong     paddr;
     uint8_t *        ptr;
@@ -726,7 +726,7 @@ static no_inline __exception int target_read_insn_slow(RISCVCPUState *s, uint32_
 }
 
 /* addr must be aligned */
-static inline __exception int target_read_insn_u16(RISCVCPUState *s, uint16_t *pinsn, target_ulong addr) {
+static inline __must_use_result int target_read_insn_u16(RISCVCPUState *s, uint16_t *pinsn, target_ulong addr) {
     uintptr_t mem_addend;
     uint32_t  tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
 
@@ -1582,7 +1582,7 @@ static inline uint32_t get_pending_irq_mask(RISCVCPUState *s) {
     return pending_ints & enabled_ints;
 }
 
-static __exception int raise_interrupt(RISCVCPUState *s) {
+static int __must_use_result raise_interrupt(RISCVCPUState *s) {
     uint32_t mask;
     int      irq_num;
 
