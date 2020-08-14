@@ -78,7 +78,7 @@ set(CONFIG_VERSION "Dromajo-0.1")
 configure_file(include/config.h.in config.h @ONLY)
 
 # libdromajo_cosim
-add_library(libdromajo_cosim STATIC
+add_library(dromajo_cosim STATIC
         src/virtio.cpp
         src/pci.cpp
         src/fs.cpp
@@ -99,10 +99,10 @@ add_library(libdromajo_cosim STATIC
 
 # add librt for Linux
 if (${CMAKE_HOST_SYSTEM_NAME} MATCHES "Linux")
-    target_link_libraries(libdromajo_cosim rt)
+    target_link_libraries(dromajo_cosim rt)
 endif ()
 
 include_directories(include ${CMAKE_CURRENT_BINARY_DIR})
 
 add_executable(dromajo src/dromajo.cpp)
-target_link_libraries(dromajo libdromajo_cosim)
+target_link_libraries(dromajo dromajo_cosim)
