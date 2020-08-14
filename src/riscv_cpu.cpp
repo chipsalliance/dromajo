@@ -245,7 +245,7 @@ PHYS_MEM_READ_WRITE(64, uint64_t)
 
 /* return 0 if OK, != 0 if exception */
 #define TARGET_READ_WRITE(size, uint_type, size_log2)                                                                       \
-    static inline __must_use_result int target_read_u##size(RISCVCPUState *s, uint_type *pval, target_ulong addr) {               \
+    static inline __must_use_result int target_read_u##size(RISCVCPUState *s, uint_type *pval, target_ulong addr) {         \
         uint32_t tlb_idx;                                                                                                   \
         if (!CONFIG_ALLOW_MISALIGNED_ACCESS && (addr & (size / 8 - 1)) != 0) {                                              \
             s->pending_tval      = addr;                                                                                    \
@@ -268,7 +268,7 @@ PHYS_MEM_READ_WRITE(64, uint64_t)
         return 0;                                                                                                           \
     }                                                                                                                       \
                                                                                                                             \
-    static inline __must_use_result int target_write_u##size(RISCVCPUState *s, target_ulong addr, uint_type val) {                \
+    static inline __must_use_result int target_write_u##size(RISCVCPUState *s, target_ulong addr, uint_type val) {          \
         uint32_t tlb_idx;                                                                                                   \
         if (!CONFIG_ALLOW_MISALIGNED_ACCESS && (addr & (size / 8 - 1)) != 0) {                                              \
             s->pending_tval      = addr;                                                                                    \
