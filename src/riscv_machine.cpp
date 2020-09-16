@@ -875,24 +875,74 @@ static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_l
         }
 }
 
-static int load_bootrom(const char *bootrom_name, uint32_t *location) {
-    FILE *        fPtr;
-    unsigned long fLen;
+static int load_bootrom(RISCVMachine *s, const char *bootrom_name) {
+    uint8_t * ram_ptr  = get_ram_ptr(s, ROM_BASE_ADDR);
+    uint32_t *location = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
+    FILE *    f        = fopen(bootrom_name, "rb");
+    size_t    len      = fread((char *)location, 1, ~0U, f);
 
-    fPtr = fopen(bootrom_name, "rb");  // Open the file in binary mode
-    fseek(fPtr, 0, SEEK_END);          // Jump to the end of the file
-    fLen = ftell(fPtr);                // Get the current byte offset in the file
-    rewind(fPtr);                      // Jump back to the beginning of the file
-
-    size_t result = fread((char *)location, sizeof(uint8_t), fLen, fPtr);  // Read in the entire file
-    if (result != fLen) {
-        vm_error("DROMAJO failed reading the bootrom image\n");
+    if (len == 0) {
+        vm_error("DROMAJO failed reading the bootrom image %s\n", bootrom_name);
         return -1;
     }
 
-    fclose(fPtr);
+    fclose(f);
 
-    return fLen;
+    return len;
+}
+
+static int generate_bootrom(RISCVMachine *s) {
+    uint8_t * ram_ptr        = get_ram_ptr(s, ROM_BASE_ADDR);
+    uint32_t *q              = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
+    int32_t   bootromSzBytes = 0;
+
+    /*
+     * RISCVEMU upon which Dromajo is based used to generate the boot
+     * rom and existing clients have dependencies on the exact
+     * contents, so this is delicate.  Reliance on this is depricated
+     * and future client are encouraged to pass in the boot ram as an
+     * argument.
+     */
+
+    if (s->ram_base_addr != 0x0080000000 && s->ram_base_addr != 0x8000000000 && s->ram_base_addr != 0xC000000000) {
+        vm_error("Dromajo doesn't support BOOTROM generation for base address 0x%0" PRIx64
+                 " please provide a custom bootrom via the --bootrom option or the bootrom"
+                 " config parameter\n",
+                 s->ram_base_addr);
+        return -1;
+    }
+
+    // use the hardcoded bootrom
+    /* KEEP THIS IN SYNC WITH THE TARGET BOOTROM */
+    *q++ = 0xf1402573;  // start:  csrr   a0, mhartid
+    if (s->ncpus == 1) {
+        *q++ = 0x00050663;  //         beqz   a0, 1f
+        *q++ = 0x10500073;  // 0:      wfi
+        *q++ = 0xffdff06f;  //         j      0b
+    } else {
+        *q++ = 0x00000013;  // nop
+        *q++ = 0x00000013;  // nop
+        *q++ = 0x00000013;  // nop
+    }
+    *q++ = 0x00000597;  // 1:      auipc  a1, 0x0
+    *q++ = 0x0f058593;  //         addi   a1, a1, 240 # _start + 256
+    *q++ = 0x60300413;  //         li     s0, 1539
+    *q++ = 0x7b041073;  //         csrw   dcsr, s0
+    if (s->ram_base_addr == 0xC000000000) {
+        *q++ = 0x0030041b;  //         addiw  s0, zero, 3
+        *q++ = 0x02641413;  //         slli   s0, s0, 38
+    } else {
+        *q++ = 0x0010041b;  //         addiw  s0, zero, 1
+        if (s->ram_base_addr == 0x80000000)
+            *q++ = 0x01f41413;  //     slli s0, s0, 31
+        else
+            *q++ = 0x02741413;  //         slli   s0, s0, 39
+    }
+    *q++           = 0x7b141073;  //         csrw   dpc, s0
+    *q++           = 0x7b200073;  //         dret
+    bootromSzBytes = 13 * sizeof(uint32_t);
+
+    return bootromSzBytes;
 }
 
 /* Return non-zero on failure */
@@ -910,25 +960,18 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
     if (elf64_is_riscv64(fw_buf, fw_buf_len)) {
         // XXX if the ELF is given in the config file, then we don't get to set memory base based on that.
 
-        if (elf64_get_entrypoint(fw_buf) != s->ram_base_addr) {
+        uint64_t fw_entrypoint = elf64_get_entrypoint(fw_buf);
+        if (fw_entrypoint != s->ram_base_addr) {
             fprintf(dromajo_stderr,
                     "DROMAJO currently requires a 0x%" PRIx64 " starting address, image assumes 0x%0" PRIx64 "\n",
                     s->ram_base_addr,
-                    elf64_get_entrypoint(fw_buf));
+                    fw_entrypoint);
             return 1;
         }
 
         load_elf_image(s, fw_buf, fw_buf_len);
     } else
         memcpy(get_ram_ptr(s, s->ram_base_addr), fw_buf, fw_buf_len);
-
-    if (!(s->ram_base_addr == 0x80000000 || s->ram_base_addr == 0x8000000000 || s->ram_base_addr == 0xC000000000)) {
-        fprintf(dromajo_stderr,
-                "DROMAJO currently requires a 0x80000000 or 0x8000000000 or 0xC000000000"
-                " ram starting address, image assumes 0x%0" PRIx64 "\n",
-                elf64_get_entrypoint(fw_buf));
-        assert(0);
-    }
 
     // load kernel into ram
     if (kernel_buf && kernel_buf_len) {
@@ -955,47 +998,10 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
         memcpy(get_ram_ptr(s, initrd_start), initrd_buf, initrd_buf_len);
     }
 
-    // setup the bootrom
-    uint8_t * ram_ptr        = get_ram_ptr(s, ROM_BASE_ADDR);
-    uint32_t *q              = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
-    uint32_t  bootromSzBytes = 0;
+    int32_t bootromSzBytes = bootrom_name ? load_bootrom(s, bootrom_name) : generate_bootrom(s);
 
-    /* KEEP THIS IN SYNC WITH THE TARGET BOOTROM */
-    if (bootrom_name) {
-        // read in the bootrom from the file
-        bootromSzBytes = load_bootrom(bootrom_name, q);
-        if (bootromSzBytes < 0)
-            return 1;
-    } else {
-        // use the hardcoded bootrom
-        *q++ = 0xf1402573;  // start:  csrr   a0, mhartid
-        if (s->ncpus == 1) {
-            *q++ = 0x00050663;  //         beqz   a0, 1f
-            *q++ = 0x10500073;  // 0:      wfi
-            *q++ = 0xffdff06f;  //         j      0b
-        } else {
-            *q++ = 0x00000013;  // nop
-            *q++ = 0x00000013;  // nop
-            *q++ = 0x00000013;  // nop
-        }
-        *q++ = 0x00000597;  // 1:      auipc  a1, 0x0
-        *q++ = 0x0f058593;  //         addi   a1, a1, 240 # _start + 256
-        *q++ = 0x60300413;  //         li     s0, 1539
-        *q++ = 0x7b041073;  //         csrw   dcsr, s0
-        if (s->ram_base_addr == 0xC000000000) {
-            *q++ = 0x0030041b;  //         addiw  s0, zero, 3
-            *q++ = 0x02641413;  //         slli   s0, s0, 38
-        } else {
-            *q++ = 0x0010041b;  //         addiw  s0, zero, 1
-            if (s->ram_base_addr == 0x80000000)
-                *q++ = 0x01f41413;  //     slli s0, s0, 31
-            else
-                *q++ = 0x02741413;  //         slli   s0, s0, 39
-        }
-        *q++           = 0x7b141073;  //         csrw   dpc, s0
-        *q++           = 0x7b200073;  //         dret
-        bootromSzBytes = 13 * sizeof(uint32_t);
-    }
+    if (bootromSzBytes < 0)
+        return -1;
 
     // setup the dtb
     uint32_t fdt_off = (BOOT_BASE_ADDR - ROM_BASE_ADDR);
@@ -1004,6 +1010,7 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
     else
         fdt_off += 256;
 
+    uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
     if (riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line, initrd_start, initrd_end) < 0)
         return -1;
 
