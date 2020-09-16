@@ -601,8 +601,8 @@ static bool load_elf_and_fake_the_config(VirtMachineParams *p, const char *path)
 
 RISCVMachine *virt_machine_main(int argc, char **argv) {
     const char *prog                     = argv[0];
-    const char *snapshot_load_name       = 0;
-    const char *snapshot_save_name       = 0;
+    char *      snapshot_load_name       = 0;
+    char *      snapshot_save_name       = 0;
     const char *path                     = NULL;
     const char *cmdline                  = NULL;
     long        ncpus                    = 0;
@@ -612,8 +612,8 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     uint64_t    memory_addr_override     = 0;
     bool        ignore_sbi_shutdown      = false;
     bool        dump_memories            = false;
-    const char *bootrom_name             = 0;
-    const char *dtb_name                 = 0;
+    char *      bootrom_name             = 0;
+    char *      dtb_name                 = 0;
     bool        compact_bootrom          = false;
     uint64_t    reset_vector_override    = 0;
     uint64_t    mmio_start_override      = 0;

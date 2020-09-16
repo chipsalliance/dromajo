@@ -157,12 +157,12 @@ typedef struct {
     uint64_t maxinsns;
 
     /* snapshot load file */
-    const char *snapshot_load_name;
+    char *snapshot_load_name;
 
     /* bootrom params */
-    const char *bootrom_name;
-    const char *dtb_name;
-    bool        compact_bootrom;
+    char *bootrom_name;
+    char *dtb_name;
+    bool  compact_bootrom;
 
     /* reset vector used at startup */
     uint64_t reset_vector;
@@ -206,11 +206,11 @@ typedef struct VirtMachine {
     std::vector<Simpoint> simpoints;
 #endif
 
-    const char *snapshot_load_name;
-    const char *snapshot_save_name;
-    const char *terminate_event;
-    uint64_t    maxinsns;
-    uint64_t    trace;
+    char *   snapshot_load_name;
+    char *   snapshot_save_name;
+    char *   terminate_event;
+    uint64_t maxinsns;
+    uint64_t trace;
 
     /* For co-simulation only, they are -1 if nothing is pending. */
     bool cosim;
