@@ -104,7 +104,7 @@ enum {
 #define FEATURE_DLF_SIZE                   4
 #define FEATURE_LSR_STATUS_CLEAR           0  // Both RBR Read and LSR Read clears OE, PE, FE, and BI
 
-//#define DEBUG(fmt ...) fprintf(dromajo_stderr, fmt)
+//#define DEBUG(fmt ...) fprintf(stderr, fmt)
 #define DEBUG(fmt...) (void)0
 
 uint32_t dw_apb_uart_read(void *opaque, uint32_t offset, int size_log2) {
@@ -166,10 +166,12 @@ uint32_t dw_apb_uart_read(void *opaque, uint32_t offset, int size_log2) {
         default:;
     }
 
-    if (reg_names[offset / 4])
-        DEBUG("dw_apb_uart_read(0x%02x \"%s\") -> %d\n", offset, reg_names[offset / 4], res);
+    if (offset == 0x14)
+        ;  // Suppress the common read
+    else if (reg_names[offset / 4])
+        DEBUG("{<dw_apb_uart_read(0x%02x \"%s\") -> %d>}", offset, reg_names[offset / 4], res);
     else
-        DEBUG("dw_apb_uart_read(0x%02x, %d) -> %d\n", offset, size_log2, res);
+        DEBUG("{<dw_apb_uart_read(0x%02x, %d) -> %d>}", offset, size_log2, res);
 
     return res;
 }
@@ -181,20 +183,22 @@ void dw_apb_uart_write(void *opaque, uint32_t offset, uint32_t val, int size_log
 
     assert(offset % 4 == 0 && offset / 4 < 64);
 
-    if (reg_names[offset / 4] && size_log2 == 2)
-        DEBUG("dw_apb_uart_write(0x%02x \"%s\", %d)\n", offset, reg_names[offset / 4], val);
+    if (offset == 0)
+        ;  // Suppress the common write
+    else if (reg_names[offset / 4] && size_log2 == 2)
+        DEBUG("{<dw_apb_uart_write(0x%02x \"%s\", %d)>}", offset, reg_names[offset / 4], val);
     else
-        DEBUG("dw_apb_uart_write(0x%02x, %d, %d)\n", offset, val, size_log2);
+        DEBUG("{<dw_apb_uart_write(0x%02x, %d, %d)>}", offset, val, size_log2);
 
     switch (offset) {
         case uart_reg_rx_buf:  // 0x00
             if (s->lcr & (1 << 7)) {
                 s->div_latch = (s->div_latch & ~255) + val;
-                DEBUG("     div latch is now %d\n", s->div_latch);
+                DEBUG("{<div latch is now %d>}", s->div_latch);
             } else {
                 CharacterDevice *cs = s->cs;
                 unsigned char    ch = val;
-                DEBUG("   TRANSMIT '%c' (0x%02x)\n", val, val);
+                // DEBUG("{<   TRANSMIT '%c' (0x%02x)>}", val, val);
                 cs->write_data(cs->opaque, &ch, 1);
                 s->lsr &= ~(1 << 5);  // XXX Assumes non-fifo mode
                 s->lsr &= ~(1 << 6);
@@ -204,7 +208,7 @@ void dw_apb_uart_write(void *opaque, uint32_t offset, uint32_t val, int size_log
         case uart_reg_intren:  // 0x04
             if (s->lcr & (1 << 7)) {
                 s->div_latch = (s->div_latch & 255) + val * 256;
-                DEBUG("     div latch is now %d\n", s->div_latch);
+                DEBUG("{<     div latch is now %d>}", s->div_latch);
             } else {
                 s->ier = val & (FEATURE_THRE_MODE_USER ? 0xFF : 0x7F);
             }
@@ -215,21 +219,21 @@ void dw_apb_uart_write(void *opaque, uint32_t offset, uint32_t val, int size_log
             for (int i = 0; i < 8; ++i)
                 if (s->fcr & (1 << i))
                     switch (i) {
-                        case 0: DEBUG("    FIFO enable\n"); break;
-                        case 1: DEBUG("    receiver FIFO reset\n"); break;
-                        case 2: DEBUG("    transmitter FIFO reset\n"); break;
-                        case 3: DEBUG("    dma mode\n"); break;
-                        case 4: DEBUG("    transmitter empty trigger\n"); break;
-                        case 6: DEBUG("    receiver trigger\n"); break;
-                        default: DEBUG("    ?? bit %d isn't implemented\n", i); break;
+                        case 0: DEBUG("{<    FIFO enable>}"); break;
+                        case 1: DEBUG("{<    receiver FIFO reset>}"); break;
+                        case 2: DEBUG("{<    transmitter FIFO reset>}"); break;
+                        case 3: DEBUG("{<    dma mode>}"); break;
+                        case 4: DEBUG("{<    transmitter empty trigger>}"); break;
+                        case 6: DEBUG("{<    receiver trigger>}"); break;
+                        default: DEBUG("{<    ?? bit %d isn't implemented>}", i); break;
                     }
             break;
 
         case uart_reg_linecontrol:  // 0x0c
             s->lcr = val;
-            DEBUG("    %d bits per character\n", (val & 3) + 5);
+            DEBUG("{<    %d bits per character>}", (val & 3) + 5);
             break;
 
-        default:; DEBUG("    ignored write\n"); break;
+        default:; DEBUG("{<    ignored write>}"); break;
     }
 }

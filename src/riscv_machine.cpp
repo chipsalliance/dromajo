@@ -784,6 +784,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         {
             fdt_prop_str(s, "compatible", "ns16550");
             fdt_prop_tab_u64_2(s, "reg", DW_APB_UART0_BASE_ADDR, DW_APB_UART0_SIZE);
+            fdt_prop_u32(s, "clock-frequency", 3686400);  // Arbitrary, just to stop complaining
             fdt_prop_u32(s, "reg-shift", 2);
             fdt_prop_u32(s, "reg-io-width", 4);
             // No interrupts?
