@@ -32,7 +32,7 @@ to just build it. The libc library setup is muslc.
 wget https://github.com/buildroot/buildroot/archive/2020.05.1.tar.gz
 tar xvf 2020.05.1.tar.gz
 cp config-buildroot-2020.05.1 buildroot-2020.05.1/.config
-make -j16 -C buildroot-2020.05.1
+make -j$(nproc) -C buildroot-2020.05.1
 ```
 
 ### Get the Linux kernel up and running (~ 3 min)
