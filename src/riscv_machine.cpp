@@ -110,25 +110,25 @@ static void uart_update_irq(SiFiveUARTState *s) {
         cond = 1;
     }
     if (cond) {
-        fprintf(dromajo_stderr, "uart_update_irq: FIXME we should raise IRQ saying that there is new data\n");
+        vm_error("uart_update_irq: FIXME we should raise IRQ saying that there is new data\n");
     }
 }
 
 static uint32_t mmio_read(void *opaque, uint32_t offset, int size_log2) {
-    fprintf(dromajo_stderr, "mmio_read: offset=%x size_log2=%d\n", offset, size_log2);
+    vm_error("mmio_read: offset=%x size_log2=%d\n", offset, size_log2);
 
     return 0;
 }
 
 static void mmio_write(void *opaque, uint32_t offset, uint32_t val, int size_log2) {
-    fprintf(dromajo_stderr, "mmio_write: offset=%x size_log2=%d val=%x\n", offset, size_log2, val);
+    vm_error("mmio_write: offset=%x size_log2=%d val=%x\n", offset, size_log2, val);
 }
 
 static uint32_t uart_read(void *opaque, uint32_t offset, int size_log2) {
     SiFiveUARTState *s = (SiFiveUARTState *)opaque;
 
 #ifdef DUMP_UART
-    fprintf(dromajo_stderr, "uart_read: offset=%x size_log2=%d\n", offset, size_log2);
+    vm_error("uart_read: offset=%x size_log2=%d\n", offset, size_log2);
 #endif
     switch (offset) {
         case SIFIVE_UART_RXFIFO: {
@@ -137,7 +137,7 @@ static uint32_t uart_read(void *opaque, uint32_t offset, int size_log2) {
             int              ret = cs->read_data(cs->opaque, &r, 1);
             if (ret) {
 #ifdef DUMP_UART
-                fprintf(dromajo_stderr, "uart_read: val=%x\n", r);
+                vm_error("uart_read: val=%x\n", r);
 #endif
                 return r;
             }
@@ -151,7 +151,7 @@ static uint32_t uart_read(void *opaque, uint32_t offset, int size_log2) {
         case SIFIVE_UART_DIV: return s->div;
     }
 
-    fprintf(dromajo_stderr, "%s: bad read: offset=0x%x\n", __func__, (int)offset);
+    vm_error("%s: bad read: offset=0x%x\n", __func__, (int)offset);
     return 0;
 }
 
@@ -161,7 +161,7 @@ static void uart_write(void *opaque, uint32_t offset, uint32_t val, int size_log
     unsigned char    ch = val;
 
 #ifdef DUMP_UART
-    fprintf(dromajo_stderr, "uart_write: offset=%x val=%x size_log2=%d\n", offset, val, size_log2);
+    vm_error("uart_write: offset=%x val=%x size_log2=%d\n", offset, val, size_log2);
 #endif
 
     switch (offset) {
@@ -175,7 +175,7 @@ static void uart_write(void *opaque, uint32_t offset, uint32_t val, int size_log
         case SIFIVE_UART_DIV: s->div = val; return;
     }
 
-    fprintf(dromajo_stderr, "%s: bad write: addr=0x%x v=0x%x\n", __func__, (int)offset, (int)val);
+    vm_error("%s: bad write: addr=0x%x v=0x%x\n", __func__, (int)offset, (int)val);
 }
 
 /* CLINT registers
@@ -196,7 +196,7 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2) {
     if (0 <= offset && offset < 0x4000) {
         int hartid = offset >> 2;
         if (m->ncpus <= hartid) {
-            fprintf(stderr, "%s: MSIP access for hartid:%d which is beyond ncpus\n", __func__, hartid);
+            vm_error("%s: MSIP access for hartid:%d which is beyond ncpus\n", __func__, hartid);
             val = 0;
         } else {
             val = (riscv_cpu_get_mip(m->cpu_state[hartid]) & MIP_MSIP) != 0;
@@ -210,7 +210,7 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2) {
     } else if (0x4000 <= offset && offset < 0xbff8) {
         int hartid = (offset - 0x4000) >> 3;
         if (m->ncpus <= hartid) {
-            fprintf(stderr, "%s: MSIP access for hartid:%d which is beyond ncpus\n", __func__, hartid);
+            vm_error("%s: MSIP access for hartid:%d which is beyond ncpus\n", __func__, hartid);
             val = 0;
         } else if ((offset >> 2) & 1) {
             val = m->cpu_state[hartid]->timecmp >> 32;
@@ -218,12 +218,12 @@ static uint32_t clint_read(void *opaque, uint32_t offset, int size_log2) {
             val = m->cpu_state[hartid]->timecmp;
         }
     } else {
-        fprintf(stderr, "clint_read to unmanaged address CLINT_BASE+0x%x\n", offset);
+        vm_error("clint_read to unmanaged address CLINT_BASE+0x%x\n", offset);
         val = 0;
     }
 
 #ifdef DUMP_CLINT
-    fprintf(dromajo_stderr, "clint_read: offset=%x val=%x\n", offset, val);
+    vm_error("clint_read: offset=%x val=%x\n", offset, val);
 #endif
 
     switch (size_log2) {
@@ -249,7 +249,7 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val, int size_lo
     if (0 <= offset && offset < 0x4000) {
         int hartid = offset >> 2;
         if (m->ncpus <= hartid) {
-            fprintf(stderr, "%s: MSIP access for hartid:%d which is beyond ncpus\n", __func__, hartid);
+            vm_error("%s: MSIP access for hartid:%d which is beyond ncpus\n", __func__, hartid);
         } else if (val & 1)
             riscv_cpu_set_mip(m->cpu_state[hartid], MIP_MSIP);
         else
@@ -265,7 +265,7 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val, int size_lo
     } else if (0x4000 <= offset && offset < 0xbff8) {
         int hartid = (offset - 0x4000) >> 3;
         if (m->ncpus <= hartid) {
-            fprintf(stderr, "%s: MSIP access for hartid:%d which is beyond ncpus\n", __func__, hartid);
+            vm_error("%s: MSIP access for hartid:%d which is beyond ncpus\n", __func__, hartid);
         } else if ((offset >> 2) & 1) {
             m->cpu_state[hartid]->timecmp = (m->cpu_state[hartid]->timecmp & 0xffffffff) | ((uint64_t)val << 32);
             riscv_cpu_reset_mip(m->cpu_state[hartid], MIP_MTIP);
@@ -274,12 +274,12 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val, int size_lo
             riscv_cpu_reset_mip(m->cpu_state[hartid], MIP_MTIP);
         }
     } else {
-        fprintf(stderr, "clint_write to unmanaged address CLINT_BASE+0x%x\n", offset);
+        vm_error("clint_write to unmanaged address CLINT_BASE+0x%x\n", offset);
         val = 0;
     }
 
 #ifdef DUMP_CLINT
-    fprintf(dromajo_stderr, "clint_write: offset=%x val=%x\n", offset, val);
+    vm_error("clint_write: offset=%x val=%x\n", offset, val);
 #endif
 }
 
@@ -336,11 +336,11 @@ static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2) {
             }
         }
     } else {
-        fprintf(stderr, "plic_read: unknown offset=%x\n", offset);
+        vm_error("plic_read: unknown offset=%x\n", offset);
         val = 0;
     }
 #ifdef DUMP_PLIC
-    fprintf(dromajo_stderr, "plic_read: offset=%x val=%x\n", offset, val);
+    vm_error("plic_read: offset=%x val=%x\n", offset, val);
 #endif
 
     return val;
@@ -356,7 +356,7 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
         plic_priority[irq] = val & 7;
 
     } else if (PLIC_PENDING_BASE <= offset && offset < PLIC_PENDING_BASE + (PLIC_NUM_SOURCES >> 3)) {
-        fprintf(stderr, "plic_write: INVALID pending write to offset=0x%x\n", offset);
+        vm_error("plic_write: INVALID pending write to offset=0x%x\n", offset);
     } else if (PLIC_ENABLE_BASE <= offset && offset < PLIC_ENABLE_BASE + PLIC_ENABLE_STRIDE * MAX_CPUS) {
         int addrid = (offset - PLIC_ENABLE_BASE) / PLIC_ENABLE_STRIDE;
         int hartid = addrid / 2;  // PLIC_HART_CONFIG is "MS"
@@ -372,17 +372,17 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
             plic_priority[wordid] = val;
         } else if (wordid == 4) {
             int irq = val & 31;
-            fprintf(stderr, "plic_write: hartid=%d claim wordid=%d offset=%x val=%x irq=%d\n", hartid, wordid, offset, val, irq);
+            vm_error("plic_write: hartid=%d claim wordid=%d offset=%x val=%x irq=%d\n", hartid, wordid, offset, val, irq);
             uint32_t mask = 1 << (irq - 1);
             s->plic_served_irq &= ~mask;
         } else {
-            fprintf(stderr, "plic_write: hartid=%d ERROR?? unexpected wordid=%d offset=%x val=%x\n", hartid, wordid, offset, val);
+            vm_error("plic_write: hartid=%d ERROR?? unexpected wordid=%d offset=%x val=%x\n", hartid, wordid, offset, val);
         }
     } else {
-        fprintf(stderr, "plic_write: ERROR: unexpected offset=%x val=%x\n", offset, val);
+        vm_error("plic_write: ERROR: unexpected offset=%x val=%x\n", offset, val);
     }
 #ifdef DUMP_PLIC
-    fprintf(dromajo_stderr, "plic_write: offset=%x val=%x\n", offset, val);
+    vm_error("plic_write: offset=%x val=%x\n", offset, val);
 #endif
 }
 
@@ -829,7 +829,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 
         size_t result = fread((char *)dst, sizeof(uint8_t), fLen, fPtr);  // Read in the entire file
         if (result != fLen) {
-            fprintf(dromajo_stderr, "DROMAJO failed reading the dts string\n");
+            vm_error("DROMAJO failed reading the dts string\n");
             return -1;
         }
 
@@ -847,7 +847,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
     {
         FILE *f = fopen("dromajo.dtb", "wb");
         if (f == nullptr) {
-            fprintf(dromajo_stderr, "DROMAJO failed to open dromajo.dtb dump file (disable DUMP_DTB?)\n");
+            vm_error("DROMAJO failed to open dromajo.dtb dump file (disable DUMP_DTB?)\n");
             return -1;
         }
         fwrite(dst, 1, size, f);
@@ -886,15 +886,11 @@ static int load_bootrom(const char *bootrom_name, uint32_t *location) {
 
     size_t result = fread((char *)location, sizeof(uint8_t), fLen, fPtr);  // Read in the entire file
     if (result != fLen) {
-        fprintf(dromajo_stderr, "DROMAJO failed reading the bootrom image\n");
+        vm_error("DROMAJO failed reading the bootrom image\n");
         return -1;
     }
 
-    // DEBUG
-    // for (unsigned long i = 0; i < (fLen/sizeof(uint32_t)); ++i)
-    //    printf("[DEBUG][%p][%ld/%ld] == 0x%x\n", &location[i], i, fLen/sizeof(uint32_t), location[i]);
-
-    fclose(fPtr);  // Close the file
+    fclose(fPtr);
 
     return fLen;
 }
@@ -1067,8 +1063,8 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     s->clint_size      = p->clint_size;
 
     if (MAX_CPUS < s->ncpus) {
-        fprintf(stderr, "ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
-        exit(3);
+        vm_error("ERROR: ncpus:%d exceeds maximum MAX_CPU\n", s->ncpus);
+        return NULL;
     }
 
     for (int i = 0; i < s->ncpus; ++i) {
@@ -1196,7 +1192,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
             s->virtio_count++;
         } else {
             vm_error("unsupported input device: %s\n", p->input_device);
-            exit(1);
+            return NULL;
         }
     }
 
@@ -1235,8 +1231,8 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     if (p->dump_memories) {
         FILE *fd = fopen("BootRAM.hex", "w+");
         if (fd == 0) {
-            fprintf(stderr, "ERROR: could not create BootRAM.hex\n");
-            exit(-3);
+            vm_error("ERROR: could not create BootRAM.hex\n");
+            return NULL;
         }
 
         uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
@@ -1269,7 +1265,7 @@ void virt_machine_end(RISCVMachine *s) {
 void virt_machine_serialize(RISCVMachine *m, const char *dump_name) {
     RISCVCPUState *s = m->cpu_state[0];  // FIXME: MULTICORE
 
-    fprintf(dromajo_stderr, "plic: %x %x timecmp=%llx\n", m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
+    vm_error("plic: %x %x timecmp=%llx\n", m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
 
     assert(m->ncpus == 1);  // FIXME: riscv_cpu_serialize must be patched for multicore
     riscv_cpu_serialize(s, dump_name, m->clint_base_addr);
