@@ -696,6 +696,15 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
                 if (maxinsns)
                     usage(prog, "already had a max instructions");
                 maxinsns = (uint64_t)atoll(optarg);
+                {
+                    char last = optarg[strlen(optarg) - 1];
+                    if (last == 'k' || last == 'K')
+                        maxinsns *= 1000;
+                    else if (last == 'm' || last == 'M')
+                        maxinsns *= 1000000;
+                    else if (last == 'g' || last == 'G')
+                        maxinsns *= 1000000000;
+                }
                 break;
 
             case 't':
