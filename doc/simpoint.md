@@ -153,6 +153,7 @@ omitting clock ticks for idle CPUs, but it still has a timer interrupt when 1 si
 For benchmarking (or HPC), it is common to disable the timer interrupt also if there is only one running thread.
 This can be done by changing the "Timer subsystem" options in the linux configuration. For Linux kernel 5.7:
 
+```
 #
 # Timers subsystem
 #
@@ -166,6 +167,7 @@ CONFIG_CONTEXT_TRACKING=y
 # CONFIG_NO_HZ is not set
 CONFIG_HIGH_RES_TIMERS=y
 # end of Timers subsystem
+```
 
 
 ## Locate the most different simpoints
