@@ -126,7 +126,7 @@ struct RISCVMachine {
 #define FRAMEBUFFER_BASE_ADDR 0x41000000
 
 // sifive,uart, same as qemu UART0 (qemu has 2 sifive uarts)
-#ifndef ARIANE_UART
+#ifdef ARIANE_UART
 #define UART0_BASE_ADDR 0x10000000
 #define UART0_SIZE      0x1000
 #else
