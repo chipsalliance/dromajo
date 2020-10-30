@@ -45,7 +45,6 @@ option(TRACEOS "TRACEOS" OFF)
 option(SIMPOINT "SIMPOINT" OFF)
 
 add_compile_options(
-        -Ofast
         -std=c++11
         -Wall
         -Wno-parentheses
@@ -55,6 +54,8 @@ add_compile_options(
         -D_GNU_SOURCE
         -D__STDC_FORMAT_MACROS
 )
+
+add_compile_options($<$<CONFIG:Release>:-Ofast>)
 
 if (TRACEOS)
     message(STATUS "TRACEOS is on.")

@@ -20,6 +20,17 @@ To run one of the benchmarks with trace enabled
 ../build/dromajo --trace 0 riscv-tests-root/share/riscv-tests/isa/rv64ua-p-amoadd_d
 ```
 
+## Small baremetal program
+
+This is a small sample stand-alone program that can be used as a starting point
+for other projects.
+
+```
+cd <dromajo>/run
+riscv64-unknown-elf-gcc -march=rv64g -mabi=lp64 -static -mcmodel=medany -nostdlib -nostartfiles uart_test.c crt.S -lgcc -T test.ld -o uart_test
+../build/dromajo ./uart_test
+```
+
 ## Linux with buildroot
 
 ### Get a trivial buildroot (~ 23 min)

@@ -23,7 +23,10 @@ take it to ISA 2.3/priv 1.11.
 ```
 mkdir build
 cd build
+# Debug build
 cmake ..
+# Release build Ofast compile option
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make
 ```
 
