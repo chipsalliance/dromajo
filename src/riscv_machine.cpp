@@ -879,10 +879,10 @@ static int load_bootrom(RISCVMachine *s, const char *bootrom_name) {
     uint8_t * ram_ptr  = get_ram_ptr(s, ROM_BASE_ADDR);
     uint32_t *location = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
     FILE *    f        = fopen(bootrom_name, "rb");
-    size_t    len      = fread((char *)location, 1, ~0U, f);
+    size_t    len      = f && fread((char *)location, 1, ~0U, f);
 
     if (len == 0) {
-        vm_error("DROMAJO failed reading the bootrom image %s\n", bootrom_name);
+        vm_error("dromajo: %s: %s\n", bootrom_name, strerror(errno));
         return -1;
     }
 
