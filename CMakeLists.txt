@@ -98,12 +98,21 @@ add_library(dromajo_cosim STATIC
         src/riscv_cpu.cpp
         )
 
+add_library(gold STATIC
+        gold/Gold_core.cpp
+        gold/Gold_data.cpp
+        gold/lrand.cpp
+        gold/bridge_dromajo.cpp
+        )
+
 # add librt for Linux
 if (${CMAKE_HOST_SYSTEM_NAME} MATCHES "Linux")
     target_link_libraries(dromajo_cosim rt)
 endif ()
 
-include_directories(include ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(include gold ${CMAKE_CURRENT_BINARY_DIR})
 
 add_executable(dromajo src/dromajo.cpp)
-target_link_libraries(dromajo dromajo_cosim)
+add_executable(dromajo_cosim_test src/dromajo_cosim_test.cpp)
+target_link_libraries(dromajo dromajo_cosim gold)
+target_link_libraries(dromajo_cosim_test dromajo_cosim gold)

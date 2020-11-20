@@ -27,6 +27,13 @@
 #include "iomem.h"
 #include "riscv_machine.h"
 
+#define GOLDMEM_INORDER
+#ifdef GOLDMEM_INORDER
+void check_dromajo_load(int cid, uint64_t addr, uint8_t sz, uint64_t data, bool io_map);
+void check_dromajo_store(int cid, uint64_t addr, uint8_t sz, uint64_t data, bool io_map);
+void check_dromajo_init(int ncores);
+#endif
+
 /*
  * dromajo_cosim_init --
  *
@@ -39,6 +46,9 @@ dromajo_cosim_state_t *dromajo_cosim_init(int argc, char *argv[]) {
 #ifdef LIVECACHE
     // m->llc = new LiveCache("LLC", 1024*1024*32); // 32MB LLC (should be ~2x larger than real)
     m->llc = new LiveCache("LLC", 1024 * 32);  // Small 32KB for testing
+#endif
+#ifdef GOLDMEM_INORDER
+    check_dromajo_init(m->ncpus);
 #endif
 
     m->common.cosim             = true;
@@ -295,6 +305,46 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
         r->common.pending_interrupt = -1;
         r->common.pending_exception = -1;
     }
+
+#ifdef GOLDMEM_INORDER
+    bool do_ld  = (dut_insn & 0x7F) == 0x03 || (dut_insn & 0x7F) == 0x07;
+    bool do_ist = (dut_insn & 0x7F) == 0x23;
+    bool do_fst = (dut_insn & 0x7F) == 0x27;
+    bool do_amo = (dut_insn & 0x7F) == 0x2F;
+    if (do_fst || do_ist || do_ld || do_amo) {
+      uint8_t func3 = (dut_insn>>12) & 0x7;
+      int sz = 0;
+      switch(func3) {
+        case 0: sz=1; break;
+        case 1: sz=2; break;
+        case 2: sz=4; break;
+        case 3: sz=8; break;
+        case 4: sz=1; break;
+        case 5: sz=2; break;
+        case 6: sz=4; break;
+        default: sz= 0;
+      }
+
+      uint64_t paddr  = s->last_data_paddr;
+      PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
+      bool io_map = !pr || !pr->is_ram;
+      if (do_ld) {
+        check_dromajo_load(hartid, paddr, sz, dut_wdata, io_map);
+      }else if (do_ist || do_fst) {
+        uint64_t data=0;
+        uint8_t  rs2    = (dut_insn >> 20) & 0x1f;
+        if (do_ist) {
+          data = riscv_get_reg(s, rs2);
+        }else{
+          data = riscv_get_fpreg(s, rs2);
+        }
+        check_dromajo_store(hartid, paddr, sz, data, io_map);
+      }else{
+        fprintf(dromajo_stderr, "FIXME: amo with goldmem\n");
+        exit(-3);
+      }
+    }
+#endif
 
     if (check)
         handle_dut_overrides(s, r->mmio_start, r->mmio_end, emu_priv, emu_pc, emu_insn, emu_wdata, dut_wdata);

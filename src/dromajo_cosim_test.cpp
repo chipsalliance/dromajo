@@ -40,6 +40,9 @@ int main(int argc, char *argv[]) {
     bool  cosim     = false;
     int   exit_code = EXIT_SUCCESS;
 
+    dromajo_stdout = stdout;
+    dromajo_stderr = stderr;
+
     if (argc < 3)
         usage(progname);
 
@@ -75,19 +78,23 @@ int main(int argc, char *argv[]) {
         uint64_t insn_addr, wdata;
         uint32_t insn, rd;
         int      priv;
+        int      hartid;
 
         if (!fgets(buf, sizeof buf, f))
             break;
 
-        int got = sscanf(buf, "%d 0x%lx (0x%x) x%d 0x%lx", &priv, &insn_addr, &insn, &rd, &wdata);
+        rd = 0;
+        wdata = 0;
+        char x_or_f_reg;
+        int got = sscanf(buf, "%d %d %lx (0x%x) %c%d 0x%lx", &hartid, &priv, &insn_addr, &insn, &x_or_f_reg, &rd, &wdata);
 
         switch (got) {
-            case 3:
-                fprintf(dromajo_stdout, "%d %016lx %08x                           DASM(%08x)\n", priv, insn_addr, insn, insn);
+            case 4:
+                fprintf(dromajo_stdout, "%d %d %016lx %08x                           DASM(%08x)\n", hartid, priv, insn_addr, insn, insn);
                 break;
 
-            case 5:
-                fprintf(dromajo_stdout, "%d %016lx %08x [x%-2d <- %016lx] DASM(%08x)\n", priv, insn_addr, insn, rd, wdata, insn);
+            case 7:
+                fprintf(dromajo_stdout, "%d %d %016lx %08x [x%-2d <- %016lx] DASM(%08x)\n", hartid, priv, insn_addr, insn, rd, wdata, insn);
                 break;
 
             default: fprintf(dromajo_stderr, "%s:%d: couldn't parse %s\n", trace_name, lineno, buf); goto fail;
@@ -97,8 +104,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (cosim) {
-            int hartid = 0;  // FIXME: MULTICORE cosim. Must get hartid from commit
-            int r      = dromajo_cosim_step(s, hartid, insn_addr, insn, wdata, 0, 0, 0, 0, true);
+            int r      = dromajo_cosim_step(s, hartid, insn_addr, insn, wdata, 0, true);
             if (r) {
                 fprintf(dromajo_stdout, "Exited with %08x\n", r);
                 goto fail;
@@ -107,7 +113,8 @@ int main(int argc, char *argv[]) {
     }
 
 done:
-    dromajo_cosim_fini(s);
+    if (cosim)
+      dromajo_cosim_fini(s);
 
     if (exit_code == EXIT_SUCCESS)
         fprintf(dromajo_stdout, "\nSUCCESS, PASSED, GOOD!\n");
