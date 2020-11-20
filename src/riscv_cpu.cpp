@@ -151,12 +151,19 @@ static inline void track_write(RISCVCPUState *s, uint64_t vaddr, uint64_t paddr,
 #ifdef LIVECACHE
     s->machine->llc->write(paddr);
 #endif
+    // printf("track.st[%llx:%llx]=%llx\n", paddr, paddr+size-1, data);
+    s->last_data_paddr = paddr;
+#ifdef GOLDMEM_INORDER
+    s->last_data_value = data;
+#endif
 }
 
 static inline uint64_t track_dread(RISCVCPUState *s, uint64_t vaddr, uint64_t paddr, uint64_t data, int size) {
 #ifdef LIVECACHE
     s->machine->llc->read(paddr);
 #endif
+    s->last_data_paddr = paddr;
+    // printf("track.ld[%llx:%llx]=%llx\n", paddr, paddr+size-1, data);
 
     return data;
 }

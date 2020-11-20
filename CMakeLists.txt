@@ -43,6 +43,9 @@ set(CMAKE_CXX_STANDARD 11)
 project(dromajo)
 option(TRACEOS "TRACEOS" OFF)
 option(SIMPOINT "SIMPOINT" OFF)
+option(GOLDMEM "GOLDMEM" OFF)
+
+#set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 add_compile_options(
         -std=c++11
@@ -78,6 +81,22 @@ endif ()
 set(CONFIG_VERSION "Dromajo-0.1")
 configure_file(include/config.h.in config.h @ONLY)
 
+if (GOLDMEM)
+    message(STATUS "GOLDMEM is on.")
+    add_compile_options( -DGOLDMEM)
+    add_compile_options( -DGOLDMEM_INORDER)  # This is to debug the flow without RTL
+    add_library(gold STATIC
+            gold/Gold_core.cpp
+            gold/Gold_data.cpp
+            gold/Gold_notify.cpp
+            gold/lrand.cpp
+            gold/bridge_inorder.cpp
+            external/fmt/format.cc
+            external/fmt/os.cc
+            )
+    include_directories(gold)
+endif ()
+
 # libdromajo_cosim
 add_library(dromajo_cosim STATIC
         src/virtio.cpp
@@ -98,12 +117,24 @@ add_library(dromajo_cosim STATIC
         src/riscv_cpu.cpp
         )
 
-# add librt for Linux
-if (${CMAKE_HOST_SYSTEM_NAME} MATCHES "Linux")
+add_executable(dromajo src/dromajo.cpp)
+add_executable(dromajo_cosim_test src/dromajo_cosim_test.cpp)
+
+include_directories(include external ${CMAKE_CURRENT_BINARY_DIR})
+
+if (GOLDMEM)
+  target_link_libraries(dromajo dromajo_cosim gold)
+  target_link_libraries(dromajo_cosim_test dromajo_cosim gold)
+else ()
+  target_link_libraries(dromajo dromajo_cosim)
+  target_link_libraries(dromajo_cosim_test dromajo_cosim)
+endif ()
+
+if (${CMAKE_HOST_APPLE})
+    include_directories(/usr/local/include /usr/local/include/libelf)
+    target_link_libraries(dromajo_cosim -L/usr/local/lib -lelf)
+else ()
+    # add librt for Linux
     target_link_libraries(dromajo_cosim rt)
 endif ()
 
-include_directories(include ${CMAKE_CURRENT_BINARY_DIR})
-
-add_executable(dromajo src/dromajo.cpp)
-target_link_libraries(dromajo dromajo_cosim)

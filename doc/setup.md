@@ -1,8 +1,19 @@
 # Example things on run on Dromajo
 
+For more details on how to run cosim [docs/cosim.md]. For more details on the experimental goldmem model [docs/goldmem.md].
+
+## Build dromajo with debug (slower)
+
+```
+mkdir build_trace
+cd build_trace
+cmake -DCMAKE_BUILD_TYPE=Debug ../
+make -j
+```
+
 ## Bare-metal riscv-tests (~ 2 min)
 
-Assumption: you have the `riscv64-unknown-elf-` (Newlib) toolchain.
+Assumption: you have the `riscv64-unknown-elf-` (Newlib) toolchain. If you do not have this, use RISCV_PREFIX as needed. E.g: `export RISCV_PREFIX=riscv64-elf-` 
 
 ```
 git clone --recursive https://github.com/riscv/riscv-tests
