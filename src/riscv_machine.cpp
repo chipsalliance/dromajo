@@ -1051,6 +1051,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     s->common.maxinsns                = p->maxinsns;
     s->common.snapshot_load_name      = p->snapshot_load_name;
 
+    s->common.is_snapshot_elf         = p->is_snapshot_elf; // elf-support
     s->ncpus = p->ncpus;
 
     /* setup reset vector for core
@@ -1278,11 +1279,12 @@ void virt_machine_serialize(RISCVMachine *m, const char *dump_name) {
     riscv_cpu_serialize(s, dump_name, m->clint_base_addr);
 }
 
-void virt_machine_deserialize(RISCVMachine *m, const char *dump_name) {
+// adding elf-support is_elf is true when reading elf file
+void virt_machine_deserialize(RISCVMachine *m, const char *dump_name, bool is_elf){
     RISCVCPUState *s = m->cpu_state[0];  // FIXME: MULTICORE
 
     assert(m->ncpus == 1);  // FIXME: riscv_cpu_serialize must be patched for multicore
-    riscv_cpu_deserialize(s, dump_name);
+    riscv_cpu_deserialize(s, dump_name, is_elf);
 }
 
 int virt_machine_get_sleep_duration(RISCVMachine *m, int hartid, int ms_delay) {

@@ -603,6 +603,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     const char *prog                     = argv[0];
     char *      snapshot_load_name       = 0;
     char *      snapshot_save_name       = 0;
+    char * 	snapshot_load_name_elf   = 0;  // elf-support
     const char *path                     = NULL;
     const char *cmdline                  = NULL;
     long        ncpus                    = 0;
@@ -638,6 +639,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             {"ncpus",                   required_argument, 0,  'n' }, // CFG
             {"load",                    required_argument, 0,  'l' },
             {"save",                    required_argument, 0,  's' },
+            {"loadelf",                 required_argument, 0,  'e' }, //elf-support
             {"simpoint",                required_argument, 0,  'S' },
             {"maxinsns",                required_argument, 0,  'm' }, // CFG
             {"trace   ",                required_argument, 0,  't' },
@@ -677,6 +679,12 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             case 'l':
                 if (snapshot_load_name)
                     usage(prog, "already had a snapshot to load");
+                snapshot_load_name = strdup(optarg);
+                break;
+
+            case 'e':   // elf-support
+                if (snapshot_load_name_elf)
+                    usage(prog, "already had a snapshot to load elf");
                 snapshot_load_name = strdup(optarg);
                 break;
 
@@ -1023,7 +1031,8 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
         s->common.net->device_set_carrier(s->common.net, TRUE);
 
     if (s->common.snapshot_load_name)
-        virt_machine_deserialize(s, s->common.snapshot_load_name);
+        virt_machine_deserialize(s, s->common.snapshot_load_name, 
+                                    s->common.is_snapshot_elf); // elf-support
 
     return s;
 }

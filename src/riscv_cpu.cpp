@@ -48,11 +48,20 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <elfio/elfio.hpp> // elf-support ELFIO library
+
 #include "LiveCacheCore.h"
 #include "cutils.h"
 #include "dromajo.h"
 #include "iomem.h"
 #include "riscv_machine.h"
+
+using namespace ELFIO; // elf-support 
+static void create_bootrom_elf_file(const void *base, int size, const char *dump_name);
+
+#define ELF_SEC_DATA    1  // Data used for mainram
+#define ELF_SEC_EXEC    2  // Executable used for bootrom
+#define ELF_MAX_RAM_SIZE   0x100000 // Issue seen when using 0x40000000
 
 // NOTE: Use GET_INSN_COUNTER not mcycle because this is just to track advancement of simulation
 #define write_reg(x, val)                         \
@@ -85,6 +94,14 @@
 
 // PMPADDR CSRs only have 38-bits
 #define PMPADDR_MASK 0x3fffffffff
+
+// elf-support for passing mainram, bootrom ptrs 
+typedef struct {
+    char *mainram_ptr;
+    int  mainram_size;
+    char *bootrom_ptr;
+    int  bootrom_size;
+} MainRamBootRomState;
 
 #ifdef CONFIG_LOGFILE
 static FILE *log_file;
@@ -1928,7 +1945,8 @@ static void create_hang_nonzero_hart(uint32_t *rom, uint32_t *code_pos, uint32_t
                                       // 1:
 }
 
-static void create_boot_rom(RISCVCPUState *s, const char *file, const uint64_t clint_base_addr) {
+// elf-support - passing rom_ptr 
+static void create_boot_rom(RISCVCPUState *s, const char *file, const uint64_t clint_base_addr, void **rom_ptr) {
     uint32_t rom[ROM_SIZE / 4];
     memset(rom, 0, sizeof rom);
 
@@ -2081,7 +2099,153 @@ static void create_boot_rom(RISCVCPUState *s, const char *file, const uint64_t c
     }
 
     serialize_memory(rom, ROM_SIZE, file);
+    *rom_ptr = (void *)rom; // elf-support
 }
+
+// creates a single elf file with mainram and bootrom data
+static void create_mainram_bootrom_elf_file(const char *dump_name,
+                              MainRamBootRomState *elf_state)
+{
+        size_t n         = strlen(dump_name) + 64;
+        char *f_name = (char *) alloca(n);
+        snprintf(f_name, n, "%s-elf", dump_name);
+
+        elfio writer;
+        int mainram_size = 0;
+
+        writer.create(ELFCLASS64, ELFDATA2LSB);
+        writer.set_os_abi( ELFOSABI_LINUX);
+        writer.set_type(ET_EXEC);
+        writer.set_machine( EM_RISCV);
+
+        /* bootrom text section */
+        section *text_sec = writer.sections.add(".text");
+        text_sec->set_type( SHT_PROGBITS);
+        text_sec->set_flags( SHF_ALLOC | SHF_EXECINSTR);
+
+        text_sec->set_addr_align (0x10);
+        text_sec->set_data ( (const char *)elf_state->bootrom_ptr,
+                                           elf_state->bootrom_size);
+
+        segment* text_seg = writer.segments.add();
+        text_seg->set_type (PT_LOAD);
+        text_seg->set_virtual_address(BOOT_BASE_ADDR);
+        text_seg->set_physical_address(BOOT_BASE_ADDR);
+        text_seg->set_flags (PF_X | PF_R);
+        text_seg->set_align( 0x1000);
+
+        text_seg->add_section_index( text_sec->get_index(),
+                                     text_sec->get_addr_align());
+
+        /* mainram data section */
+        section *data_sec = writer.sections.add(".data");
+        data_sec->set_type( SHT_PROGBITS);
+        data_sec->set_flags( SHF_ALLOC | SHF_WRITE);
+        data_sec->set_addr_align (0x4);
+
+        if (elf_state->mainram_size > ELF_MAX_RAM_SIZE)
+           mainram_size = ELF_MAX_RAM_SIZE;
+        else
+           mainram_size = elf_state->mainram_size;
+
+        data_sec->set_data ( (const char *)elf_state->mainram_ptr,
+                                              mainram_size);
+
+        segment* data_seg = writer.segments.add();
+        data_seg->set_type (PT_LOAD);
+
+        data_seg->set_virtual_address(RAM_BASE_ADDR);
+        data_seg->set_physical_address(RAM_BASE_ADDR);
+        data_seg->set_flags (PF_W | PF_R);
+        data_seg->set_align(0x10);
+
+        data_seg->add_section_index( data_sec->get_index(),
+                                     data_sec->get_addr_align());
+
+        writer.set_entry( RAM_BASE_ADDR );
+        writer.save(f_name);
+}
+
+// this is only for debugging
+static void create_mainram_elf_file(const void* base,  int size, const char *dump_name) {
+        size_t n         = strlen(dump_name) + 64;
+        char *f_name = (char *) alloca(n);
+        snprintf(f_name, n, "%s-elf.mainram", dump_name);
+
+        elfio writer;
+
+        fprintf(dromajo_stderr, "creating mainram Base=%12p, size = %x\n",
+                                            (void *)base,size);
+
+        writer.create(ELFCLASS64, ELFDATA2LSB);
+        writer.set_os_abi( ELFOSABI_LINUX);
+        writer.set_type(ET_EXEC);
+        writer.set_machine( EM_RISCV);
+
+        section *data_sec = writer.sections.add(".data");
+        data_sec->set_type( SHT_PROGBITS);
+        data_sec->set_flags( SHF_ALLOC | SHF_WRITE);
+        data_sec->set_addr_align (0x4);
+
+        if (size > ELF_MAX_RAM_SIZE)
+            size = ELF_MAX_RAM_SIZE;
+
+        data_sec->set_data ( (const char *)base, size);
+
+        segment* data_seg = writer.segments.add();
+        data_seg->set_type (PT_LOAD);
+
+        data_seg->set_virtual_address(RAM_BASE_ADDR);
+        data_seg->set_physical_address(RAM_BASE_ADDR);
+        data_seg->set_flags (PF_W | PF_R);
+        data_seg->set_align(0x10);
+
+        data_seg->add_section_index( data_sec->get_index(),
+                                     data_sec->get_addr_align());
+
+        writer.set_entry( RAM_BASE_ADDR );
+        writer.save(f_name);
+        fprintf(dromajo_stderr, "return creating mainram size = %x\n", size);
+}
+
+// this is only for debugging
+static void create_bootrom_elf_file(const void* base,  int size, const char *dump_name) {
+        elfio writer;
+        size_t n         = strlen(dump_name) + 64;
+        char *f_name = (char *) alloca(n);
+        snprintf(f_name, n, "%s-elf.bootrom", dump_name);
+
+        if (base == nullptr)
+           return;
+
+        /* fprintf(dromajo_stderr,"creating bootrom file=%s Base=0x%-8x,size=0x%-x\n", 
+                                            f_name,(void *)base,size); */
+
+        writer.create(ELFCLASS64, ELFDATA2LSB);
+        writer.set_os_abi( ELFOSABI_LINUX);
+        writer.set_type(ET_EXEC);
+        writer.set_machine( EM_RISCV);
+
+        section *text_sec = writer.sections.add(".text");
+        text_sec->set_type( SHT_PROGBITS);
+        text_sec->set_flags( SHF_ALLOC | SHF_EXECINSTR);
+
+        text_sec->set_addr_align (0x10);
+        text_sec->set_data ( (const char *)base, size);
+
+        segment* text_seg = writer.segments.add();
+        text_seg->set_type (PT_LOAD);
+        text_seg->set_virtual_address(RAM_BASE_ADDR);
+        text_seg->set_physical_address(RAM_BASE_ADDR);
+        text_seg->set_flags (PF_X | PF_R);
+        text_seg->set_align( 0x1000);
+
+        text_seg->add_section_index( text_sec->get_index(),
+                                     text_sec->get_addr_align());
+        writer.set_entry(RAM_BASE_ADDR) ;
+        writer.save(f_name);
+}
+
 
 void riscv_cpu_serialize(RISCVCPUState *s, const char *dump_name, const uint64_t clint_base_addr) {
     FILE * conf_fd   = 0;
@@ -2144,6 +2308,7 @@ void riscv_cpu_serialize(RISCVCPUState *s, const char *dump_name, const uint64_t
 
     PhysMemoryRange *boot_ram       = 0;
     int              main_ram_found = 0;
+    static MainRamBootRomState elf_state;
 
     for (int i = s->mem_map->n_phys_mem_range - 1; i >= 0; --i) {
         PhysMemoryRange *pr = &s->mem_map->phys_mem_range[i];
@@ -2161,6 +2326,14 @@ void riscv_cpu_serialize(RISCVCPUState *s, const char *dump_name, const uint64_t
             sprintf(f_name, "%s.mainram", dump_name);
 
             serialize_memory(pr->phys_mem, pr->size, f_name);
+
+#ifdef DEBUG_ELF_SUPPORT
+           /* create elf file  */
+           create_mainram_elf_file(pr->phys_mem, pr->size, dump_name); 
+#endif
+           elf_state.mainram_ptr = (char *)pr->phys_mem;
+           elf_state.mainram_size = pr->size;
+
         }
     }
 
@@ -2174,21 +2347,83 @@ void riscv_cpu_serialize(RISCVCPUState *s, const char *dump_name, const uint64_t
     snprintf(f_name, n, "%s.bootram", dump_name);
 
     if (s->priv != 3 || ROM_BASE_ADDR + ROM_SIZE < s->pc) {
+        void *pass_rom_ptr;
+
         fprintf(dromajo_stderr, "NOTE: creating a new boot rom\n");
-        create_boot_rom(s, f_name, clint_base_addr);
+        create_boot_rom(s, f_name, clint_base_addr, &pass_rom_ptr);
+#ifdef DEBUG_ELF_SUPPORT
+        create_bootrom_elf_file(pass_rom_ptr, ROM_SIZE, dump_name);
+#endif
+        elf_state.bootrom_ptr = (char *)pass_rom_ptr;
+        elf_state.bootrom_size = ROM_SIZE;
     } else if (BOOT_BASE_ADDR < s->pc) {
         fprintf(dromajo_stderr, "ERROR: could not checkpoint when running inside the ROM\n");
         exit(-4);
     } else if (s->pc == BOOT_BASE_ADDR && boot_ram) {
         fprintf(dromajo_stderr, "NOTE: using the default dromajo ROM\n");
         serialize_memory(boot_ram->phys_mem, boot_ram->size, f_name);
+#ifdef DEBUG_ELF_SUPPORT
+        create_bootrom_elf_file(pass_rom_ptr, ROM_SIZE, dump_name);
+#endif
     } else {
         fprintf(dromajo_stderr, "ERROR: unexpected PC address 0x%llx\n", (long long)s->pc);
         exit(-4);
     }
 }
 
-void riscv_cpu_deserialize(RISCVCPUState *s, const char *dump_name) {
+void elf_get_section_data_ptr( const char *file_name,
+                    size_t *psec_size, uint8_t sec_type, 
+                    const char** section_data_ptr)
+{
+    elfio reader;
+    if (reader.load(file_name)) {
+       Elf_Half sec_num = reader.sections.size();
+       for (int i = 0; i < sec_num; i++) {
+          const section* psec = reader.sections[i];
+
+          if (psec && (psec->get_type() == SHT_PROGBITS )) {
+
+              fprintf(dromajo_stderr, "reading section data\n");
+              if ((sec_type == ELF_SEC_DATA) &&
+                  (psec->get_flags() & SHF_WRITE)) {
+                   fprintf(dromajo_stderr, "read mainram data\n");
+                   // .data section
+                   // read from the elf program section
+                   const char* section_ptr = psec->get_data();
+                   if (section_ptr) {
+                      *psec_size = psec->get_size();
+                      if (*psec_size) {
+                          char *data_ptr = (char *)mallocz(*psec_size);
+                          memcpy(data_ptr, section_ptr, *psec_size);
+                          *section_data_ptr = data_ptr;
+                      }
+                   }
+                }
+                else if ((sec_type == ELF_SEC_EXEC) &&
+                  (psec->get_flags() & SHF_EXECINSTR)) {
+                   fprintf(dromajo_stderr, "read bootrom data\n");
+                   // .text section
+                   // read from the elf program section
+                   const char* section_ptr = psec->get_data();
+                   if (section_ptr) {
+                      *psec_size = psec->get_size();
+                      if (*psec_size) {
+                          char *data_ptr = (char *)mallocz(*psec_size);
+                          memcpy(data_ptr, section_ptr, *psec_size);
+                          *section_data_ptr = data_ptr;
+                      }
+                   }
+              }
+           }
+       }
+   }
+}
+
+// elf-support is_elf = True
+void riscv_cpu_deserialize(RISCVCPUState *s, const char *dump_name, bool is_elf) {
+
+    elfio reader;
+
     for (int i = s->mem_map->n_phys_mem_range - 1; i >= 0; --i) {
         PhysMemoryRange *pr = &s->mem_map->phys_mem_range[i];
 
@@ -2197,14 +2432,91 @@ void riscv_cpu_deserialize(RISCVCPUState *s, const char *dump_name) {
             char * boot_name = (char *)alloca(n);
             snprintf(boot_name, n, "%s.bootram", dump_name);
 
-            deserialize_memory(pr->phys_mem, pr->size, boot_name);
+            if (is_elf) {
+               size_t sec_size = 0;
+               snprintf(boot_name, n, "%s-elf", dump_name);
+               const char* section_data_ptr = nullptr;
+               elf_get_section_data_ptr(boot_name, &sec_size, ELF_SEC_EXEC,
+                                                                &section_data_ptr);
+#ifdef DEBUG_ELF_SUPPORT
+               fprintf(dromajo_stderr,"reading bootrom Elf sec. size=0x%-8lx\n",
+                                                                  sec_size);
 
+               fprintf(dromajo_stderr,
+                "deserialize bootram pr=0x%-8p memptr=0x%8hhn Sz=0x%-8lx Elf=%-ld\n",
+                   (void *)pr, pr->phys_mem,pr->size,is_elf);
+#endif
+               if (section_data_ptr) {
+                   size_t bootrom_length = 0;
+                   if (sec_size < pr->size)
+                      bootrom_length = sec_size;
+                   else
+                      bootrom_length = pr->size;
+#ifdef DEBUG_ELF_SUPPORT
+                   fprintf(dromajo_stderr,
+                   "bootrom pr=0x%-8p Src=0x%-8s dest=0x%-8hhn len=0x%-lx\n",
+                       (void *)pr,section_data_ptr,pr->phys_mem, bootrom_length);
+#endif
+
+                   memcpy(pr->phys_mem, section_data_ptr, bootrom_length );
+#ifdef DEBUG_ELF_SUPPORT
+                   fprintf(dromajo_stderr, "\nmemcpy completed, freeing ptr %8s\n",
+                                                                section_data_ptr);
+#endif
+                   memset((char *)section_data_ptr,0,bootrom_length);
+                   free((char *)section_data_ptr);
+               }
+
+            } else {
+#ifdef DEBUG_ELF_SUPPORT
+                fprintf(dromajo_stderr, 
+                     "deserialize bootram pr=0x%-8p memptr=0x%-8hhn Sz=0x%-8lx Elf=%-d\n",
+                   (void *)pr, pr->phys_mem,pr->size,is_elf);
+#endif
+               snprintf(boot_name, n, "%s.bootram", dump_name);
+               deserialize_memory(pr->phys_mem, pr->size, boot_name);
+           }
         } else if (pr->is_ram && pr->addr == s->machine->ram_base_addr) {
             size_t n         = strlen(dump_name) + 64;
             char * main_name = (char *)alloca(n);
             snprintf(main_name, n, "%s.mainram", dump_name);
 
-            deserialize_memory(pr->phys_mem, pr->size, main_name);
+            if (is_elf) {
+                size_t sec_size = 0;
+                // read from the elf file
+                snprintf(main_name, n, "%s-elf", dump_name);
+                const char* section_data_ptr = nullptr;
+                      elf_get_section_data_ptr(main_name,
+                                     &sec_size, ELF_SEC_DATA, &section_data_ptr);
+#ifdef DEBUG_ELF_SUPPORT
+                fprintf(dromajo_stderr,
+                   "deserialize mainram Elf sec_ptr=%-8p,Phy Range size=%-8lx\n",
+                                        (void *)section_data_ptr, pr->size);
+#endif
+
+               if (section_data_ptr) { 
+                   size_t mainram_length = 0;
+                   if (sec_size < pr->size)
+                      mainram_length = sec_size; 
+                   else
+                      mainram_length = pr->size;
+
+                   fprintf(dromajo_stderr, 
+                  "copy Elf RAM Pr=%-8p, Src=0x%-8x dest=%-8p, RAM len=0x%-8lx\n",
+                        (void *)pr, section_data_ptr,pr->phys_mem, mainram_length);
+
+                   memcpy(pr->phys_mem, section_data_ptr, mainram_length);
+                   fprintf(dromajo_stderr, "memcpy completd, freeing %-8p\n",
+                                         section_data_ptr);
+
+                   memset((char *)section_data_ptr, 0, mainram_length);
+                   free((char *)section_data_ptr);
+               }
+            } else {
+               deserialize_memory(pr->phys_mem, pr->size, main_name);
+            }
         }
     }
 }
+
+

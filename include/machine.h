@@ -190,6 +190,7 @@ typedef struct {
     char *logfile;  // If non-zero, all output goes here, stderr and stdout
 
     bool dump_memories;
+    BOOL is_snapshot_elf; // for saving snapshot mainram/bootrom in ELF 
 } VirtMachineParams;
 
 typedef struct VirtMachine {
