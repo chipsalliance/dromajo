@@ -65,7 +65,7 @@ public:
   void set_data(const uint64_t addr, const uint8_t sz, uint64_t d) {
     assert(sz<=8);
     for(int i=0;i<sz;++i) {
-      set_byte(addr+(sz-i-1), d&0xFF);
+      set_byte(addr+i, d&0xFF);
       d = d>>8;
     }
   }
@@ -74,7 +74,7 @@ public:
     uint64_t d=0;
     assert(sz<=8);
     for(int i=0;i<sz;++i) {
-      uint64_t b = get_byte(addr+i);
+      uint64_t b = get_byte(addr+sz-i-1);
       d = (d<<8) | b;
     }
 
@@ -137,19 +137,10 @@ public:
 
   bool has_data() const { return !chunks.empty(); }
 
-  void dump() const {
-    std::cout << std::hex;
+  std::string str() const;
 
-    for(const auto c:chunks) {
-      if (device) {
-        std::cout << " DEVICE";
-      }
-      std::cout << " data[" << c.addr << ":" << c.addr+c.data.size()-1 << "]=";
-      std::cout << std::setfill('0') << std::setw(2) << std::right << std::hex;
-      for(auto b:c.data) {
-        std::cout << static_cast<int>(b);
-      }
-    }
+  void dump() const {
+    std::cout << str();
   }
 
   void add_newer(const Gold_data &d2) {

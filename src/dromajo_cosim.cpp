@@ -29,8 +29,9 @@
 
 #define GOLDMEM_INORDER
 #ifdef GOLDMEM_INORDER
-void check_dromajo_load(int cid, uint64_t addr, uint8_t sz, uint64_t data, bool io_map);
-void check_dromajo_store(int cid, uint64_t addr, uint8_t sz, uint64_t data, bool io_map);
+void check_dromajo_load(int cid, uint64_t addr, uint8_t sz, uint64_t ld_data, bool io_map);
+void check_dromajo_store(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, bool io_map);
+void check_dromajo_amo(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, uint64_t ld_data, bool io_map);
 void check_dromajo_init(int ncores);
 #endif
 
@@ -307,10 +308,20 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
     }
 
 #ifdef GOLDMEM_INORDER
-    bool do_ld  = (dut_insn & 0x7F) == 0x03 || (dut_insn & 0x7F) == 0x07;
-    bool do_ist = (dut_insn & 0x7F) == 0x23;
-    bool do_fst = (dut_insn & 0x7F) == 0x27;
-    bool do_amo = (dut_insn & 0x7F) == 0x2F;
+    bool do_clw   = (dut_insn & 0x3) == 0 && (dut_insn & 0xe000) == 0x4000;
+    bool do_cld   = (dut_insn & 0x3) == 0 && (dut_insn & 0xe000) == 0x6000;
+    bool do_csw   = (dut_insn & 0x3) == 0 && (dut_insn & 0xe000) == 0xC000;
+    bool do_csd   = (dut_insn & 0x3) == 0 && (dut_insn & 0xe000) == 0xe000;
+
+    bool do_clwsp = (dut_insn & 0x3) == 2 && (dut_insn & 0xe000) == 0x4000;
+    bool do_cldsp = (dut_insn & 0x3) == 2 && (dut_insn & 0xe000) == 0x6000;
+    bool do_cswsp = (dut_insn & 0x3) == 2 && (dut_insn & 0xe000) == 0xC000;
+    bool do_csdsp = (dut_insn & 0x3) == 2 && (dut_insn & 0xe000) == 0xe000;
+
+    bool do_ld    = (dut_insn & 0x7F) == 0x03 || (dut_insn & 0x7F) == 0x07;
+    bool do_ist   = (dut_insn & 0x7F) == 0x23;
+    bool do_fst   = (dut_insn & 0x7F) == 0x27;
+    bool do_amo   = (dut_insn & 0x7F) == 0x2F;
     if (do_fst || do_ist || do_ld || do_amo) {
       uint8_t func3 = (dut_insn>>12) & 0x7;
       int sz = 0;
@@ -339,10 +350,60 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
           data = riscv_get_fpreg(s, rs2);
         }
         check_dromajo_store(hartid, paddr, sz, data, io_map);
+      }else if (do_amo) {
+        uint8_t func5 = (dut_insn>>27) & 0x1F;
+
+        // dut_wdata is the load result in DUT
+        uint8_t  rs1  = (dut_insn >> 15) & 0x1f;
+        uint64_t data = riscv_get_reg(s, rs1);
+
+        bool rl = (dut_insn>>25) & 1;
+        bool aq = (dut_insn>>26) & 1;
+        if (rl || aq) {
+          fprintf(dromajo_stderr, "FIXME: implement aq/rl in goldmem\n");
+        }
+
+        if (func5 == 0x02) {
+          fprintf(dromajo_stderr, "FIXME: implement ll in goldmem\n");
+          exit(-3);
+        }else if (func5 == 3) {
+          fprintf(dromajo_stderr, "FIXME: implement sc in goldmem\n");
+          exit(-3);
+        }else{ // all the other amoadd/amooand/... ops
+          check_dromajo_amo(hartid, paddr, sz, dut_wdata, data, io_map);
+        }
       }else{
-        fprintf(dromajo_stderr, "FIXME: amo with goldmem\n");
+        fprintf(dromajo_stderr, "FIXME: unknown opcode with goldmem\n");
         exit(-3);
       }
+    }else if (do_clw || do_cld || do_clwsp || do_cldsp) {
+      int sz = 4;
+      if (do_cld || do_cldsp)
+        sz = 8;
+
+      uint64_t paddr  = s->last_data_paddr;
+      PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
+      bool io_map = !pr || !pr->is_ram;
+
+      check_dromajo_load(hartid, paddr, sz, dut_wdata, io_map);
+    }else if (do_csw || do_csd || do_cswsp || do_csdsp) {
+      int sz = 4;
+      if (do_csd || do_csdsp)
+        sz = 8;
+
+      uint8_t  rs2 = (dut_insn >> 2) & 0x1f;
+      if (do_csw || do_csd) {
+        rs2 = (dut_insn >> 2) & 0x7;
+        rs2 += 8;
+      }
+
+      uint64_t data = riscv_get_reg(s, rs2);
+
+      uint64_t paddr  = s->last_data_paddr;
+      PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
+      bool io_map = !pr || !pr->is_ram;
+
+      check_dromajo_store(hartid, paddr, sz, data, io_map);
     }
 #endif
 

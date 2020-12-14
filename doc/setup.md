@@ -2,7 +2,7 @@
 
 ## Bare-metal riscv-tests (~ 2 min)
 
-Assumption: you have the `riscv64-unknown-elf-` (Newlib) toolchain.
+Assumption: you have the `riscv64-unknown-elf-` (Newlib) toolchain. If you do not have this, use RISCV_PREFIX as needed. E.g: `export RISCV_PREFIX=riscv64-elf-` 
 
 ```
 git clone --recursive https://github.com/riscv/riscv-tests

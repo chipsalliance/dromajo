@@ -1,5 +1,6 @@
 
 #include "Gold_core.hpp"
+#include "Gold_notify.hpp"
 
 Inst_id Gold_core::global_instid;
 
@@ -41,7 +42,7 @@ void Gold_core::nuke(Inst_id iid) {
 
   if (iid<pnr) {
     dump();
-    std::cout << "FAIL: nuke id:" << iid << " for already safe pnr::" << pnr << "\n";
+    Gold_nofity::fail("nuke id:{} for already safe pnr:{}", iid , pnr);
     return;
   }
 
@@ -99,13 +100,17 @@ const Gold_data &Gold_core::ld_perform(Inst_id iid) {
 
     for(auto it = rob.rbegin() ; it != rob_end; ++it) {
       assert(it->rid<iid);
-      if (it->st_data.has_data())
+      if (it->st_data.has_data()) {
+        Gold_nofity::info("ld iid:{} fwd from st iid:{}", iid, it->rid);
         ent.ld_data.update_newer(it->st_data);
+      }
     }
   }
 
   ent.performed = true;
   ent.error.clear();
+
+  Gold_nofity::trace(iid, "core:{} ld gp{}", cid, ent.ld_data.str());
 
   return ent.ld_data;
 }
@@ -123,6 +128,9 @@ void Gold_core::st_locally_perform(Inst_id iid) {
 
   Rob_queue::reverse_iterator rob_it;
   rob_it = std::find_if(rob.rbegin(), rob.rend(), [&iid](const Rob_entry& x) { return x.rid == iid;});
+
+  Gold_nofity::trace(iid, "core:{} st lp{}", cid, rob_it->st_data.str());
+
   ++rob_it; // Skip itself
 
   for( ; rob_it != rob.rend(); ++rob_it) {
@@ -139,6 +147,7 @@ void Gold_core::st_locally_perform(Inst_id iid) {
       rob_it->dump("after");
     }
   }
+
 }
 
 void Gold_core::st_locally_merged(Inst_id iid1, Inst_id iid2) {
@@ -233,9 +242,7 @@ void Gold_core::st_globally_perform(Inst_id iid) {
 
   st_locally_perform(iid); // even if performed, we can check again (just in case missing API call)
 
-  std::cout << "mem stid:" << iid;
-  rob_it1->st_data.dump();
-  std::cout << "\n";
+  Gold_nofity::trace(iid, "core:{} st gp{}", cid, rob_it1->st_data.str());
 
   mem.st_perform(rob_it1->st_data);
 

@@ -151,6 +151,7 @@ static inline void track_write(RISCVCPUState *s, uint64_t vaddr, uint64_t paddr,
 #ifdef LIVECACHE
     s->machine->llc->write(paddr);
 #endif
+    printf("track.st[%x:%x]=%x\n", paddr, paddr+size-1, data);
     s->last_data_paddr = paddr;
 }
 
@@ -159,6 +160,7 @@ static inline uint64_t track_dread(RISCVCPUState *s, uint64_t vaddr, uint64_t pa
     s->machine->llc->read(paddr);
 #endif
     s->last_data_paddr = paddr;
+    printf("track.ld[%x:%x]=%x\n", paddr, paddr+size-1, data);
 
     return data;
 }

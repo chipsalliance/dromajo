@@ -101,8 +101,11 @@ add_library(dromajo_cosim STATIC
 add_library(gold STATIC
         gold/Gold_core.cpp
         gold/Gold_data.cpp
+        gold/Gold_notify.cpp
         gold/lrand.cpp
         gold/bridge_dromajo.cpp
+        external/fmt/format.cc
+        external/fmt/os.cc
         )
 
 # add librt for Linux
@@ -110,7 +113,7 @@ if (${CMAKE_HOST_SYSTEM_NAME} MATCHES "Linux")
     target_link_libraries(dromajo_cosim rt)
 endif ()
 
-include_directories(include gold ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(include gold external ${CMAKE_CURRENT_BINARY_DIR})
 
 add_executable(dromajo src/dromajo.cpp)
 add_executable(dromajo_cosim_test src/dromajo_cosim_test.cpp)
