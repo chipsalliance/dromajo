@@ -85,29 +85,51 @@ int main(int argc, char *argv[]) {
         if (!fgets(buf, sizeof buf, f))
             break;
 
-
-        rd = 0;
-        wdata = 0;
+        rd        = 0;
+        wdata     = 0;
         exception = 0;
-        tval = 0;
+        tval      = 0;
         char x_or_f_reg;
-        int got = sscanf(buf, "%d %d %" PRIx64 " (0x%x) %c%d 0x%" PRIx64, &hartid, &priv, &insn_addr, &insn, &x_or_f_reg, &rd, &wdata);
+        int  got
+            = sscanf(buf, "%d %d %" PRIx64 " (0x%x) %c%d 0x%" PRIx64, &hartid, &priv, &insn_addr, &insn, &x_or_f_reg, &rd, &wdata);
 
         switch (got) {
             case 4:
-                fprintf(dromajo_stdout, "%d %d %016" PRIx64 " %08x                           DASM(%08x)\n", hartid, priv, insn_addr, insn, insn);
+                fprintf(dromajo_stdout,
+                        "%d %d %016" PRIx64 " %08x                           DASM(%08x)\n",
+                        hartid,
+                        priv,
+                        insn_addr,
+                        insn,
+                        insn);
                 break;
 
             case 5:
-                got = sscanf(buf, "%d %d %" PRIx64 " (0x%x) exception %d, tval %" PRIx64, &hartid, &priv, &insn_addr, &insn, &exception, &tval);
-                if (got!=6) {
-                  fprintf(dromajo_stderr, "%s:%d: expected exception, coult not parse %s\n", trace_name, lineno, buf); goto fail;
+                got = sscanf(buf,
+                             "%d %d %" PRIx64 " (0x%x) exception %d, tval %" PRIx64,
+                             &hartid,
+                             &priv,
+                             &insn_addr,
+                             &insn,
+                             &exception,
+                             &tval);
+                if (got != 6) {
+                    fprintf(dromajo_stderr, "%s:%d: expected exception, coult not parse %s\n", trace_name, lineno, buf);
+                    goto fail;
                 }
 
                 break;
 
             case 7:
-                fprintf(dromajo_stdout, "%d %d %016" PRIx64 " %08x [x%-2d <- %016" PRIx64 "] DASM(%08x)\n", hartid, priv, insn_addr, insn, rd, wdata, insn);
+                fprintf(dromajo_stdout,
+                        "%d %d %016" PRIx64 " %08x [x%-2d <- %016" PRIx64 "] DASM(%08x)\n",
+                        hartid,
+                        priv,
+                        insn_addr,
+                        insn,
+                        rd,
+                        wdata,
+                        insn);
                 break;
 
             default: fprintf(dromajo_stderr, "%s:%d: couldn't parse %s\n", trace_name, lineno, buf); goto fail;
@@ -117,14 +139,14 @@ int main(int argc, char *argv[]) {
         }
 
         if (!cosim)
-          continue;
+            continue;
 
-        if (exception && (exception<8 || exception>11)) { // do not skip ECALLS
-          dromajo_cosim_raise_trap(s, hartid, exception);
-          fprintf(dromajo_stdout, "exception %d with tval %08" PRIx64 "\n", exception, tval);
-          continue;
+        if (exception && (exception < 8 || exception > 11)) {  // do not skip ECALLS
+            dromajo_cosim_raise_trap(s, hartid, exception);
+            fprintf(dromajo_stdout, "exception %d with tval %08" PRIx64 "\n", exception, tval);
+            continue;
         }
-        int r      = dromajo_cosim_step(s, hartid, insn_addr, insn, wdata, 0, true);
+        int r = dromajo_cosim_step(s, hartid, insn_addr, insn, wdata, 0, true);
         if (r) {
             fprintf(dromajo_stdout, "Exited with %08x\n", r);
             goto fail;
@@ -133,7 +155,7 @@ int main(int argc, char *argv[]) {
 
 done:
     if (cosim)
-      dromajo_cosim_fini(s);
+        dromajo_cosim_fini(s);
 
     if (exit_code == EXIT_SUCCESS)
         fprintf(dromajo_stdout, "\nSUCCESS, PASSED, GOOD!\n");
