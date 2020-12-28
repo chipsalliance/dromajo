@@ -13,14 +13,14 @@ static Gold_mem mem(dromajo_get_byte_direct);
 static std::vector<Gold_core> cores;
 
 
-void check_dromajo_init(int ncores) {
+void check_inorder_init(int ncores) {
 
   for(int i=0;i<ncores;++i) {
     cores.emplace_back(mem, i);
   }
 }
 
-void check_dromajo_load(int cid, uint64_t addr, uint8_t sz, uint64_t rd_data, bool io_map) {
+void check_inorder_load(int cid, uint64_t addr, uint8_t sz, uint64_t rd_data, bool io_map) {
 
   auto rid = cores[cid].inorder();
 
@@ -39,7 +39,7 @@ void check_dromajo_load(int cid, uint64_t addr, uint8_t sz, uint64_t rd_data, bo
   }
 }
 
-void check_dromajo_store(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, bool io_map) {
+void check_inorder_store(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, bool io_map) {
 
   auto rid = cores[cid].inorder();
 
@@ -53,7 +53,7 @@ void check_dromajo_store(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, b
   cores[cid].st_globally_perform(rid);
 }
 
-void check_dromajo_amo(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, uint64_t rd_data, bool io_map) {
+void check_inorder_amo(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, uint64_t rd_data, bool io_map) {
 
   // In-order step
   auto rid = cores[cid].inorder();

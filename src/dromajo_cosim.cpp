@@ -27,12 +27,11 @@
 #include "iomem.h"
 #include "riscv_machine.h"
 
-#define GOLDMEM_INORDER
 #ifdef GOLDMEM_INORDER
-void check_dromajo_load(int cid, uint64_t addr, uint8_t sz, uint64_t ld_data, bool io_map);
-void check_dromajo_store(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, bool io_map);
-void check_dromajo_amo(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, uint64_t ld_data, bool io_map);
-void check_dromajo_init(int ncores);
+void check_inorder_load(int cid, uint64_t addr, uint8_t sz, uint64_t ld_data, bool io_map);
+void check_inorder_store(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, bool io_map);
+void check_inorder_amo(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, uint64_t ld_data, bool io_map);
+void check_inorder_init(int ncores);
 #endif
 
 /*
@@ -49,7 +48,7 @@ dromajo_cosim_state_t *dromajo_cosim_init(int argc, char *argv[]) {
     m->llc = new LiveCache("LLC", 1024 * 32);  // Small 32KB for testing
 #endif
 #ifdef GOLDMEM_INORDER
-    check_dromajo_init(m->ncpus);
+    check_inorder_init(m->ncpus);
 #endif
 
     m->common.cosim             = true;
@@ -210,7 +209,8 @@ void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t 
  */
 int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc, uint32_t dut_insn, uint64_t dut_wdata,
                        uint64_t dut_mstatus, bool check) {
-    RISCVMachine * r = (RISCVMachine *)state;
+    RISCVMachine  *r = (RISCVMachine *)state;
+    assert(r->ncpus>hartid);
     RISCVCPUState *s = r->cpu_state[hartid];
     uint64_t       emu_pc, emu_wdata = 0;
     int            emu_priv;
@@ -340,7 +340,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
       PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
       bool io_map = !pr || !pr->is_ram;
       if (do_ld) {
-        check_dromajo_load(hartid, paddr, sz, dut_wdata, io_map);
+        check_inorder_load(hartid, paddr, sz, dut_wdata, io_map);
       }else if (do_ist || do_fst) {
         uint64_t data=0;
         uint8_t  rs2    = (dut_insn >> 20) & 0x1f;
@@ -349,7 +349,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
         }else{
           data = riscv_get_fpreg(s, rs2);
         }
-        check_dromajo_store(hartid, paddr, sz, data, io_map);
+        check_inorder_store(hartid, paddr, sz, data, io_map);
       }else if (do_amo) {
         uint8_t func5 = (dut_insn>>27) & 0x1F;
 
@@ -370,7 +370,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
           fprintf(dromajo_stderr, "FIXME: implement sc in goldmem\n");
           exit(-3);
         }else{ // all the other amoadd/amooand/... ops
-          check_dromajo_amo(hartid, paddr, sz, dut_wdata, data, io_map);
+          check_inorder_amo(hartid, paddr, sz, dut_wdata, data, io_map);
         }
       }else{
         fprintf(dromajo_stderr, "FIXME: unknown opcode with goldmem\n");
@@ -385,7 +385,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
       PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
       bool io_map = !pr || !pr->is_ram;
 
-      check_dromajo_load(hartid, paddr, sz, dut_wdata, io_map);
+      check_inorder_load(hartid, paddr, sz, dut_wdata, io_map);
     }else if (do_csw || do_csd || do_cswsp || do_csdsp) {
       int sz = 4;
       if (do_csd || do_csdsp)
@@ -403,7 +403,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
       PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
       bool io_map = !pr || !pr->is_ram;
 
-      check_dromajo_store(hartid, paddr, sz, data, io_map);
+      check_inorder_store(hartid, paddr, sz, data, io_map);
     }
 #endif
 

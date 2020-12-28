@@ -43,6 +43,9 @@ set(CMAKE_CXX_STANDARD 11)
 project(dromajo)
 option(TRACEOS "TRACEOS" OFF)
 option(SIMPOINT "SIMPOINT" OFF)
+option(GOLDMEM "GOLDMEM" OFF)
+
+#set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 add_compile_options(
         -std=c++11
@@ -98,24 +101,37 @@ add_library(dromajo_cosim STATIC
         src/riscv_cpu.cpp
         )
 
-add_library(gold STATIC
-        gold/Gold_core.cpp
-        gold/Gold_data.cpp
-        gold/Gold_notify.cpp
-        gold/lrand.cpp
-        gold/bridge_dromajo.cpp
-        external/fmt/format.cc
-        external/fmt/os.cc
-        )
+add_executable(dromajo src/dromajo.cpp)
+add_executable(dromajo_cosim_test src/dromajo_cosim_test.cpp)
 
-# add librt for Linux
-if (${CMAKE_HOST_SYSTEM_NAME} MATCHES "Linux")
+if (GOLDMEM)
+    message(STATUS "GOLDMEM is on.")
+    add_compile_options( -DGOLDMEM)
+    add_compile_options( -DGOLDMEM_INORDER)  # This is to debug the flow without RTL
+    add_library(gold STATIC
+            gold/Gold_core.cpp
+            gold/Gold_data.cpp
+            gold/Gold_notify.cpp
+            gold/lrand.cpp
+            gold/bridge_inorder.cpp
+            external/fmt/format.cc
+            external/fmt/os.cc
+            )
+    target_link_libraries(dromajo gold)
+    target_link_libraries(dromajo_cosim_test gold)
+    include_directories(gold)
+endif ()
+
+if (${CMAKE_HOST_APPLE})
+    include_directories(/usr/local/include /usr/local/include/libelf)
+    target_link_libraries(dromajo_cosim -L/usr/local/lib -lelf)
+else ()
+    # add librt for Linux
     target_link_libraries(dromajo_cosim rt)
 endif ()
 
-include_directories(include gold external ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(include external ${CMAKE_CURRENT_BINARY_DIR})
 
-add_executable(dromajo src/dromajo.cpp)
-add_executable(dromajo_cosim_test src/dromajo_cosim_test.cpp)
-target_link_libraries(dromajo dromajo_cosim gold)
-target_link_libraries(dromajo_cosim_test dromajo_cosim gold)
+target_link_libraries(dromajo dromajo_cosim)
+target_link_libraries(dromajo_cosim_test dromajo_cosim)
+

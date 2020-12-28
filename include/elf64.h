@@ -19,7 +19,7 @@
 #define _ELF64_H 1
 
 #if defined(__APPLE__)
-#include <libelf/gelf.h> /* brew install libelf */
+#include <gelf.h> /* brew install libelf */
 #else
 #include <elf.h>
 #endif
