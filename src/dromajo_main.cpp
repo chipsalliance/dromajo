@@ -725,8 +725,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
                     memory_size_override = strtoll(optarg + 2, NULL, 16);
                 else
                     memory_size_override = atoi(optarg);
-            break;
-
+                break;
 
             case 'A':
                 if (optarg[0] != '0' || optarg[1] != 'x')
@@ -758,7 +757,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
                 if (!strchr(optarg, ':'))
                     usage(prog, "--mmio_range expects an argument like START:END");
 
-                char *copy = strdup(optarg);
+                char *copy       = strdup(optarg);
                 char *mmio_start = strtok(copy, ":");
                 char *mmio_end   = strtok(NULL, ":");
 
@@ -768,17 +767,16 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
 
                 if (mmio_end[0] != '0' || mmio_end[1] != 'x')
                     usage(prog, "--mmio_range END address must begin with 0x...");
-                mmio_end_override = strtoll(mmio_end+2, NULL, 16);
+                mmio_end_override = strtoll(mmio_end + 2, NULL, 16);
 
                 free(copy);
-            }
-            break;
+            } break;
 
             case 'p': {
                 if (!strchr(optarg, ':'))
                     usage(prog, "--plic expects an argument like START:SIZE");
 
-                char *copy = strdup(optarg);
+                char *copy           = strdup(optarg);
                 char *plic_base_addr = strtok(copy, ":");
                 char *plic_size      = strtok(NULL, ":");
 
@@ -788,17 +786,16 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
 
                 if (plic_size[0] != '0' || plic_size[1] != 'x')
                     usage(prog, "--plic SIZE must begin with 0x...");
-                plic_size_override = strtoll(plic_size+2, NULL, 16);
+                plic_size_override = strtoll(plic_size + 2, NULL, 16);
 
                 free(copy);
-            }
-            break;
+            } break;
 
             case 'C': {
                 if (!strchr(optarg, ':'))
                     usage(prog, "--clint expects an argument like START:SIZE");
 
-                char *copy = strdup(optarg);
+                char *copy            = strdup(optarg);
                 char *clint_base_addr = strtok(copy, ":");
                 char *clint_size      = strtok(NULL, ":");
 
@@ -808,20 +805,16 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
 
                 if (clint_size[0] != '0' || clint_size[1] != 'x')
                     usage(prog, "--clint SIZE must begin with 0x...");
-                clint_size_override = strtoll(clint_size+2, NULL, 16);
+                clint_size_override = strtoll(clint_size + 2, NULL, 16);
 
                 free(copy);
-            }
-            break;
+            } break;
 
             case 'u': custom_extension = true; break;
 
-        case 'L':
-            clear_ids = true;
-            break;
+            case 'L': clear_ids = true; break;
 
-        default:
-            usage(prog, "I'm not having this argument");
+            default: usage(prog, "I'm not having this argument");
         }
     }
 
@@ -982,7 +975,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
 
     // core modifications
     p->custom_extension = custom_extension;
-    p->clear_ids = clear_ids;
+    p->clear_ids        = clear_ids;
 
     RISCVMachine *s = virt_machine_init(p);
     if (!s)

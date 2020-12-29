@@ -1562,9 +1562,7 @@ static inline uint32_t get_pending_irq_mask(RISCVCPUState *s) {
     uint32_t pending_ints, enabled_ints;
 
 #ifdef DUMP_INTERRUPTS
-    fprintf(dromajo_stderr,
-            "get_irq_mask: mip=0x%x mie=0x%x mideleg=0x%x\n",
-            s->mip, s->mie, s->mideleg);
+    fprintf(dromajo_stderr, "get_irq_mask: mip=0x%x mie=0x%x mideleg=0x%x\n", s->mip, s->mie, s->mideleg);
 #endif
 
     pending_ints = s->mip & s->mie;
@@ -1589,17 +1587,17 @@ static inline uint32_t get_pending_irq_mask(RISCVCPUState *s) {
 }
 
 static inline int8_t get_irq_platspecific(uint32_t mask) {
-  uint32_t local_ints = mask & ((-1) << 12);
+    uint32_t local_ints = mask & ((-1) << 12);
 
-  // get irq number from plat specific section (priority to MSB)
-  for (int8_t i = 31; i > 0; --i) {
-      if ( (local_ints >> i) & 0x1 ) {
-          return i;
-      }
-  }
+    // get irq number from plat specific section (priority to MSB)
+    for (int8_t i = 31; i > 0; --i) {
+        if ((local_ints >> i) & 0x1) {
+            return i;
+        }
+    }
 
-  // unknown value (expected a valid mask in the region)
-  return -1;
+    // unknown value (expected a valid mask in the region)
+    return -1;
 }
 
 // matches how rocket-chip determines interrupt priorities
@@ -1607,12 +1605,11 @@ static inline int8_t get_irq_num(uint32_t mask) {
     // check if the int. is in the plat. specific region
     if (mask >= (1 << 12)) {
         return get_irq_platspecific(mask);
-    }
-    else {
+    } else {
         // get int. from the other priorities
         uint8_t priorities[] = {11, 3, 7, 10, 2, 6, 9, 1, 5, 8, 0, 4};
         for (uint8_t i = 0; i < 12; ++i) {
-            if ( (mask >> priorities[i]) & 0x1 ) {
+            if ((mask >> priorities[i]) & 0x1) {
                 return priorities[i];
             }
         }
@@ -1622,7 +1619,6 @@ static inline int8_t get_irq_num(uint32_t mask) {
 }
 
 static int __must_use_result raise_interrupt(RISCVCPUState *s) {
-
     uint32_t mask;
     int      irq_num;
 
@@ -1736,7 +1732,7 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid) {
         s->marchid   = 0;
         s->mimpid    = 0;
     } else {
-        s->mvendorid = 11 * 128 + 101; // Esperanto JEDEC number 101 in bank 11 (Change for your own)
+        s->mvendorid = 11 * 128 + 101;  // Esperanto JEDEC number 101 in bank 11 (Change for your own)
         s->marchid   = (1ULL << 63) | 2;
         s->mimpid    = 1;
     }
