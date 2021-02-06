@@ -1035,14 +1035,14 @@ void virt_machine_set_defaults(VirtMachineParams *p) {
     p->clint_size        = CLINT_SIZE;
 }
 
-RISCVMachine *global_virt_machine=0;
-uint8_t dromajo_get_byte_direct(uint64_t paddr) {
-  assert(global_virt_machine); // needed to have a global map
-  uint8_t *ptr = get_ram_ptr(global_virt_machine, paddr);
-  if (ptr == NULL)
-    return 0;
+RISCVMachine *global_virt_machine = 0;
+uint8_t       dromajo_get_byte_direct(uint64_t paddr) {
+    assert(global_virt_machine);  // needed to have a global map
+    uint8_t *ptr = get_ram_ptr(global_virt_machine, paddr);
+    if (ptr == NULL)
+        return 0;
 
-  return *ptr;
+    return *ptr;
 }
 
 RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
