@@ -349,13 +349,18 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
         }else{
           data = riscv_get_fpreg(s, rs2);
         }
+
+        // Track same thing in two different ways (needed for atomics)
+        assert(data == s->last_data_value);
+
         check_inorder_store(hartid, paddr, sz, data, io_map);
       }else if (do_amo) {
         uint8_t func5 = (dut_insn>>27) & 0x1F;
 
         // dut_wdata is the load result in DUT
-        uint8_t  rs1  = (dut_insn >> 15) & 0x1f;
-        uint64_t data = riscv_get_reg(s, rs1);
+        uint8_t  rd  = (dut_insn >> 7) & 0x1f;
+        uint64_t amo_rd_data = riscv_get_reg(s, rd);
+        assert(dut_wdata == amo_rd_data);
 
         bool rl = (dut_insn>>25) & 1;
         bool aq = (dut_insn>>26) & 1;
@@ -370,7 +375,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
           fprintf(dromajo_stderr, "FIXME: implement sc in goldmem\n");
           exit(-3);
         }else{ // all the other amoadd/amooand/... ops
-          check_inorder_amo(hartid, paddr, sz, dut_wdata, data, io_map);
+          check_inorder_amo(hartid, paddr, sz, s->last_data_value, dut_wdata, io_map);
         }
       }else{
         fprintf(dromajo_stderr, "FIXME: unknown opcode with goldmem\n");

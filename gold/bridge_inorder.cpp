@@ -76,7 +76,13 @@ void check_inorder_amo(int cid, uint64_t addr, uint8_t sz, uint64_t st_data, uin
 
     uint64_t data2 = d_ld.get_data(addr, sz);
     if (!io_map && data2 != rd_data) {
-        std::cerr << "FAIL: amo dut_data:" << rd_data << " gold_data:" << data2 << "\n";
+        Gold_nofity::fail("core:{} iid:{} amo mem[{:x}:{:x}] dut_data:{:x} gold_data:{:x}",
+                          cid,
+                          rid,
+                          addr,
+                          addr + sz - 1,
+                          rd_data,
+                          data2);
         cores[cid].dump();
         exit(-3);
     }

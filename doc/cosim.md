@@ -23,18 +23,24 @@ To create a trace, run any risc-v executable or checkpoint with dromajo as usual
 but create a trace
 
 ```
-./dromajo  --maxinsns 10k --trace 0 ~/projs/dromajo-old/run/riscv-tests/benchmarks/dhrystone.riscv 2>pp.trace
+./dromajo --maxinsns 10k --trace 0 ../riscv-simple-tests/rv64ua-p-amoxor_d 2>check.trace
 ```
 
 To read the trace and check that it is correct:
 
 ```
-./dromajo_cosim_test read pp.trace
+./dromajo_cosim_test read check.trace
 ```
 
 To co-simulate the trace against another instance of dromajo, and disassemble the trace
 
 ```
-./dromajo_cosim_test  cosim pp.trace ~/projs/dromajo-old/run/riscv-tests/benchmarks/dhrystone.riscv | spike-dasm
+./dromajo_cosim_test  cosim check.trace ../riscv-simple-tests/rv64ua-p-amoxor_d
+```
+
+If you have spike installed, you could:
+
+```
+./dromajo_cosim_test  cosim check.trace ../riscv-simple-tests/rv64ua-p-amoxor_d | spike-dasm
 ```
 

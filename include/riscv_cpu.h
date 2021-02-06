@@ -170,6 +170,9 @@ typedef struct RISCVCPUState {
     int          most_recently_written_reg;
 
     target_ulong last_data_paddr;
+#ifdef GOLDMEM_INORDER
+    target_ulong last_data_value;
+#endif
 
 #if FLEN > 0
     fp_uint  fp_reg[32];
