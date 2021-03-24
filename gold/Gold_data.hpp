@@ -82,7 +82,9 @@ class Gold_data {
 
     bool has_full_overlap(const uint64_t addr, const uint8_t sz) const {
         for (const auto &c : chunks) {
-            if (c.addr <= addr && (c.addr + c.data.size()) >= (addr + sz)) {
+            if (c.addr <= addr && addr + sz <= c.addr + c.data.size()) {
+                //     [c;              c+size]
+                //          [addr; addr+sz]
                 return true;
             }
         }
@@ -91,10 +93,14 @@ class Gold_data {
 
     bool has_partial_overlap(const uint64_t addr, const uint8_t sz) const {
         for (const auto &c : chunks) {
-            if (c.addr <= addr && (c.addr + c.data.size()) >= addr) {
+            if (c.addr <= addr && addr < c.addr + c.data.size()) {
+                //     [c;        c+size]
+                //          [addr;    addr+sz]
                 return true;
             }
-            if (c.addr <= (addr + sz) && (c.addr + c.data.size()) >= (addr + sz)) {
+            if (c.addr < addr + sz && addr + sz <= c.addr + c.data.size()) {
+                //        [c;        c+size]
+                // [addr;    addr+sz]
                 return true;
             }
         }
