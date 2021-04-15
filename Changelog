@@ -1,3 +1,7 @@
+2018-09-23:
+
+- added support for separate RISC-V BIOS and kernel
+
 2018-09-15:
 
 - renamed to TinyEMU (temu)

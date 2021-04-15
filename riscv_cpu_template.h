@@ -286,8 +286,13 @@ static void no_inline glue(riscv_cpu_interp_x, XLEN)(RISCVCPUState *s,
         }
 #if 0
         if (1) {
+#ifdef CONFIG_LOGFILE
+            log_printf("pc=0x"); fprint_target_ulong(log_file, GET_PC()); log_printf(" insn=%08x\n", insn);
+            fflush(log_file);
+#else
             printf("pc=0x"); print_target_ulong(GET_PC()); printf(" insn=%08x\n", insn);
             //            dump_regs(s);
+#endif
         }
 #endif
         opcode = insn & 0x7f;

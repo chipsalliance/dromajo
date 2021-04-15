@@ -462,6 +462,15 @@ static void fdt_prop_u32(FDTState *s, const char *prop_name, uint32_t val)
     fdt_prop_tab_u32(s, prop_name, &val, 1);
 }
 
+static void fdt_prop_tab_u64(FDTState *s, const char *prop_name,
+                             uint64_t v0)
+{
+    uint32_t tab[2];
+    tab[0] = v0 >> 32;
+    tab[1] = v0;
+    fdt_prop_tab_u32(s, prop_name, tab, 2);
+}
+
 static void fdt_prop_tab_u64_2(FDTState *s, const char *prop_name,
                                uint64_t v0, uint64_t v1)
 {
@@ -575,7 +584,9 @@ void fdt_end(FDTState *s)
     free(s);
 }
 
-static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
+static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst,
+                           uint64_t kernel_start, uint64_t kernel_size,
+                           const char *cmd_line)
 {
     FDTState *s;
     int size, max_xlen, i, cur_phandle, intc_phandle, plic_phandle;
@@ -618,7 +629,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
     *q = '\0';
     fdt_prop_str(s, "riscv,isa", isa_string);
     
-    fdt_prop_str(s, "mmu-type", max_xlen <= 32 ? "sv32" : "sv48");
+    fdt_prop_str(s, "mmu-type", max_xlen <= 32 ? "riscv,sv32" : "riscv,sv48");
     fdt_prop_u32(s, "clock-frequency", 2000000000);
 
     fdt_begin_node(s, "interrupt-controller");
@@ -642,7 +653,11 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
     fdt_prop_tab_u32(s, "reg", tab, 4);
     
     fdt_end_node(s); /* memory */
-    
+
+    fdt_begin_node(s, "htif");
+    fdt_prop_str(s, "compatible", "ucb,htif0");
+    fdt_end_node(s); /* htif */
+
     fdt_begin_node(s, "soc");
     fdt_prop_u32(s, "#address-cells", 2);
     fdt_prop_u32(s, "#size-cells", 2);
@@ -708,7 +723,11 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
 
     fdt_begin_node(s, "chosen");
     fdt_prop_str(s, "bootargs", cmd_line ? cmd_line : "");
-
+    if (kernel_size > 0) {
+        fdt_prop_tab_u64(s, "riscv,kernel-start", kernel_start);
+        fdt_prop_tab_u64(s, "riscv,kernel-end", kernel_start + kernel_size);
+    }
+    
     fdt_end_node(s); /* chosen */
     
     fdt_end_node(s); /* / */
@@ -726,26 +745,41 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
     return size;
 }
 
-static void copy_kernel(RISCVMachine *s, const uint8_t *buf, int buf_len,
-                        const char *cmd_line)
+static void copy_bios(RISCVMachine *s, const uint8_t *buf, int buf_len,
+                      const uint8_t *kernel_buf, int kernel_buf_len,
+                      const char *cmd_line)
 {
-    uint32_t fdt_addr;
+    uint32_t fdt_addr, kernel_align, kernel_base;
     uint8_t *ram_ptr;
     uint32_t *q;
 
     if (buf_len > s->ram_size) {
-        vm_error("Kernel too big\n");
+        vm_error("BIOS too big\n");
         exit(1);
     }
 
     ram_ptr = get_ram_ptr(s, RAM_BASE_ADDR, TRUE);
     memcpy(ram_ptr, buf, buf_len);
 
+    if (kernel_buf_len > 0) {
+        /* copy the kernel if present */
+        if (s->max_xlen == 32)
+            kernel_align = 4 << 20; /* 4 MB page align */
+        else
+            kernel_align = 2 << 20; /* 2 MB page align */
+        kernel_base = (buf_len + kernel_align - 1) & ~(kernel_align - 1);
+        memcpy(ram_ptr + kernel_base, kernel_buf, kernel_buf_len);
+    } else {
+        kernel_base = 0;
+    }
+
     ram_ptr = get_ram_ptr(s, 0, TRUE);
     
     fdt_addr = 0x1000 + 8 * 8;
 
-    riscv_build_fdt(s, ram_ptr + fdt_addr, cmd_line);
+    riscv_build_fdt(s, ram_ptr + fdt_addr,
+                    RAM_BASE_ADDR + kernel_base,
+                    kernel_buf_len, cmd_line);
 
     /* jump_addr = 0x80000000 */
     
@@ -910,8 +944,10 @@ static VirtMachine *riscv_machine_init(const VirtMachineParams *p)
     if (!p->files[VM_FILE_BIOS].buf) {
         vm_error("No bios found");
     }
-    copy_kernel(s, p->files[VM_FILE_BIOS].buf, p->files[VM_FILE_BIOS].len,
-                p->cmdline);
+
+    copy_bios(s, p->files[VM_FILE_BIOS].buf, p->files[VM_FILE_BIOS].len,
+              p->files[VM_FILE_KERNEL].buf, p->files[VM_FILE_KERNEL].len,
+              p->cmdline);
     
     return (VirtMachine *)s;
 }
