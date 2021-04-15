@@ -79,6 +79,7 @@ struct PhysMemoryMap {
                                   size_t ram_size);
 };
 
+
 PhysMemoryMap *phys_mem_map_init(void);
 void phys_mem_map_end(PhysMemoryMap *s);
 PhysMemoryRange *register_ram_entry(PhysMemoryMap *s, uint64_t addr,
@@ -123,6 +124,9 @@ static inline BOOL phys_mem_is_dirty_bit(PhysMemoryRange *pr, size_t offset)
     dirty_bits_ptr = pr->dirty_bits + (page_index >> 5);
     return (*dirty_bits_ptr >> (page_index & 0x1f)) & 1;
 }
+
+void phys_mem_reset_dirty_bit(PhysMemoryRange *pr, size_t offset);
+uint8_t *phys_mem_get_ram_ptr(PhysMemoryMap *map, uint64_t paddr, BOOL is_rw);
 
 /* IRQ support */
 

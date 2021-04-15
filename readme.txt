@@ -1,5 +1,5 @@
-RISCV Emulator by Fabrice Bellard
-=================================
+TinyEMU System Emulator by Fabrice Bellard
+==========================================
 
 1) Features
 -----------
@@ -13,13 +13,15 @@ RISCV Emulator by Fabrice Bellard
   - Compressed instructions
   - dynamic XLEN change
 
+- x86 system emulator based on KVM
+
 - VirtIO console, network, block device, input and 9P filesystem
 
 - Graphical display with SDL
 
 - JSON configuration file
 
-- x86 system emulator based on KVM
+- Remote HTTP block device and filesystem
 
 - small code, easy to modify, no external dependancies
 
@@ -31,7 +33,7 @@ RISCV Emulator by Fabrice Bellard
 - The libraries libcurl, OpenSSL and SDL should be installed. On a Fedora
   system you can do it with:
 
-  sudo yum install openssl-devel libcurl-devel SDL-devel
+  sudo dnf install openssl-devel libcurl-devel SDL-devel
 
   It is possible to compile the programs without these libraries by
   commenting CONFIG_FS_NET and/or CONFIG_SDL in the Makefile.
@@ -42,7 +44,7 @@ RISCV Emulator by Fabrice Bellard
 
 - Use 'make' to compile the binaries.
 
-- You can optionally install the programs to '/usr/local/bin' with:
+- You can optionally install the program to '/usr/local/bin' with:
 
   make install
 
@@ -57,23 +59,24 @@ RISCV Emulator by Fabrice Bellard
 
   Terminal:
 
-  ./riscvemu https://bellard.org/jslinux/buildroot-riscv64.cfg
+  ./temu https://bellard.org/jslinux/buildroot-riscv64.cfg
 
   Graphical (with SDL):
 
-  ./x86emu https://bellard.org/jslinux/buildroot-x86-xwin.cfg
+  ./temu https://bellard.org/jslinux/buildroot-x86-xwin.cfg
 
-  ./x86emu https://bellard.org/jslinux/win2k.cfg
+  ./temu https://bellard.org/jslinux/win2k.cfg
 
-- Download the example RISC-V Linux image and use it:
+- Download the example RISC-V Linux image
+  (diskimage-linux-riscv-x-y-z.tar.gz) and use it:
 
-  ./riscvemu root-riscv64.cfg
+  ./temu root-riscv64.cfg
 
-  ./riscvemu128 rv128test/rv128test.cfg
+  ./temu rv128test/rv128test.cfg
 
 - Access to your local hard disk (/tmp directory) in the guest:
 
-  ./riscvemu root_9p-riscv64.cfg
+  ./temu root_9p-riscv64.cfg
 
 then type:
 mount -t 9p /dev/root /mnt
@@ -83,14 +86,14 @@ in the guest. The content of the host '/tmp' directory is visible in '/mnt'.
 3.2 Invocation
 --------------
 
-usage: riscvemu [options] config_file
+usage: temu [options] config_file
 options are:
--b [32|64|128]    set the integer register width in bits
--m ram_size       set the RAM size in MB (default=256)
+-m ram_size       set the RAM size in MB
 -rw               allow write access to the disk image (default=snapshot)
 -ctrlc            the C-c key stops the emulator instead of being sent to the
                   emulated software
 -append cmdline   append cmdline to the kernel command line
+-no-accel         disable VM acceleration (KVM, x86 machine only)
 
 Console keys:
 Press C-a x to exit the emulator, C-a h to get some help.
@@ -101,7 +104,7 @@ Press C-a x to exit the emulator, C-a h to get some help.
 The easiest way is to use the "user" mode network driver. No specific
 configuration is necessary.
 
-RISCVEMU also supports a "tap" network driver to redirect the network
+TinyEMU also supports a "tap" network driver to redirect the network
 traffic from a VirtIO network adapter.
 
 You can look at the netinit.sh script to create the tap network
@@ -121,7 +124,7 @@ route add -net 0.0.0.0 gw 192.168.3.1 eth0
 3.4 Network filesystem
 ----------------------
 
-RISCVEMU supports the VirtIO 9P filesystem to access local or remote
+TinyEMU supports the VirtIO 9P filesystem to access local or remote
 filesystems. For remote filesystems, it does HTTP requests to download
 the files. The protocol is compatible with the vfsync utility. In the
 "mount" command, "/dev/rootN" must be used as device name where N is
@@ -136,7 +139,7 @@ given file.
 3.5 Network block device
 ------------------------
 
-RISCVEMU supports an HTTP block device. The disk image is split into
+TinyEMU supports an HTTP block device. The disk image is split into
 small files. Use the 'splitimg' utility to generate images. The URL of
 the JSON blk.txt file must be provided as disk image filename.
 
@@ -162,7 +165,7 @@ numbers. It uses the new SoftFP library.
 4.3) HTIF console
 
 The standard HTIF console uses registers at variable addresses which
-are deduced by loading specific ELF symbols. RISCVEMU does not rely on
+are deduced by loading specific ELF symbols. TinyEMU does not rely on
 an ELF loader, so it is much simpler to use registers at fixed
 addresses (0x40008000). A small modification was made in the
 "riscv-pk" boot loader to support it. The HTIF console is only used to
@@ -192,12 +195,7 @@ hosted at https://bellard.org/jslinux .
 5) License / Credits
 --------------------
 
-riscvemu and x86emu are released under the MIT license. If there is no
-explicit license in a file, the license from MIT-LICENSE.txt applies.
-
-The scrollbar images and scrollbar CSS styles originally came from
-'tinyscrollbar' by Maarten Baijs
-(https://github.com/wieringen/tinyscrollbar) and are released under
-the MIT license.
+TinyEMU is released under the MIT license. If there is no explicit
+license in a file, the license from MIT-LICENSE.txt applies.
 
 The SLIRP library has its own license (two clause BSD license).

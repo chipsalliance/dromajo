@@ -52,6 +52,17 @@ typedef struct CachedBlock {
     FileBuffer fbuf;
 } CachedBlock;
 
+#define BLK_FMT "%sblk%09u.bin"
+#define GROUP_FMT "%sgrp%09u.bin"
+#define PREFETCH_GROUP_LEN_MAX 32
+
+typedef struct {
+    struct BlockDeviceHTTP *bf;
+    int group_num;
+    int n_block_num;
+    CachedBlock *tab_block[PREFETCH_GROUP_LEN_MAX];
+} PrefetchGroupRequest;
+
 /* modified data is stored per cluster (smaller than cached blocks to
    avoid losing space) */
 typedef struct Cluster {
@@ -92,10 +103,16 @@ typedef struct BlockDeviceHTTP {
     BlockDeviceCompletionFunc *cb;
     void *opaque;
     uint8_t *io_buf;
+
+    /* prefetch */
+    int prefetch_group_len;
 } BlockDeviceHTTP;
 
+static void bf_update_block(CachedBlock *b, const uint8_t *data);
 static void bf_read_onload(void *opaque, int err, void *data, size_t size);
 static void bf_init_onload(void *opaque, int err, void *data, size_t size);
+static void bf_prefetch_group_onload(void *opaque, int err, void *data,
+                                     size_t size);
 
 static CachedBlock *bf_find_block(BlockDeviceHTTP *bf, unsigned int block_num)
 {
@@ -156,8 +173,6 @@ static int64_t bf_get_sector_count(BlockDevice *bs)
     return bf->nb_sectors;
 }
 
-#define BLK_FMT "%sblk%09u.bin"
-
 static void bf_start_load_block(BlockDevice *bs, int block_num)
 {
     BlockDeviceHTTP *bf = bs->opaque;
@@ -180,6 +195,68 @@ static void bf_start_load_block(BlockDevice *bs, int block_num)
     snprintf(filename, sizeof(filename), BLK_FMT, bf->url, block_num);
     //    printf("wget %s\n", filename);
     fs_wget(filename, NULL, NULL, b, bf_read_onload, TRUE);
+}
+
+static void bf_start_load_prefetch_group(BlockDevice *bs, int group_num,
+                                         const int *tab_block_num,
+                                         int n_block_num)
+{
+    BlockDeviceHTTP *bf = bs->opaque;
+    CachedBlock *b;
+    PrefetchGroupRequest *req;
+    char filename[1024];
+    BOOL req_flag;
+    int i;
+    
+    req_flag = FALSE;
+    req = malloc(sizeof(*req));
+    req->bf = bf;
+    req->group_num = group_num;
+    req->n_block_num = n_block_num;
+    for(i = 0; i < n_block_num; i++) {
+        b = bf_find_block(bf, tab_block_num[i]);
+        if (!b) {
+            b = bf_add_block(bf, tab_block_num[i]);
+            req_flag = TRUE;
+        } else {
+            /* no need to read the block if it is already loading or
+               loaded */
+            b = NULL;
+        }
+        req->tab_block[i] = b;
+    }
+
+    if (req_flag) {
+        snprintf(filename, sizeof(filename), GROUP_FMT, bf->url, group_num);
+        //        printf("wget %s\n", filename);
+        fs_wget(filename, NULL, NULL, req, bf_prefetch_group_onload, TRUE);
+        /* XXX: should add request in a list to free it for clean exit */
+    } else {
+        free(req);
+    }
+}
+
+static void bf_prefetch_group_onload(void *opaque, int err, void *data,
+                                     size_t size)
+{
+    PrefetchGroupRequest *req = opaque;
+    BlockDeviceHTTP *bf = req->bf;
+    CachedBlock *b;
+    int block_bytes, i;
+    
+    if (err < 0) {
+        fprintf(stderr, "Could not load group %u\n", req->group_num);
+        exit(1);
+    }
+    block_bytes = bf->block_size * 512;
+    assert(size == block_bytes * req->n_block_num);
+    for(i = 0; i < req->n_block_num; i++) {
+        b = req->tab_block[i];
+        if (b) {
+            bf_update_block(b, (const uint8_t *)data + block_bytes * i);
+        }
+    }
+    free(req);
 }
 
 static int bf_rw_async1(BlockDevice *bs, BOOL is_sync)
@@ -261,11 +338,25 @@ static int bf_rw_async1(BlockDevice *bs, BOOL is_sync)
     return 0;
 }
 
+static void bf_update_block(CachedBlock *b, const uint8_t *data)
+{
+    BlockDeviceHTTP *bf = b->bf;
+    BlockDevice *bs = bf->bs;
+
+    assert(b->state == CBLOCK_LOADING);
+    file_buffer_write(&b->fbuf, 0, data, bf->block_size * 512);
+    b->state = CBLOCK_LOADED;
+    
+    /* continue I/O read/write if necessary */
+    if (b->block_num == bf->cur_block_num) {
+        bf_rw_async1(bs, FALSE);
+    }
+}
+
 static void bf_read_onload(void *opaque, int err, void *data, size_t size)
 {
     CachedBlock *b = opaque;
     BlockDeviceHTTP *bf = b->bf;
-    BlockDevice *bs = bf->bs;
 
     if (err < 0) {
         fprintf(stderr, "Could not load block %u\n", b->block_num);
@@ -273,13 +364,7 @@ static void bf_read_onload(void *opaque, int err, void *data, size_t size)
     }
     
     assert(size == bf->block_size * 512);
-    file_buffer_write(&b->fbuf, 0, data, size);
-    b->state = CBLOCK_LOADED;
-    
-    /* continue I/O read/write if necessary */
-    if (b->block_num == bf->cur_block_num) {
-        bf_rw_async1(bs, FALSE);
-    }
+    bf_update_block(b, data);
 }
 
 static int bf_read_async(BlockDevice *bs,
@@ -396,29 +481,46 @@ static void bf_init_onload(void *opaque, int err, void *data, size_t size)
     bf->n_clusters = (bf->nb_sectors + bf->sectors_per_cluster - 1) / bf->sectors_per_cluster;
     bf->clusters = mallocz(sizeof(bf->clusters[0]) * bf->n_clusters);
 
+    if (vm_get_int_opt(cfg, "prefetch_group_len",
+                       &bf->prefetch_group_len, 1) < 0)
+        goto config_error;
+    if (bf->prefetch_group_len > PREFETCH_GROUP_LEN_MAX) {
+        vm_error("prefetch_group_len is too large");
+        goto config_error;
+    }
+    
     array = json_object_get(cfg, "prefetch");
     if (!json_is_undefined(array)) {
-        int idx;
+        int idx, prefetch_len, l, i;
         JSONValue el;
-        
+        int tab_block_num[PREFETCH_GROUP_LEN_MAX];
+                          
         if (array.type != JSON_ARRAY) {
             vm_error("expecting an array\n");
             goto config_error;
         }
+        prefetch_len = array.u.array->len;
         idx = 0;
-        for(;;) {
-            el = json_array_get(array, idx);
-            if (json_is_undefined(el))
-                break;
-            if (el.type != JSON_INT) {
-                vm_error("expecting an integer\n");
-                goto config_error;
+        while (idx < prefetch_len) {
+            l = min_int(prefetch_len - idx, bf->prefetch_group_len);
+            for(i = 0; i < l; i++) {
+                el = json_array_get(array, idx + i);
+                if (el.type != JSON_INT) {
+                    vm_error("expecting an integer\n");
+                    goto config_error;
+                }
+                tab_block_num[i] = el.u.int32;
             }
-            block_num = el.u.int32;
-            if (!bf_find_block(bf, block_num)) {
-                bf_start_load_block(bs, block_num);
+            if (l == 1) {
+                block_num = tab_block_num[0];
+                if (!bf_find_block(bf, block_num)) {
+                    bf_start_load_block(bs, block_num);
+                }
+            } else {
+                bf_start_load_prefetch_group(bs, idx / bf->prefetch_group_len,
+                                             tab_block_num, l);
             }
-            idx++;
+            idx += l;
         }
     }
     json_free(cfg);

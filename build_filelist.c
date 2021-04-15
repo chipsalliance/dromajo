@@ -33,6 +33,7 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <errno.h>
+#include <sys/sysmacros.h>
 
 #include "cutils.h"
 #include "fs_utils.h"
@@ -201,7 +202,10 @@ void scan_dir(ScanState *s, const char *path)
 
 void help(void)
 {
-    printf("usage: build_filelist source_path dest_path\n");
+    printf("usage: build_filelist [options] source_path dest_path\n"
+           "\n"
+           "Options:\n"
+           "-m size_mb  set the max filesystem size in MiB\n");
     exit(1);
 }
 
@@ -216,12 +220,13 @@ int main(int argc, char **argv)
     FSFileID root_id;
     char fname[FILEID_SIZE_MAX];
     struct stat st;
-    uint64_t first_inode;
+    uint64_t first_inode, fs_max_size;
     int c;
     
     first_inode = 1;
+    fs_max_size = (uint64_t)1 << 30;
     for(;;) {
-        c = getopt(argc, argv, "hi:");
+        c = getopt(argc, argv, "hi:m:");
         if (c == -1)
             break;
         switch(c) {
@@ -229,6 +234,9 @@ int main(int argc, char **argv)
             help();
         case 'i':
             first_inode = strtoul(optarg, NULL, 0);
+            break;
+        case 'm':
+            fs_max_size = (uint64_t)strtoul(optarg, NULL, 0) << 20;
             break;
         default:
             exit(1);
@@ -245,8 +253,7 @@ int main(int argc, char **argv)
     s->files_path = compose_path(dst_path, ROOT_FILENAME);
     s->next_inode_num = first_inode;
     s->fs_size = 0;
-    /* dummy value */
-    s->fs_max_size = (uint64_t)1 << 30;
+    s->fs_max_size = fs_max_size;
         
     mkdir(s->files_path, 0755);
 

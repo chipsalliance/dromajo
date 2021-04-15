@@ -42,6 +42,8 @@
 #endif
 #define countof(x) (sizeof(x) / sizeof(x[0]))
 
+#define DLL_PUBLIC __attribute__ ((visibility ("default")))
+
 #ifndef _BOOL_defined
 #define _BOOL_defined
 #undef FALSE

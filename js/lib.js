@@ -137,6 +137,11 @@ mergeInto(LibraryManager.library, {
     return handle;
   },
 
+  fs_wget_update_downloading: function (flag)
+  {
+      update_downloading(Boolean(flag));
+  },
+    
   fb_refresh: function(opaque, data, x, y, w, h, stride)
   {
       var i, j, v, src, image_data, dst_pos, display, dst_pos1, image_stride;

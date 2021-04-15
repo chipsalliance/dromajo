@@ -135,7 +135,7 @@ static F_UINT glue(glue(glue(internal_cvt_i, ICVT_SIZE), _sf), F_SIZE)(ICVT_INT 
 
     if (!is_unsigned && a < 0) {
         a_sign = 1;
-        r = -a;
+        r = -(ICVT_UINT)a;
     } else {
         a_sign = 0;
         r = a;

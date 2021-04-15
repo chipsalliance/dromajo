@@ -111,7 +111,7 @@ static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
 #endif
 
 /* release all pressed keys */
-static __attribute__((unused)) void sdl_reset_keys(VirtMachine *m)
+static void sdl_reset_keys(VirtMachine *m)
 {
     int i;
     
@@ -139,6 +139,10 @@ static void sdl_handle_key_event(const SDL_KeyboardEvent *ev, VirtMachine *m)
                 key_pressed[keycode] = keypress;
             vm_send_key_event(m, keypress, keycode);
         }
+    } else if (ev->type == SDL_KEYUP) {
+        /* workaround to reset the keyboard state (used when changing
+           desktop with ctrl-alt-x on Linux) */
+        sdl_reset_keys(m);
     }
 }
 

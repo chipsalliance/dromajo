@@ -1501,9 +1501,8 @@ static uint32_t ld_port(void *opaque, uint32_t port1, int size_log2)
     return val;
 }
 
-void virt_machine_set_defaults(VirtMachineParams *p)
+static void pc_machine_set_defaults(VirtMachineParams *p)
 {
-    memset(p, 0, sizeof(*p));
     p->accel_enable = TRUE;
 }
 
@@ -1958,16 +1957,22 @@ static void pc_flush_tlb_write_range(void *opaque, uint8_t *ram_addr,
     x86_cpu_flush_tlb_write_range_ram(s->cpu_state, ram_addr, ram_size);
 }
 
-VirtMachine *virt_machine_init(const VirtMachineParams *p)
+static VirtMachine *pc_machine_init(const VirtMachineParams *p)
 {
     PCMachine *s;
     int i, piix3_devfn;
     PCIBus *pci_bus;
     VIRTIOBusDef vbus_s, *vbus = &vbus_s;
     
+    if (strcmp(p->machine_name, "pc") != 0) {
+        vm_error("unsupported machine: %s\n", p->machine_name);
+        return NULL;
+    }
+
     assert(p->ram_size >= (1 << 20));
 
     s = mallocz(sizeof(*s));
+    s->common.vmc = p->vmc;
     s->ram_size = p->ram_size;
     
     s->port_map = phys_mem_map_init();
@@ -2156,7 +2161,7 @@ VirtMachine *virt_machine_init(const VirtMachineParams *p)
     return (VirtMachine *)s;
 }
 
-void virt_machine_end(VirtMachine *s1)
+static void pc_machine_end(VirtMachine *s1)
 {
     PCMachine *s = (PCMachine *)s1;
     /* XXX: free all */
@@ -2168,7 +2173,7 @@ void virt_machine_end(VirtMachine *s1)
     free(s);
 }
 
-void vm_send_key_event(VirtMachine *s1, BOOL is_down, uint16_t key_code)
+static void pc_vm_send_key_event(VirtMachine *s1, BOOL is_down, uint16_t key_code)
 {
     PCMachine *s = (PCMachine *)s1;
     if (s->keyboard_dev) {
@@ -2178,7 +2183,7 @@ void vm_send_key_event(VirtMachine *s1, BOOL is_down, uint16_t key_code)
     }
 }
 
-BOOL vm_mouse_is_absolute(VirtMachine *s1)
+static BOOL pc_vm_mouse_is_absolute(VirtMachine *s1)
 {
     PCMachine *s = (PCMachine *)s1;
     if (s->mouse_dev) {
@@ -2190,8 +2195,8 @@ BOOL vm_mouse_is_absolute(VirtMachine *s1)
     }
 }
 
-void vm_send_mouse_event(VirtMachine *s1, int dx, int dy, int dz,
-                        unsigned int buttons)
+static void pc_vm_send_mouse_event(VirtMachine *s1, int dx, int dy, int dz,
+                                   unsigned int buttons)
 {
     PCMachine *s = (PCMachine *)s1;
     if (s->mouse_dev) {
@@ -2518,7 +2523,7 @@ static void copy_kernel(PCMachine *s, const uint8_t *buf, int buf_len,
 }
 
 /* in ms */
-int virt_machine_get_sleep_duration(VirtMachine *s1, int delay)
+static int pc_machine_get_sleep_duration(VirtMachine *s1, int delay)
 {
     PCMachine *s = (PCMachine *)s1;
 
@@ -2538,7 +2543,7 @@ int virt_machine_get_sleep_duration(VirtMachine *s1, int delay)
     return delay;
 }
 
-void virt_machine_interp(VirtMachine *s1, int max_exec_cycles)
+static void pc_machine_interp(VirtMachine *s1, int max_exec_cycles)
 {
     PCMachine *s = (PCMachine *)s1;
 #ifdef USE_KVM
@@ -2551,7 +2556,14 @@ void virt_machine_interp(VirtMachine *s1, int max_exec_cycles)
     }
 }
 
-const char *virt_machine_get_name(void)
-{
-    return "pc";
-}
+const VirtMachineClass pc_machine_class = {
+    "pc",
+    pc_machine_set_defaults,
+    pc_machine_init,
+    pc_machine_end,
+    pc_machine_get_sleep_duration,
+    pc_machine_interp,
+    pc_vm_mouse_is_absolute,
+    pc_vm_send_mouse_event,
+    pc_vm_send_key_event,
+};

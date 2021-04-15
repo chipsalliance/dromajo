@@ -123,7 +123,7 @@ typedef int VIRTIODeviceRecvFunc(VIRTIODevice *s1, int queue_idx,
                                  int write_size);
 
 /* return NULL if no RAM at this address. The mapping is valid for one page */
-typedef uint8_t *VIRTIOGetRAMPtrFunc(VIRTIODevice *s, virtio_phys_addr_t paddr);
+typedef uint8_t *VIRTIOGetRAMPtrFunc(VIRTIODevice *s, virtio_phys_addr_t paddr, BOOL is_rw);
 
 struct VIRTIODevice {
     PhysMemoryMap *mem_map;
@@ -178,19 +178,14 @@ static void virtio_reset(VIRTIODevice *s)
     }
 }
 
-static uint8_t *virtio_pci_get_ram_ptr(VIRTIODevice *s, virtio_phys_addr_t paddr)
+static uint8_t *virtio_pci_get_ram_ptr(VIRTIODevice *s, virtio_phys_addr_t paddr, BOOL is_rw)
 {
-    return pci_device_get_dma_ptr(s->pci_dev, paddr);
+    return pci_device_get_dma_ptr(s->pci_dev, paddr, is_rw);
 }
 
-static uint8_t *virtio_mmio_get_ram_ptr(VIRTIODevice *s, virtio_phys_addr_t paddr)
+static uint8_t *virtio_mmio_get_ram_ptr(VIRTIODevice *s, virtio_phys_addr_t paddr, BOOL is_rw)
 {
-    PhysMemoryRange *pr;
-    
-    pr = get_phys_mem_range(s->mem_map, paddr);
-    if (!pr || !pr->is_ram)
-        return NULL;
-    return pr->phys_mem + (uintptr_t)(paddr - pr->addr);
+    return phys_mem_get_ram_ptr(s->mem_map, paddr, is_rw);
 }
 
 static void virtio_add_pci_capability(VIRTIODevice *s, int cfg_type,
@@ -305,7 +300,7 @@ static uint16_t virtio_read16(VIRTIODevice *s, virtio_phys_addr_t addr)
     uint8_t *ptr;
     if (addr & 1)
         return 0; /* unaligned access are not supported */
-    ptr = s->get_ram_ptr(s, addr);
+    ptr = s->get_ram_ptr(s, addr, FALSE);
     if (!ptr)
         return 0;
     return *(uint16_t *)ptr;
@@ -317,7 +312,7 @@ static void virtio_write16(VIRTIODevice *s, virtio_phys_addr_t addr,
     uint8_t *ptr;
     if (addr & 1)
         return; /* unaligned access are not supported */
-    ptr = s->get_ram_ptr(s, addr);
+    ptr = s->get_ram_ptr(s, addr, TRUE);
     if (!ptr)
         return;
     *(uint16_t *)ptr = val;
@@ -329,7 +324,7 @@ static void virtio_write32(VIRTIODevice *s, virtio_phys_addr_t addr,
     uint8_t *ptr;
     if (addr & 3)
         return; /* unaligned access are not supported */
-    ptr = s->get_ram_ptr(s, addr);
+    ptr = s->get_ram_ptr(s, addr, TRUE);
     if (!ptr)
         return;
     *(uint32_t *)ptr = val;
@@ -343,7 +338,7 @@ static int virtio_memcpy_from_ram(VIRTIODevice *s, uint8_t *buf,
 
     while (count > 0) {
         l = min_int(count, VIRTIO_PAGE_SIZE - (addr & (VIRTIO_PAGE_SIZE - 1)));
-        ptr = s->get_ram_ptr(s, addr);
+        ptr = s->get_ram_ptr(s, addr, FALSE);
         if (!ptr)
             return -1;
         memcpy(buf, ptr, l);
@@ -362,7 +357,7 @@ static int virtio_memcpy_to_ram(VIRTIODevice *s, virtio_phys_addr_t addr,
 
     while (count > 0) {
         l = min_int(count, VIRTIO_PAGE_SIZE - (addr & (VIRTIO_PAGE_SIZE - 1)));
-        ptr = s->get_ram_ptr(s, addr);
+        ptr = s->get_ram_ptr(s, addr, TRUE);
         if (!ptr)
             return -1;
         memcpy(ptr, buf, l);

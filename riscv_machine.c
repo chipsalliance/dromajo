@@ -43,6 +43,7 @@
 typedef struct RISCVMachine {
     VirtMachine common;
     PhysMemoryMap *mem_map;
+    int max_xlen;
     RISCVCPUState *cpu_state;
     uint64_t ram_size;
     /* RTC */
@@ -312,12 +313,9 @@ static void plic_set_irq(void *opaque, int irq_num, int state)
     plic_update_mip(s);
 }
 
-static uint8_t *get_ram_ptr(RISCVMachine *s, uint64_t paddr)
+static uint8_t *get_ram_ptr(RISCVMachine *s, uint64_t paddr, BOOL is_rw)
 {
-    PhysMemoryRange *pr = get_phys_mem_range(s->mem_map, paddr);
-    if (!pr || !pr->is_ram)
-        return NULL;
-    return pr->phys_mem + (uintptr_t)(paddr - pr->addr);
+    return phys_mem_get_ram_ptr(s->mem_map, paddr, is_rw);
 }
 
 /* FDT machine description */
@@ -609,7 +607,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *cmd_line)
     fdt_prop_str(s, "status", "okay");
     fdt_prop_str(s, "compatible", "riscv");
 
-    max_xlen = riscv_cpu_get_max_xlen();
+    max_xlen = m->max_xlen;
     misa = riscv_cpu_get_misa(m->cpu_state);
     q = isa_string;
     q += snprintf(isa_string, sizeof(isa_string), "rv%d", max_xlen);
@@ -740,10 +738,10 @@ static void copy_kernel(RISCVMachine *s, const uint8_t *buf, int buf_len,
         exit(1);
     }
 
-    ram_ptr = get_ram_ptr(s, RAM_BASE_ADDR);
+    ram_ptr = get_ram_ptr(s, RAM_BASE_ADDR, TRUE);
     memcpy(ram_ptr, buf, buf_len);
 
-    ram_ptr = get_ram_ptr(s, 0);
+    ram_ptr = get_ram_ptr(s, 0, TRUE);
     
     fdt_addr = 0x1000 + 8 * 8;
 
@@ -766,32 +764,48 @@ static void riscv_flush_tlb_write_range(void *opaque, uint8_t *ram_addr,
     riscv_cpu_flush_tlb_write_range_ram(s->cpu_state, ram_addr, ram_size);
 }
 
-void virt_machine_set_defaults(VirtMachineParams *p)
+static void riscv_machine_set_defaults(VirtMachineParams *p)
 {
-    memset(p, 0, sizeof(*p));
 }
 
-VirtMachine *virt_machine_init(const VirtMachineParams *p)
+static VirtMachine *riscv_machine_init(const VirtMachineParams *p)
 {
     RISCVMachine *s;
     VIRTIODevice *blk_dev;
-    int irq_num, i;
+    int irq_num, i, max_xlen, ram_flags;
     VIRTIOBusDef vbus_s, *vbus = &vbus_s;
 
-    s = mallocz(sizeof(*s));
 
+    if (!strcmp(p->machine_name, "riscv32")) {
+        max_xlen = 32;
+    } else if (!strcmp(p->machine_name, "riscv64")) {
+        max_xlen = 64;
+    } else if (!strcmp(p->machine_name, "riscv128")) {
+        max_xlen = 128;
+    } else {
+        vm_error("unsupported machine: %s\n", p->machine_name);
+        return NULL;
+    }
+    
+    s = mallocz(sizeof(*s));
+    s->common.vmc = p->vmc;
     s->ram_size = p->ram_size;
+    s->max_xlen = max_xlen;
     s->mem_map = phys_mem_map_init();
     /* needed to handle the RAM dirty bits */
     s->mem_map->opaque = s;
     s->mem_map->flush_tlb_write_range = riscv_flush_tlb_write_range;
 
-    s->cpu_state = riscv_cpu_init(s->mem_map);
-
+    s->cpu_state = riscv_cpu_init(s->mem_map, max_xlen);
+    if (!s->cpu_state) {
+        vm_error("unsupported max_xlen=%d\n", max_xlen);
+        /* XXX: should free resources */
+        return NULL;
+    }
     /* RAM */
-    cpu_register_ram(s->mem_map, RAM_BASE_ADDR, p->ram_size, 0);
+    ram_flags = 0;
+    cpu_register_ram(s->mem_map, RAM_BASE_ADDR, p->ram_size, ram_flags);
     cpu_register_ram(s->mem_map, 0x00000000, LOW_RAM_SIZE, 0);
-    
     s->rtc_real_time = p->rtc_real_time;
     if (p->rtc_real_time) {
         s->rtc_start_time = rtc_get_real_time(s);
@@ -902,7 +916,7 @@ VirtMachine *virt_machine_init(const VirtMachineParams *p)
     return (VirtMachine *)s;
 }
 
-void virt_machine_end(VirtMachine *s1)
+static void riscv_machine_end(VirtMachine *s1)
 {
     RISCVMachine *s = (RISCVMachine *)s1;
     /* XXX: stop all */
@@ -912,7 +926,7 @@ void virt_machine_end(VirtMachine *s1)
 }
 
 /* in ms */
-int virt_machine_get_sleep_duration(VirtMachine *s1, int delay)
+static int riscv_machine_get_sleep_duration(VirtMachine *s1, int delay)
 {
     RISCVMachine *m = (RISCVMachine *)s1;
     RISCVCPUState *s = m->cpu_state;
@@ -936,28 +950,14 @@ int virt_machine_get_sleep_duration(VirtMachine *s1, int delay)
     return delay;
 }
 
-void virt_machine_interp(VirtMachine *s1, int max_exec_cycle)
+static void riscv_machine_interp(VirtMachine *s1, int max_exec_cycle)
 {
     RISCVMachine *s = (RISCVMachine *)s1;
     riscv_cpu_interp(s->cpu_state, max_exec_cycle);
 }
 
-const char *virt_machine_get_name(void)
-{
-    switch(riscv_cpu_get_max_xlen()) {
-    case 32:
-        return "riscv32";
-    case 64:
-        return "riscv64";
-    case 128:
-        return "riscv128";
-    default:
-        abort();
-    }
-}
-
-void vm_send_key_event(VirtMachine *s1, BOOL is_down,
-                       uint16_t key_code)
+static void riscv_vm_send_key_event(VirtMachine *s1, BOOL is_down,
+                                    uint16_t key_code)
 {
     RISCVMachine *s = (RISCVMachine *)s1;
     if (s->keyboard_dev) {
@@ -965,16 +965,28 @@ void vm_send_key_event(VirtMachine *s1, BOOL is_down,
     }
 }
 
-BOOL vm_mouse_is_absolute(VirtMachine *s)
+static BOOL riscv_vm_mouse_is_absolute(VirtMachine *s)
 {
     return TRUE;
 }
 
-void vm_send_mouse_event(VirtMachine *s1, int dx, int dy, int dz,
-                        unsigned int buttons)
+static void riscv_vm_send_mouse_event(VirtMachine *s1, int dx, int dy, int dz,
+                                      unsigned int buttons)
 {
     RISCVMachine *s = (RISCVMachine *)s1;
     if (s->mouse_dev) {
         virtio_input_send_mouse_event(s->mouse_dev, dx, dy, dz, buttons);
     }
 }
+
+const VirtMachineClass riscv_machine_class = {
+    "riscv32,riscv64,riscv128",
+    riscv_machine_set_defaults,
+    riscv_machine_init,
+    riscv_machine_end,
+    riscv_machine_get_sleep_duration,
+    riscv_machine_interp,
+    riscv_vm_mouse_is_absolute,
+    riscv_vm_send_mouse_event,
+    riscv_vm_send_key_event,
+};

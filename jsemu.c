@@ -224,7 +224,7 @@ static void init_vm_drive(void *arg)
         assert(p->drive_count == 1);
         p->tab_drive[0].block_dev =
             block_device_init_http(p->tab_drive[0].filename,
-                                   65536,
+                                   131072,
                                    init_vm, s);
     } else {
         init_vm(s);

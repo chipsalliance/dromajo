@@ -404,13 +404,9 @@ static uint32_t pci_data_read(PCIBus *s, uint32_t addr, int size_log2)
 
 /* warning: only valid for one DEVIO page. Return NULL if no memory at
    the given address */
-uint8_t *pci_device_get_dma_ptr(PCIDevice *d, uint64_t addr)
+uint8_t *pci_device_get_dma_ptr(PCIDevice *d, uint64_t addr, BOOL is_rw)
 {
-    PhysMemoryRange *pr;
-    pr = get_phys_mem_range(d->bus->mem_map, addr);
-    if (!pr || !pr->is_ram)
-        return NULL;
-    return pr->phys_mem + (uintptr_t)(addr - pr->addr);
+    return phys_mem_get_ram_ptr(d->bus->mem_map, addr, is_rw);
 }
 
 void pci_device_set_config8(PCIDevice *d, uint8_t addr, uint8_t val)

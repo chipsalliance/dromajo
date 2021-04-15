@@ -52,8 +52,22 @@ struct XHRState {
     WGetWriteCallback *cb;
 };
 
+static int downloading_count;
+
 void fs_wget_init(void)
 {
+}
+
+extern void fs_wget_update_downloading(int flag);
+
+static void fs_wget_update_downloading_count(int incr)
+{
+    int prev_state, state;
+    prev_state = (downloading_count > 0);
+    downloading_count += incr;
+    state = (downloading_count > 0);
+    if (prev_state != state)
+        fs_wget_update_downloading(state);
 }
 
 static void fs_wget_onerror(unsigned int handle, void *opaque, int status,
@@ -64,6 +78,7 @@ static void fs_wget_onerror(unsigned int handle, void *opaque, int status,
         status = -404; /* HTTP not found error */
     else
         status = -status;
+    fs_wget_update_downloading_count(-1);
     if (s->cb)
         s->cb(s->opaque, status, NULL, 0);
 }
@@ -72,6 +87,7 @@ static void fs_wget_onload(unsigned int handle,
                            void *opaque, void *data, unsigned int size)
 {
     XHRState *s = opaque;
+    fs_wget_update_downloading_count(-1);
     if (s->cb)
         s->cb(s->opaque, 0, data, size);
 }
@@ -98,6 +114,7 @@ XHRState *fs_wget2(const char *url, const char *user, const char *password,
         request = "GET";
         post_data = NULL;
     }
+    fs_wget_update_downloading_count(1);
 
     emscripten_async_wget3_data(url, request, user, password,
                                 post_data, post_data_len, s, 1, fs_wget_onload,
@@ -295,7 +312,7 @@ void fs_net_event_loop(FSNetEventLoopCompletionFunc *cb, void *opaque)
         }
         tv.tv_sec = timeout / 1000;
         tv.tv_usec = (timeout % 1000) * 1000;
-        select(fd_max + 1, &rfds, &wfds, &rfds, &tv);
+        select(fd_max + 1, &rfds, &wfds, &efds, &tv);
     }
 }
 

@@ -1,7 +1,7 @@
 /*
- * RISCV emulator
+ * TinyEMU
  * 
- * Copyright (c) 2016-2017 Fabrice Bellard
+ * Copyright (c) 2016-2018 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -48,9 +48,6 @@
 #ifdef CONFIG_FS_NET
 #include "fs_utils.h"
 #include "fs_wget.h"
-#endif
-#ifdef CONFIG_CPU_RISCV
-#include "riscv_cpu.h"
 #endif
 #ifdef CONFIG_SLIRP
 #include "slirp/libslirp.h"
@@ -135,7 +132,8 @@ static int console_read(void *opaque, uint8_t *buf, int len)
                 printf("\n"
                        "C-a h   print this help\n"
                        "C-a x   exit emulator\n"
-                       "C-a C-a send C-a\n");
+                       "C-a C-a send C-a\n"
+                       );
                 break;
             case 1:
                 goto output_char;
@@ -610,62 +608,26 @@ static struct option options[] = {
     { "ro", no_argument },
     { "append", required_argument },
     { "no-accel", no_argument },
+    { "build-preload", required_argument },
     { NULL },
 };
 
 void help(void)
 {
-    printf("riscvemu version " CONFIG_VERSION ", Copyright (c) 2016-2017 Fabrice Bellard\n"
+    printf("temu version " CONFIG_VERSION ", Copyright (c) 2016-2018 Fabrice Bellard\n"
            "usage: riscvemu [options] config_file\n"
            "options are:\n"
-#ifdef CONFIG_CPU_RISCV
-           "-b [32|64|128]    set the integer register width in bits\n"
-#endif
            "-m ram_size       set the RAM size in MB\n"
            "-rw               allow write access to the disk image (default=snapshot)\n"
            "-ctrlc            the C-c key stops the emulator instead of being sent to the\n"
            "                  emulated software\n"
            "-append cmdline   append cmdline to the kernel command line\n"
-#ifdef CONFIG_CPU_X86
-           "-no-accel         disable VM acceleration (KVM)\n"
-#endif
+           "-no-accel         disable VM acceleration (KVM, x86 machine only)\n"
            "\n"
            "Console keys:\n"
            "Press C-a x to exit the emulator, C-a h to get some help.\n");
     exit(1);
 }
-
-#ifdef CONFIG_CPU_RISCV
-void launch_alternate_executable(char **argv, int xlen)
-{
-    char filename[1024];
-    char new_exename[64];
-    const char *p, *exename;
-    int len;
-
-    snprintf(new_exename, sizeof(new_exename), "riscvemu%d", xlen);
-    exename = argv[0];
-    p = strrchr(exename, '/');
-    if (p) {
-        len = p - exename + 1;
-    } else {
-        len = 0;
-    }
-    if (len + strlen(new_exename) > sizeof(filename) - 1) {
-        fprintf(stderr, "%s: filename too long\n", exename);
-        exit(1);
-    }
-    memcpy(filename, exename, len);
-    filename[len] = '\0';
-    strcat(filename, new_exename);
-    argv[0] = filename;
-
-    if (execvp(argv[0], argv) < 0) {
-        perror(argv[0]);
-        exit(1);
-    }
-}
-#endif
 
 #ifdef CONFIG_FS_NET
 static BOOL net_completed;
@@ -685,20 +647,21 @@ static BOOL net_poll_cb(void *arg)
 int main(int argc, char **argv)
 {
     VirtMachine *s;
-    const char *path, *cmdline;
+    const char *path, *cmdline, *build_preload_file;
     int c, option_index, i, ram_size, accel_enable;
     BOOL allow_ctrlc;
     BlockDeviceModeEnum drive_mode;
     VirtMachineParams p_s, *p = &p_s;
-    
+
     ram_size = -1;
     allow_ctrlc = FALSE;
     (void)allow_ctrlc;
     drive_mode = BF_MODE_SNAPSHOT;
     accel_enable = -1;
     cmdline = NULL;
+    build_preload_file = NULL;
     for(;;) {
-        c = getopt_long_only(argc, argv, "hb:m:", options, &option_index);
+        c = getopt_long_only(argc, argv, "hm:", options, &option_index);
         if (c == -1)
             break;
         switch(c) {
@@ -719,6 +682,9 @@ int main(int argc, char **argv)
             case 5: /* no-accel */
                 accel_enable = FALSE;
                 break;
+            case 6: /* build-preload */
+                build_preload_file = optarg;
+                break;
             default:
                 fprintf(stderr, "unknown option index: %d\n", option_index);
                 exit(1);
@@ -727,23 +693,8 @@ int main(int argc, char **argv)
         case 'h':
             help();
             break;
-#ifdef CONFIG_CPU_RISCV
-        case 'b':
-            {
-                int xlen;
-                xlen = atoi(optarg);
-                if (xlen != 32 && xlen != 64 && xlen != 128) {
-                    fprintf(stderr, "Invalid integer register width\n");
-                    exit(1);
-                }
-                if (xlen != riscv_cpu_get_max_xlen()) {
-                    launch_alternate_executable(argv, xlen);
-                }
-            }
-            break;
-#endif
         case 'm':
-            ram_size = (uint64_t)strtoul(optarg, NULL, 0) << 20;
+            ram_size = (uint64_t)strtoul(optarg, NULL, 0);
             break;
         default:
             exit(1);
@@ -772,7 +723,6 @@ int main(int argc, char **argv)
     }
     if (accel_enable != -1)
         p->accel_enable = accel_enable;
-
     if (cmdline) {
         vm_add_cmdline(p, cmdline);
     }
@@ -807,6 +757,8 @@ int main(int argc, char **argv)
             fs = fs_net_init(path, NULL, NULL);
             if (!fs)
                 exit(1);
+            if (build_preload_file)
+                fs_dump_cache_load(fs, build_preload_file);
             fs_net_event_loop(NULL, NULL);
         } else
 #endif
@@ -866,7 +818,9 @@ int main(int argc, char **argv)
     p->rtc_real_time = TRUE;
 
     s = virt_machine_init(p);
-
+    if (!s)
+        exit(1);
+    
     virt_machine_free_config(p);
 
     if (s->net) {

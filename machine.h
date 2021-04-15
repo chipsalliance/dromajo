@@ -79,8 +79,12 @@ typedef struct {
     EthernetDevice *net;
 } VMEthEntry;
 
+typedef struct VirtMachineClass VirtMachineClass;
+
 typedef struct {
     char *cfg_filename;
+    const VirtMachineClass *vmc;
+    char *machine_name;
     uint64_t ram_size;
     BOOL rtc_real_time;
     BOOL rtc_local_time;
@@ -103,6 +107,7 @@ typedef struct {
 } VirtMachineParams;
 
 typedef struct VirtMachine {
+    const VirtMachineClass *vmc;
     /* network */
     EthernetDevice *net;
     /* console */
@@ -112,10 +117,26 @@ typedef struct VirtMachine {
     FBDevice *fb_dev;
 } VirtMachine;
 
+struct VirtMachineClass {
+    const char *machine_names;
+    void (*virt_machine_set_defaults)(VirtMachineParams *p);
+    VirtMachine *(*virt_machine_init)(const VirtMachineParams *p);
+    void (*virt_machine_end)(VirtMachine *s);
+    int (*virt_machine_get_sleep_duration)(VirtMachine *s, int delay);
+    void (*virt_machine_interp)(VirtMachine *s, int max_exec_cycle);
+    BOOL (*vm_mouse_is_absolute)(VirtMachine *s);
+    void (*vm_send_mouse_event)(VirtMachine *s1, int dx, int dy, int dz,
+                                unsigned int buttons);
+    void (*vm_send_key_event)(VirtMachine *s1, BOOL is_down, uint16_t key_code);
+};
+
+extern const VirtMachineClass riscv_machine_class;
+extern const VirtMachineClass pc_machine_class;
+
 void __attribute__((format(printf, 1, 2))) vm_error(const char *fmt, ...);
 int vm_get_int(JSONValue obj, const char *name, int *pval);
+int vm_get_int_opt(JSONValue obj, const char *name, int *pval, int def_val);
 
-const char *virt_machine_get_name(void);
 void virt_machine_set_defaults(VirtMachineParams *p);
 void virt_machine_load_config_file(VirtMachineParams *p,
                                    const char *filename,
@@ -126,12 +147,27 @@ char *get_file_path(const char *base_filename, const char *filename);
 void virt_machine_free_config(VirtMachineParams *p);
 VirtMachine *virt_machine_init(const VirtMachineParams *p);
 void virt_machine_end(VirtMachine *s);
-int virt_machine_get_sleep_duration(VirtMachine *s, int delay);
-void virt_machine_interp(VirtMachine *s, int max_exec_cycle);
-BOOL vm_mouse_is_absolute(VirtMachine *s);
-void vm_send_mouse_event(VirtMachine *s1, int dx, int dy, int dz,
-                         unsigned int buttons);
-void vm_send_key_event(VirtMachine *s1, BOOL is_down, uint16_t key_code);
+static inline int virt_machine_get_sleep_duration(VirtMachine *s, int delay)
+{
+    return s->vmc->virt_machine_get_sleep_duration(s, delay);
+}
+static inline void virt_machine_interp(VirtMachine *s, int max_exec_cycle)
+{
+    s->vmc->virt_machine_interp(s, max_exec_cycle);
+}
+static inline BOOL vm_mouse_is_absolute(VirtMachine *s)
+{
+    return s->vmc->vm_mouse_is_absolute(s);
+}
+static inline void vm_send_mouse_event(VirtMachine *s1, int dx, int dy, int dz,
+                                       unsigned int buttons)
+{
+    s1->vmc->vm_send_mouse_event(s1, dx, dy, dz, buttons);
+}
+static inline void vm_send_key_event(VirtMachine *s1, BOOL is_down, uint16_t key_code)
+{
+    s1->vmc->vm_send_key_event(s1, is_down, key_code);
+}
 
 /* gui */
 void sdl_refresh(VirtMachine *m);

@@ -40,9 +40,6 @@
 #ifdef CONFIG_FS_NET
 #include "fs_wget.h"
 #endif
-#ifdef CONFIG_CPU_RISCV
-#include "riscv_cpu.h"
-#endif
 
 void __attribute__((format(printf, 1, 2))) vm_error(const char *fmt, ...)
 {
@@ -63,6 +60,22 @@ int vm_get_int(JSONValue obj, const char *name, int *pval)
     if (json_is_undefined(val)) {
         vm_error("expecting '%s' property\n", name);
         return -1;
+    }
+    if (val.type != JSON_INT) {
+        vm_error("%s: integer expected\n", name);
+        return -1;
+    }
+    *pval = val.u.int32;
+    return 0;
+}
+
+int vm_get_int_opt(JSONValue obj, const char *name, int *pval, int def_val)
+{ 
+    JSONValue val;
+    val = json_object_get(obj, name);
+    if (json_is_undefined(val)) {
+        *pval = def_val;
+        return 0;
     }
     if (val.type != JSON_INT) {
         vm_error("%s: integer expected\n", name);
@@ -158,11 +171,60 @@ static char *cmdline_subst(const char *cmdline)
     return (char *)dbuf.buf;
 }
 
+static BOOL find_name(const char *name, const char *name_list)
+{
+    size_t len;
+    const char *p, *r;
+    
+    p = name_list;
+    for(;;) {
+        r = strchr(p, ',');
+        if (!r) {
+            if (!strcmp(name, p))
+                return TRUE;
+            break;
+        } else {
+            len = r - p;
+            if (len == strlen(name) && !memcmp(name, p, len))
+                return TRUE;
+            p = r + 1;
+        }
+    }
+    return FALSE;
+}
+
+static const VirtMachineClass *virt_machine_list[] = {
+#if defined(EMSCRIPTEN)
+    /* only a single machine in the EMSCRIPTEN target */
+#ifdef CONFIG_RISCV_MACHINE
+    &riscv_machine_class,
+#else
+    &pc_machine_class,
+#endif    
+#else
+    &riscv_machine_class,
+    &pc_machine_class,
+#endif /* !EMSCRIPTEN */
+    NULL,
+};
+
+static const VirtMachineClass *virt_machine_find_class(const char *machine_name)
+{
+    const VirtMachineClass *vmc, **pvmc;
+    
+    for(pvmc = virt_machine_list; *pvmc != NULL; pvmc++) {
+        vmc = *pvmc;
+        if (find_name(machine_name, vmc->machine_names))
+            return vmc;
+    }
+    return NULL;
+}
+
 static int virt_machine_parse_config(VirtMachineParams *p,
                                      char *config_file_str, int len)
 {
     int version, val;
-    const char *tag_name, *machine_name, *str;
+    const char *tag_name, *str;
     char buf1[256];
     JSONValue cfg, obj, el;
     
@@ -187,12 +249,13 @@ static int virt_machine_parse_config(VirtMachineParams *p,
     
     if (vm_get_str(cfg, "machine", &str) < 0)
         goto tag_fail;
-    machine_name = virt_machine_get_name();
-    if (strcmp(machine_name, str) != 0) {
-        vm_error("Unsupported machine: '%s' (running machine is '%s')\n",
-                 str, machine_name);
-        return -1;
+    p->machine_name = strdup(str);
+    p->vmc = virt_machine_find_class(p->machine_name);
+    if (!p->vmc) {
+        vm_error("Unknown machine name: %s\n", p->machine_name);
+        goto tag_fail;
     }
+    p->vmc->virt_machine_set_defaults(p);
 
     tag_name = "memory_size";
     if (vm_get_int(cfg, tag_name, &val) < 0)
@@ -530,6 +593,7 @@ void virt_machine_free_config(VirtMachineParams *p)
 {
     int i;
     
+    free(p->machine_name);
     free(p->cmdline);
     for(i = 0; i < VM_FILE_COUNT; i++) {
         free(p->files[i].filename);
@@ -550,4 +614,20 @@ void virt_machine_free_config(VirtMachineParams *p)
     free(p->input_device);
     free(p->display_device);
     free(p->cfg_filename);
+}
+
+VirtMachine *virt_machine_init(const VirtMachineParams *p)
+{
+    const VirtMachineClass *vmc = p->vmc;
+    return vmc->virt_machine_init(p);
+}
+
+void virt_machine_set_defaults(VirtMachineParams *p)
+{
+    memset(p, 0, sizeof(*p));
+}
+
+void virt_machine_end(VirtMachine *s)
+{
+    s->vmc->virt_machine_end(s);
 }

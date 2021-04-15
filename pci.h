@@ -64,7 +64,7 @@ void pci_register_bar(PCIDevice *d, unsigned int bar_num,
                       uint32_t size, int type,
                       void *opaque, PCIBarSetFunc *bar_set);
 IRQSignal *pci_device_get_irq(PCIDevice *d, unsigned int irq_num);
-uint8_t *pci_device_get_dma_ptr(PCIDevice *d, uint64_t addr);
+uint8_t *pci_device_get_dma_ptr(PCIDevice *d, uint64_t addr, BOOL is_rw);
 void pci_device_set_config8(PCIDevice *d, uint8_t addr, uint8_t val);
 void pci_device_set_config16(PCIDevice *d, uint8_t addr, uint16_t val);
 int pci_device_get_devfn(PCIDevice *d);

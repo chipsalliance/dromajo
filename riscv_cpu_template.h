@@ -197,7 +197,7 @@ static inline uintx_t glue(mulhsu, XLEN)(intx_t a, uintx_t b)
         goto jump_insn;            \
     } while (0)
 
-static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
+static void no_inline glue(riscv_cpu_interp_x, XLEN)(RISCVCPUState *s,
                                                    int n_cycles)
 {
     uint32_t opcode, insn, rd, rs1, rs2, funct3;
@@ -233,17 +233,19 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
     /* we use a single execution loop to keep a simple control flow
        for emscripten */
     for(;;) {
-        if (unlikely(!--n_cycles)) {
-            s->pc = GET_PC();
-            goto the_end;
-        }
+        --n_cycles;
         if (unlikely(code_ptr >= code_end)) {
             uint32_t tlb_idx;
             uint16_t insn_high;
-            uintptr_t mem_addend;
             target_ulong addr;
-
+            uint8_t *ptr;
+            
             s->pc = GET_PC();
+            /* we test n_cycles only between blocks so that timer
+               interrupts only happen between the blocks. It is
+               important to reduce the translated code size. */
+            if (unlikely(n_cycles <= 0))
+                goto the_end;
 
             /* check pending interrupts */
             if (unlikely((s->mip & s->mie) != 0)) {
@@ -256,14 +258,14 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
             tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
             if (likely(s->tlb_code[tlb_idx].vaddr == (addr & ~PG_MASK))) {
                 /* TLB match */ 
-                mem_addend = s->tlb_code[tlb_idx].mem_addend;
+                ptr = (uint8_t *)(s->tlb_code[tlb_idx].mem_addend +
+                                  (uintptr_t)addr);
             } else {
-                if (unlikely(target_read_insn_slow(s, &mem_addend, addr)))
+                if (unlikely(target_read_insn_slow(s, &ptr, addr)))
                     goto mmu_exception;
             }
-            code_ptr = (uint8_t *)(mem_addend + (uintptr_t)addr);
-            code_end = (uint8_t *)(mem_addend +
-                                   (uintptr_t)((addr & ~PG_MASK) + PG_MASK - 1));
+            code_ptr = ptr;
+            code_end = ptr + (PG_MASK - 1 - (addr & PG_MASK));
             code_to_pc_addend = addr - (uintptr_t)code_ptr;
             if (unlikely(code_ptr >= code_end)) {
                 /* instruction is potentially half way between two
@@ -1680,14 +1682,14 @@ static void no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s,
             switch(imm) {
 
 #define F_SIZE 32
-#include "riscvemu_fp_template.h"
+#include "riscv_cpu_fp_template.h"
 #if FLEN >= 64
 #define F_SIZE 64
-#include "riscvemu_fp_template.h"
+#include "riscv_cpu_fp_template.h"
 #endif
 #if FLEN >= 128
 #define F_SIZE 128
-#include "riscvemu_fp_template.h"
+#include "riscv_cpu_fp_template.h"
 #endif
 
             default:
