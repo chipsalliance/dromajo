@@ -586,6 +586,7 @@ void fdt_end(FDTState *s)
 
 static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst,
                            uint64_t kernel_start, uint64_t kernel_size,
+                           uint64_t initrd_start, uint64_t initrd_size,
                            const char *cmd_line)
 {
     FDTState *s;
@@ -727,7 +728,12 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst,
         fdt_prop_tab_u64(s, "riscv,kernel-start", kernel_start);
         fdt_prop_tab_u64(s, "riscv,kernel-end", kernel_start + kernel_size);
     }
+    if (initrd_size > 0) {
+        fdt_prop_tab_u64(s, "linux,initrd-start", initrd_start);
+        fdt_prop_tab_u64(s, "linux,initrd-end", initrd_start + initrd_size);
+    }
     
+
     fdt_end_node(s); /* chosen */
     
     fdt_end_node(s); /* / */
@@ -747,9 +753,10 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst,
 
 static void copy_bios(RISCVMachine *s, const uint8_t *buf, int buf_len,
                       const uint8_t *kernel_buf, int kernel_buf_len,
+                      const uint8_t *initrd_buf, int initrd_buf_len,
                       const char *cmd_line)
 {
-    uint32_t fdt_addr, kernel_align, kernel_base;
+    uint32_t fdt_addr, align, kernel_base, initrd_base;
     uint8_t *ram_ptr;
     uint32_t *q;
 
@@ -761,25 +768,42 @@ static void copy_bios(RISCVMachine *s, const uint8_t *buf, int buf_len,
     ram_ptr = get_ram_ptr(s, RAM_BASE_ADDR, TRUE);
     memcpy(ram_ptr, buf, buf_len);
 
+    kernel_base = 0;
     if (kernel_buf_len > 0) {
         /* copy the kernel if present */
         if (s->max_xlen == 32)
-            kernel_align = 4 << 20; /* 4 MB page align */
+            align = 4 << 20; /* 4 MB page align */
         else
-            kernel_align = 2 << 20; /* 2 MB page align */
-        kernel_base = (buf_len + kernel_align - 1) & ~(kernel_align - 1);
+            align = 2 << 20; /* 2 MB page align */
+        kernel_base = (buf_len + align - 1) & ~(align - 1);
         memcpy(ram_ptr + kernel_base, kernel_buf, kernel_buf_len);
-    } else {
-        kernel_base = 0;
+        if (kernel_buf_len + kernel_base > s->ram_size) {
+            vm_error("kernel too big");
+            exit(1);
+        }
     }
 
+    initrd_base = 0;
+    if (initrd_buf_len > 0) {
+        /* same allocation as QEMU */
+        initrd_base = s->ram_size / 2;
+        if (initrd_base > (128 << 20))
+            initrd_base = 128 << 20;
+        memcpy(ram_ptr + initrd_base, initrd_buf, initrd_buf_len);
+        if (initrd_buf_len + initrd_base > s->ram_size) {
+            vm_error("initrd too big");
+            exit(1);
+        }
+    }
+    
     ram_ptr = get_ram_ptr(s, 0, TRUE);
     
     fdt_addr = 0x1000 + 8 * 8;
 
     riscv_build_fdt(s, ram_ptr + fdt_addr,
-                    RAM_BASE_ADDR + kernel_base,
-                    kernel_buf_len, cmd_line);
+                    RAM_BASE_ADDR + kernel_base, kernel_buf_len,
+                    RAM_BASE_ADDR + initrd_base, initrd_buf_len,
+                    cmd_line);
 
     /* jump_addr = 0x80000000 */
     
@@ -947,6 +971,7 @@ static VirtMachine *riscv_machine_init(const VirtMachineParams *p)
 
     copy_bios(s, p->files[VM_FILE_BIOS].buf, p->files[VM_FILE_BIOS].len,
               p->files[VM_FILE_KERNEL].buf, p->files[VM_FILE_KERNEL].len,
+              p->files[VM_FILE_INITRD].buf, p->files[VM_FILE_INITRD].len,
               p->cmdline);
     
     return (VirtMachine *)s;

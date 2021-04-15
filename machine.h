@@ -50,6 +50,7 @@ typedef enum {
     VM_FILE_BIOS,
     VM_FILE_VGA_BIOS,
     VM_FILE_KERNEL,
+    VM_FILE_INITRD,
 
     VM_FILE_COUNT,
 } VMFileTypeEnum;

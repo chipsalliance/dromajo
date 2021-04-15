@@ -104,12 +104,14 @@
                 case 0: /* fmin */
                     s->fp_reg[rd] = glue(min_sf, F_SIZE)(s->fp_reg[rs1],
                                                    s->fp_reg[rs2],
-                                                   &s->fflags) | F_HIGH;
+                                                   &s->fflags,
+                                                   FMINMAX_IEEE754_201X) | F_HIGH;
                     break;
                 case 1: /* fmax */
                     s->fp_reg[rd] = glue(max_sf, F_SIZE)(s->fp_reg[rs1],
                                                    s->fp_reg[rs2],
-                                                   &s->fflags) | F_HIGH;
+                                                   &s->fflags,
+                                                   FMINMAX_IEEE754_201X) | F_HIGH;
                     break;
                 default:
                     goto illegal_insn;

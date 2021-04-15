@@ -22,7 +22,7 @@
 # THE SOFTWARE.
 #
 
-# Build Javascript version of TinyEMU
+# Build the Javascript version of TinyEMU
 EMCC=emcc
 EMCFLAGS=-O2 --llvm-opts 2 -Wall -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -MMD -fno-strict-aliasing -DCONFIG_FS_NET
 #EMCFLAGS+=-Werror
@@ -37,8 +37,8 @@ all: $(PROGS)
 JS_OBJS=jsemu.js.o softfp.js.o virtio.js.o fs.js.o fs_net.js.o fs_wget.js.o fs_utils.js.o simplefb.js.o pci.js.o json.js.o block_net.js.o
 JS_OBJS+=iomem.js.o cutils.js.o aes.js.o sha256.js.o
 
-RISCVEMU64_OBJS=$(JS_OBJS) riscv_cpu64.js.o riscv_machine.js.o machine_riscv.js.o
-RISCVEMU32_OBJS=$(JS_OBJS) riscv_cpu32.js.o riscv_machine.js.o machine_riscv.js.o
+RISCVEMU64_OBJS=$(JS_OBJS) riscv_cpu64.js.o riscv_machine.js.o machine.js.o
+RISCVEMU32_OBJS=$(JS_OBJS) riscv_cpu32.js.o riscv_machine.js.o machine.js.o
 
 js/riscvemu64.js: $(RISCVEMU64_OBJS) js/lib.js
 	$(EMCC) $(EMLDFLAGS_ASMJS) -o $@ $(RISCVEMU64_OBJS)
@@ -57,9 +57,6 @@ riscv_cpu32.js.o: riscv_cpu.c
 
 riscv_cpu64.js.o: riscv_cpu.c
 	$(EMCC) $(EMCFLAGS) -DMAX_XLEN=64 -DCONFIG_RISCV_MAX_XLEN=64 -c -o $@ $<
-
-machine_riscv.js.o: machine.c
-	$(EMCC) $(EMCFLAGS) -DCONFIG_RISCV_MACHINE -c -o $@ $<
 
 
 %.js.o: %.c

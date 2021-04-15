@@ -768,15 +768,17 @@ F_UINT sqrt_sf(F_UINT a, RoundingModeEnum rm,
 
 /* comparisons */
 
-F_UINT glue(min_sf, F_SIZE)(F_UINT a, F_UINT b, uint32_t *pfflags)
+static F_UINT glue(min_max_nan_sf, F_SIZE)(F_UINT a, F_UINT b, uint32_t *pfflags, SoftFPMinMaxTypeEnum minmax_type)
 {
-    uint32_t a_sign, b_sign;
-
-    if (isnan_sf(a) || isnan_sf(b)) {
-        if (issignan_sf(a) || issignan_sf(b)) {
-            *pfflags |= FFLAG_INVALID_OP;
+    if (issignan_sf(a) || issignan_sf(b)) {
+        *pfflags |= FFLAG_INVALID_OP;
+        if (minmax_type == FMINMAX_IEEE754_2008)
             return F_QNAN;
-        } else if (isnan_sf(a)) {
+    }
+    if (minmax_type == FMINMAX_PROP) {
+        return F_QNAN;
+    } else {
+        if (isnan_sf(a)) {
             if (isnan_sf(b)) 
                 return F_QNAN;
             else
@@ -784,6 +786,16 @@ F_UINT glue(min_sf, F_SIZE)(F_UINT a, F_UINT b, uint32_t *pfflags)
         } else {
             return a;
         }
+    }
+}
+
+F_UINT glue(min_sf, F_SIZE)(F_UINT a, F_UINT b, uint32_t *pfflags,
+                            SoftFPMinMaxTypeEnum minmax_type)
+{
+    uint32_t a_sign, b_sign;
+
+    if (isnan_sf(a) || isnan_sf(b)) {
+        return glue(min_max_nan_sf, F_SIZE)(a, b, pfflags, minmax_type);
     }
     a_sign = a >> (F_SIZE - 1);
     b_sign = b >> (F_SIZE - 1);
@@ -801,22 +813,13 @@ F_UINT glue(min_sf, F_SIZE)(F_UINT a, F_UINT b, uint32_t *pfflags)
     }
 }
 
-F_UINT glue(max_sf, F_SIZE)(F_UINT a, F_UINT b, uint32_t *pfflags)
+F_UINT glue(max_sf, F_SIZE)(F_UINT a, F_UINT b, uint32_t *pfflags,
+                            SoftFPMinMaxTypeEnum minmax_type)
 {
     uint32_t a_sign, b_sign;
 
     if (isnan_sf(a) || isnan_sf(b)) {
-        if (issignan_sf(a) || issignan_sf(b)) {
-            *pfflags |= FFLAG_INVALID_OP;
-            return F_QNAN;
-        } else if (isnan_sf(a)) {
-            if (isnan_sf(b)) 
-                return F_QNAN;
-            else
-                return b;
-        } else {
-            return a;
-        }
+        return glue(min_max_nan_sf, F_SIZE)(a, b, pfflags, minmax_type);
     }
     a_sign = a >> (F_SIZE - 1);
     b_sign = b >> (F_SIZE - 1);

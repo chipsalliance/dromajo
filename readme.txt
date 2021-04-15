@@ -68,7 +68,7 @@ TinyEMU System Emulator by Fabrice Bellard
   ./temu https://bellard.org/jslinux/win2k.cfg
 
 - Download the example RISC-V Linux image
-  (diskimage-linux-riscv-x-y-z.tar.gz) and use it:
+  (diskimage-linux-riscv-yyyy-mm-dd.tar.gz) and use it:
 
   ./temu root-riscv64.cfg
 
@@ -174,7 +174,10 @@ should use the VirtIO console.
 
 4.4) Javascript version
 
-A Javascript demo is provided using emscripten.
+The Javascript version (JSLinux) can be compiled with Makefile.js and
+emscripten. A complete precompiled and preconfigured demo is available
+in the jslinux-yyyy-mm-dd.tar.gz archive (read the readme.txt file
+inside the archive).
 
 4.5) x86 emulator
 

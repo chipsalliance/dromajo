@@ -24,6 +24,8 @@
 #ifndef VIRTIO_H
 #define VIRTIO_H
 
+#include <sys/select.h>
+
 #include "iomem.h"
 #include "pci.h"
 

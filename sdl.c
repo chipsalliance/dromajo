@@ -268,7 +268,7 @@ void sdl_init(int width, int height)
         exit(1);
     }
 
-    SDL_WM_SetCaption("RISCVEMU", "RISCVEMU");
+    SDL_WM_SetCaption("TinyEMU", "TinyEMU");
 
     sdl_hide_cursor();
 }

@@ -572,7 +572,7 @@ void virt_machine_run(VirtMachine *m)
     fs_net_set_fdset(&fd_max, &rfds, &wfds, &efds, &delay);
 #endif
     tv.tv_sec = delay / 1000;
-    tv.tv_usec = delay % 1000;
+    tv.tv_usec = (delay % 1000) * 1000;
     ret = select(fd_max + 1, &rfds, &wfds, &efds, &tv);
     if (m->net) {
         m->net->select_poll(m->net, &rfds, &wfds, &efds, ret);
@@ -694,7 +694,7 @@ int main(int argc, char **argv)
             help();
             break;
         case 'm':
-            ram_size = (uint64_t)strtoul(optarg, NULL, 0);
+            ram_size = strtoul(optarg, NULL, 0);
             break;
         default:
             exit(1);
@@ -719,7 +719,7 @@ int main(int argc, char **argv)
     /* override some config parameters */
 
     if (ram_size > 0) {
-        p->ram_size = ram_size << 20;
+        p->ram_size = (uint64_t)ram_size << 20;
     }
     if (accel_enable != -1)
         p->accel_enable = accel_enable;

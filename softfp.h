@@ -52,6 +52,12 @@ typedef enum {
 #define FCLASS_SNAN       (1 << 8)
 #define FCLASS_QNAN       (1 << 9)
 
+typedef enum {
+    FMINMAX_PROP, /* min(1, qNaN/sNaN) -> qNaN */
+    FMINMAX_IEEE754_2008, /* min(1, qNaN) -> 1, min(1, sNaN) -> qNaN */
+    FMINMAX_IEEE754_201X, /* min(1, qNaN/sNaN) -> 1 */
+} SoftFPMinMaxTypeEnum;
+
 typedef uint32_t sfloat32;
 typedef uint64_t sfloat64;
 #ifdef HAVE_INT128
@@ -69,8 +75,8 @@ sfloat32 div_sf32(sfloat32 a, sfloat32 b, RoundingModeEnum rm, uint32_t *pfflags
 sfloat32 sqrt_sf32(sfloat32 a, RoundingModeEnum rm, uint32_t *pfflags);
 sfloat32 fma_sf32(sfloat32 a, sfloat32 b, sfloat32 c, RoundingModeEnum rm, uint32_t *pfflags);
 
-sfloat32 min_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
-sfloat32 max_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
+sfloat32 min_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags, SoftFPMinMaxTypeEnum minmax_type);
+sfloat32 max_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags, SoftFPMinMaxTypeEnum minmax_type);
 int eq_quiet_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
 int le_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
 int lt_sf32(sfloat32 a, sfloat32 b, uint32_t *pfflags);
@@ -106,8 +112,8 @@ sfloat64 div_sf64(sfloat64 a, sfloat64 b, RoundingModeEnum rm, uint32_t *pfflags
 sfloat64 sqrt_sf64(sfloat64 a, RoundingModeEnum rm, uint32_t *pfflags);
 sfloat64 fma_sf64(sfloat64 a, sfloat64 b, sfloat64 c, RoundingModeEnum rm, uint32_t *pfflags);
 
-sfloat64 min_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
-sfloat64 max_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
+sfloat64 min_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags, SoftFPMinMaxTypeEnum minmax_type);
+sfloat64 max_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags, SoftFPMinMaxTypeEnum minmax_type);
 int eq_quiet_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
 int le_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
 int lt_sf64(sfloat64 a, sfloat64 b, uint32_t *pfflags);
@@ -145,8 +151,8 @@ sfloat128 div_sf128(sfloat128 a, sfloat128 b, RoundingModeEnum rm, uint32_t *pff
 sfloat128 sqrt_sf128(sfloat128 a, RoundingModeEnum rm, uint32_t *pfflags);
 sfloat128 fma_sf128(sfloat128 a, sfloat128 b, sfloat128 c, RoundingModeEnum rm, uint32_t *pfflags);
 
-sfloat128 min_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
-sfloat128 max_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
+sfloat128 min_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags, SoftFPMinMaxTypeEnum minmax_type);
+sfloat128 max_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags, SoftFPMinMaxTypeEnum minmax_type);
 int eq_quiet_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
 int le_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
 int lt_sf128(sfloat128 a, sfloat128 b, uint32_t *pfflags);
