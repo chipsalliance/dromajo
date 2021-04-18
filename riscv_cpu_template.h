@@ -298,6 +298,9 @@ static void no_inline glue(riscv_cpu_interp_x, XLEN)(RISCVCPUState *s,
 #endif
         }
 #endif
+
+        //log_printf("%016lx %08x\n", (long unsigned) GET_PC(), insn);
+
         opcode = insn & 0x7f;
         rd = (insn >> 7) & 0x1f;
         rs1 = (insn >> 15) & 0x1f;
@@ -582,6 +585,7 @@ static void no_inline glue(riscv_cpu_interp_x, XLEN)(RISCVCPUState *s,
                            get_field1(insn, 5, 6, 7) |
                            get_field1(insn, 3, 1, 2) |
                            get_field1(insn, 2, 5, 5), 9);
+                log_printf("%016lx %d\n", (long unsigned) GET_PC(), s->reg[rs1] == 0);
                 if (s->reg[rs1] == 0) {
                     s->pc = (intx_t)(GET_PC() + imm);
                     JUMP_INSN;
@@ -594,6 +598,7 @@ static void no_inline glue(riscv_cpu_interp_x, XLEN)(RISCVCPUState *s,
                            get_field1(insn, 5, 6, 7) |
                            get_field1(insn, 3, 1, 2) |
                            get_field1(insn, 2, 5, 5), 9);
+                log_printf("%016lx %d\n", (long unsigned) GET_PC(), s->reg[rs1] != 0);
                 if (s->reg[rs1] != 0) {
                     s->pc = (intx_t)(GET_PC() + imm);
                     JUMP_INSN;
@@ -816,6 +821,7 @@ static void no_inline glue(riscv_cpu_interp_x, XLEN)(RISCVCPUState *s,
                 goto illegal_insn;
             }
             cond ^= (funct3 & 1);
+            log_printf("%016lx %d\n", (long unsigned) GET_PC(), cond);
             if (cond) {
                 imm = ((insn >> (31 - 12)) & (1 << 12)) |
                     ((insn >> (25 - 5)) & 0x7e0) |

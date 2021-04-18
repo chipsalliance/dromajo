@@ -46,7 +46,7 @@
 //#define DUMP_INVALID_CSR
 //#define DUMP_EXCEPTIONS
 //#define DUMP_CSR
-//#define CONFIG_LOGFILE
+#define CONFIG_LOGFILE
 
 #include "riscv_cpu_priv.h"
 
