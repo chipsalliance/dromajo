@@ -40,6 +40,7 @@
 #endif
 #include <sys/stat.h>
 #include <signal.h>
+#include <time.h>
 
 #include "cutils.h"
 #include "iomem.h"
@@ -644,6 +645,75 @@ static BOOL net_poll_cb(void *arg)
 
 #endif
 
+FILE *branch_trace_file;
+static char branch_trace_header[1024] = { 0 };
+static long branch_trace_t0;;
+
+static void close_branch_trace_file(void)
+{
+    char *h = branch_trace_header;
+    size_t n = sizeof branch_trace_header;
+
+    (void) fseek(branch_trace_file, 0L, SEEK_SET);
+
+    long t = (long)time(NULL);
+
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Ended: %lu\n", t);
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Duration: %lu\n", t - branch_trace_t0);
+
+    size_t wrote = fwrite(h, sizeof branch_trace_header, 1, branch_trace_file);
+
+    assert(wrote == 1);
+
+    fclose(branch_trace_file);
+}
+
+static void open_branch_trace_file(const char *name, int argc, char **argv)
+{
+    branch_trace_t0 = time(NULL);
+
+    branch_trace_file = fopen(name, "wb");
+
+    char *h = branch_trace_header;
+    size_t n = sizeof branch_trace_header;
+
+    snprintf(h + strlen(h), n - strlen(h) - 1,
+             "{\n"
+             "        \"title\": \"TinyEMU Branch Trace\",\n"
+             "        \"format\": [\n"
+             "                {\n"
+             "                        \"field\": \"was_taken\",\n"
+             "                        \"bits\": 1\n"
+             "                },\n"
+             "                {\n"
+             "                        \"field\": \"insn_delta\",\n"
+             "                        \"bits\": 15\n"
+             "                },\n"
+             "                {\n"
+             "                        \"field\": \"branch_addr\",\n"
+             "                        \"bits\": 48\n"
+             "                }\n"
+             "        ],\n"
+             "        \"date\": \"20210418\"\n"
+             "}\n"
+             );
+
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Args:");
+
+    for (int i = 0; i < argc; ++i)
+        snprintf(h + strlen(h), n - strlen(h) - 1, " \"%s\"", argv[i]);
+
+    snprintf(h + strlen(h), n - strlen(h) - 1, "\n");
+
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Launched: %lu\n", (long)time(NULL));
+
+    size_t wrote = fwrite(h, sizeof branch_trace_header, 1, branch_trace_file);
+
+    assert(wrote == 1);
+
+    atexit(close_branch_trace_file);
+}
+
 int main(int argc, char **argv)
 {
     VirtMachine *s;
@@ -652,6 +722,8 @@ int main(int argc, char **argv)
     BOOL allow_ctrlc;
     BlockDeviceModeEnum drive_mode;
     VirtMachineParams p_s, *p = &p_s;
+
+    open_branch_trace_file("branch_trace", argc, argv); // XXX Might want to configure the name
 
     ram_size = -1;
     allow_ctrlc = FALSE;
@@ -831,5 +903,6 @@ int main(int argc, char **argv)
         virt_machine_run(s);
     }
     virt_machine_end(s);
+
     return 0;
 }

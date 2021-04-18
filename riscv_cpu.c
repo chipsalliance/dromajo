@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  */
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -46,7 +47,7 @@
 //#define DUMP_INVALID_CSR
 //#define DUMP_EXCEPTIONS
 //#define DUMP_CSR
-#define CONFIG_LOGFILE
+//#define CONFIG_LOGFILE
 
 #include "riscv_cpu_priv.h"
 
@@ -63,6 +64,8 @@ static RISCVCPUState riscv_cpu_global_state;
 #define code_to_pc_addend s->__code_to_pc_addend
 #endif
 
+extern FILE *branch_trace_file;
+
 #ifdef CONFIG_LOGFILE
 static FILE *log_file;
 
@@ -78,6 +81,21 @@ static void log_vprintf(const char *fmt, va_list ap)
     vprintf(fmt, ap);
 }
 #endif
+
+static void dump_branch_event(uint64_t pc, bool was_taken, uint64_t seqno)
+{
+    uint64_t last_seqno = 0;
+
+    uint64_t delta = seqno - last_seqno;
+    last_seqno = seqno + 1;
+
+    uint64_t packed_event = ((uint64_t)was_taken << 63)
+        | (delta << 48)
+        | (pc & ((1ul << 48) - 1));
+
+    size_t wrote = fwrite(&packed_event, sizeof packed_event, 1, branch_trace_file);
+    assert(wrote == 1);
+}
 
 static void __attribute__((format(printf, 1, 2), unused)) log_printf(const char *fmt, ...)
 {
