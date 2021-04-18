@@ -82,12 +82,14 @@ static void log_vprintf(const char *fmt, va_list ap)
 }
 #endif
 
-static void dump_branch_event(uint64_t pc, bool was_taken, uint64_t seqno)
-{
-    uint64_t last_seqno = 0;
+extern long branch_trace_last_instret;
+extern long branch_trace_last_count;
+extern long branch_trace_last_count_taken;
 
-    uint64_t delta = seqno - last_seqno;
-    last_seqno = seqno + 1;
+static void dump_branch_event(uint64_t pc, bool was_taken, uint64_t instret)
+{
+    uint64_t delta = instret - branch_trace_last_instret;
+    branch_trace_last_instret = instret + 1;
 
     uint64_t packed_event = ((uint64_t)was_taken << 63)
         | (delta << 48)
@@ -95,6 +97,9 @@ static void dump_branch_event(uint64_t pc, bool was_taken, uint64_t seqno)
 
     size_t wrote = fwrite(&packed_event, sizeof packed_event, 1, branch_trace_file);
     assert(wrote == 1);
+
+    ++branch_trace_last_count;
+    branch_trace_last_count_taken += was_taken;
 }
 
 static void __attribute__((format(printf, 1, 2), unused)) log_printf(const char *fmt, ...)

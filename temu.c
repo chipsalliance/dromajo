@@ -646,6 +646,9 @@ static BOOL net_poll_cb(void *arg)
 #endif
 
 FILE *branch_trace_file;
+long branch_trace_last_instret;
+long branch_trace_last_count;
+long branch_trace_last_count_taken;
 static char branch_trace_header[1024] = { 0 };
 static long branch_trace_t0;;
 
@@ -660,6 +663,18 @@ static void close_branch_trace_file(void)
 
     snprintf(h + strlen(h), n - strlen(h) - 1, "Ended: %lu\n", t);
     snprintf(h + strlen(h), n - strlen(h) - 1, "Duration: %lu\n", t - branch_trace_t0);
+
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Branches: %lu\n", branch_trace_last_count);
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Instructions: %lu\n", branch_trace_last_instret);
+
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Avg insn / branch: %6.2f\n",
+             (double) branch_trace_last_instret / branch_trace_last_count);
+
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Avg MIPS: %6.2f\n",
+             (double) branch_trace_last_instret / (t - branch_trace_t0) / 1e6);
+
+    snprintf(h + strlen(h), n - strlen(h) - 1, "Avg taken ratio: %6.2f\n",
+             (double) branch_trace_last_count_taken / branch_trace_last_count);
 
     size_t wrote = fwrite(h, sizeof branch_trace_header, 1, branch_trace_file);
 
