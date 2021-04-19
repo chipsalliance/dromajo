@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  */
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -650,31 +651,144 @@ long branch_trace_last_instret;
 long branch_trace_last_count;
 long branch_trace_last_count_taken;
 static char branch_trace_header[1024] = { 0 };
-static long branch_trace_t0;;
+static long branch_trace_t0;
+
+static int json_level;
+static int json_need_nl = false;
+static int json_need_comma = false;
+
+static void close_branch_trace_file(void);
+
+#include <stdarg.h>
+
+static void jsonf(const char *fmt, ...) {
+    char *h = branch_trace_header;
+    const size_t n = sizeof branch_trace_header;
+    va_list ap;
+    va_start(ap, fmt);
+    (void) vsnprintf(h + strlen(h), n - strlen(h) - 1, fmt, ap);
+    va_end(ap); }
+
+static void appendf(const char *fmt, ...) {
+    char *h = branch_trace_header;
+    const size_t n = sizeof branch_trace_header;
+    va_list ap;
+    va_start(ap, fmt);
+
+    if (json_need_comma)
+        jsonf(",");
+    json_need_comma = false;
+
+    if (json_need_nl) {
+        jsonf("\n");
+
+        for (int i = 0; i < json_level; ++i)
+            (void) snprintf(h + strlen(h), n - strlen(h) - 1, "  ");
+        json_need_nl = false;
+    }
+    (void) vsnprintf(h + strlen(h), n - strlen(h) - 1, fmt, ap);
+
+    va_end(ap);
+}
+
+static void json_object_open (void) {
+    appendf("{");
+    ++json_level;
+    json_need_nl = true; }
+
+static void json_object_close(void) {
+    json_need_comma = false;
+    --json_level;
+    appendf("}");
+    json_need_comma = json_need_nl = true; }
+
+static void json_array_open (void) {
+    appendf("[");
+    ++json_level;
+    json_need_nl = true; }
+
+static void json_array_close(void) {
+    json_need_comma = false;
+    --json_level;
+    appendf("]");
+    json_need_comma = json_need_nl = true; }
+
+static void json_string_value(const char *value) {
+    appendf("\"%s\"", value);
+    json_need_comma = true; }
+
+static void json_string_member(const char *name, const char *value) {
+    appendf("\"%s\": \"%s\"", name, value);
+    json_need_comma = json_need_nl = true; }
+
+static void json_int_member(const char *name, int64_t value) {
+    appendf("\"%s\": %ld", name, value);
+    json_need_comma = json_need_nl = true; }
+
+static void json_float_member(const char *name, double value) {
+    appendf("\"%s\": %6.3f", name, value);
+    json_need_comma = json_need_nl = true; }
+
+static void json_member(const char *name) {
+    appendf("\"%s\": ", name); }
+
+static void json_format_spec(const char *name, int64_t size) {
+    json_object_open();
+    json_string_member("field", name);
+    json_int_member("bits", size);
+    json_object_close(); }
+
+static void open_branch_trace_file(const char *name, int argc, char **argv) {
+    branch_trace_t0 = time(NULL);
+
+    branch_trace_file = fopen(name, "wb");
+
+    json_object_open(); {
+        json_string_member("title", "Branch Trace");
+
+        json_member("format");
+        json_array_open(); {
+            json_format_spec("was_taken", 1);
+            json_format_spec("insn_delta", 15);
+            json_format_spec("branch_addr", 48);
+        } json_array_close();
+
+        json_int_member("date", 20210418);
+
+        json_member("args");
+        json_array_open(); {
+            for (int i = 0; i < argc; ++i)
+                json_string_value(argv[i]);
+        } json_array_close();
+
+        json_int_member("launch", (int64_t)time(NULL));
+    } // NB: not closed yet!
+
+    size_t wrote = fwrite(branch_trace_header, sizeof branch_trace_header, 1, branch_trace_file);
+
+    assert(wrote == 1);
+
+    atexit(close_branch_trace_file);
+}
 
 static void close_branch_trace_file(void)
 {
     char *h = branch_trace_header;
-    size_t n = sizeof branch_trace_header;
 
     (void) fseek(branch_trace_file, 0L, SEEK_SET);
 
     long t = (long)time(NULL);
 
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Ended: %lu\n", t);
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Duration: %lu\n", t - branch_trace_t0);
-
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Branches: %lu\n", branch_trace_last_count);
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Instructions: %lu\n", branch_trace_last_instret);
-
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Avg insn / branch: %6.2f\n",
-             (double) branch_trace_last_instret / branch_trace_last_count);
-
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Avg MIPS: %6.2f\n",
-             (double) branch_trace_last_instret / (t - branch_trace_t0) / 1e6);
-
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Avg taken ratio: %6.2f\n",
-             (double) branch_trace_last_count_taken / branch_trace_last_count);
+    // NB: still open
+    {
+        json_int_member("finished", (int64_t)time(NULL));
+        json_int_member("duration", t - branch_trace_t0);
+        json_int_member("branches", branch_trace_last_count);
+        json_int_member("instructions", branch_trace_last_instret);
+        json_float_member("avg insn / branch", (double) branch_trace_last_instret / branch_trace_last_count);
+        json_float_member("avg MIPS", (double) branch_trace_last_instret / (t - branch_trace_t0) / 1e6);
+        json_float_member("avg taken ratio", (double) branch_trace_last_count_taken / branch_trace_last_count);
+    } json_object_close();
 
     size_t wrote = fwrite(h, sizeof branch_trace_header, 1, branch_trace_file);
 
@@ -683,51 +797,7 @@ static void close_branch_trace_file(void)
     fclose(branch_trace_file);
 }
 
-static void open_branch_trace_file(const char *name, int argc, char **argv)
-{
-    branch_trace_t0 = time(NULL);
 
-    branch_trace_file = fopen(name, "wb");
-
-    char *h = branch_trace_header;
-    size_t n = sizeof branch_trace_header;
-
-    snprintf(h + strlen(h), n - strlen(h) - 1,
-             "{\n"
-             "        \"title\": \"TinyEMU Branch Trace\",\n"
-             "        \"format\": [\n"
-             "                {\n"
-             "                        \"field\": \"was_taken\",\n"
-             "                        \"bits\": 1\n"
-             "                },\n"
-             "                {\n"
-             "                        \"field\": \"insn_delta\",\n"
-             "                        \"bits\": 15\n"
-             "                },\n"
-             "                {\n"
-             "                        \"field\": \"branch_addr\",\n"
-             "                        \"bits\": 48\n"
-             "                }\n"
-             "        ],\n"
-             "        \"date\": \"20210418\"\n"
-             "}\n"
-             );
-
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Args:");
-
-    for (int i = 0; i < argc; ++i)
-        snprintf(h + strlen(h), n - strlen(h) - 1, " \"%s\"", argv[i]);
-
-    snprintf(h + strlen(h), n - strlen(h) - 1, "\n");
-
-    snprintf(h + strlen(h), n - strlen(h) - 1, "Launched: %lu\n", (long)time(NULL));
-
-    size_t wrote = fwrite(h, sizeof branch_trace_header, 1, branch_trace_file);
-
-    assert(wrote == 1);
-
-    atexit(close_branch_trace_file);
-}
 
 int main(int argc, char **argv)
 {
