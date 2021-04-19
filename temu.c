@@ -32,7 +32,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <getopt.h>
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
@@ -53,7 +53,7 @@
 #include "slirp/libslirp.h"
 #endif
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
 
 typedef struct {
     int stdin_fd;
@@ -346,7 +346,7 @@ static BlockDevice *block_device_init(const char *filename,
     return bs;
 }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
 
 typedef struct {
     int fd;
@@ -539,7 +539,7 @@ void virt_machine_run(VirtMachine *m)
     fd_set rfds, wfds, efds;
     int fd_max, ret, delay;
     struct timeval tv;
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
     int stdin_fd;
 #endif
     
@@ -550,7 +550,7 @@ void virt_machine_run(VirtMachine *m)
     FD_ZERO(&wfds);
     FD_ZERO(&efds);
     fd_max = -1;
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
     if (m->console_dev && virtio_console_can_write_data(m->console_dev)) {
         STDIODevice *s = m->console->opaque;
         stdin_fd = s->stdin_fd;
@@ -578,7 +578,7 @@ void virt_machine_run(VirtMachine *m)
         m->net->select_poll(m->net, &rfds, &wfds, &efds, ret);
     }
     if (ret > 0) {
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
         if (m->console_dev && FD_ISSET(stdin_fd, &rfds)) {
             uint8_t buf[128];
             int ret, len;
@@ -763,7 +763,7 @@ int main(int argc, char **argv)
         } else
 #endif
         {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
             fprintf(stderr, "Filesystem access not supported yet\n");
             exit(1);
 #else
@@ -788,7 +788,7 @@ int main(int argc, char **argv)
                 exit(1);
         } else
 #endif
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
         if (!strcmp(p->tab_eth[i].driver, "tap")) {
             p->tab_eth[i].net = tun_open(p->tab_eth[i].ifname);
             if (!p->tab_eth[i].net)
@@ -808,7 +808,7 @@ int main(int argc, char **argv)
     } else
 #endif
     {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
         fprintf(stderr, "Console not supported yet\n");
         exit(1);
 #else

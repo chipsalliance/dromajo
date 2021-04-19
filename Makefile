@@ -24,7 +24,7 @@
 
 # if set, network filesystem is enabled. libcurl and libcrypto
 # (openssl) must be installed.
-CONFIG_FS_NET=y
+#CONFIG_FS_NET=y
 # SDL support (optional)
 CONFIG_SDL=y
 # if set, compile the 128 bit emulator. Note: the 128 bit target does
@@ -72,7 +72,7 @@ endif
 
 ifndef CONFIG_WIN32
 EMU_OBJS+=fs_disk.o
-EMU_LIBS=-lrt
+EMU_LIBS=# -lrt ??? Darwin does not have this
 endif
 ifdef CONFIG_FS_NET
 CFLAGS+=-DCONFIG_FS_NET
@@ -85,7 +85,8 @@ endif # CONFIG_FS_NET
 ifdef CONFIG_SDL
 EMU_LIBS+=-lSDL
 EMU_OBJS+=sdl.o
-CFLAGS+=-DCONFIG_SDL
+CFLAGS+=-DCONFIG_SDL -I/opt/homebrew/include #$(shell sdl-config --cflags)
+LDFLAGS+= -L/opt/homebrew/lib
 ifdef CONFIG_WIN32
 LDFLAGS+=-mwindows
 endif
