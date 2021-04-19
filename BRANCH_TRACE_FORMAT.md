@@ -22,4 +22,36 @@ where events are of this work (stored little endian)
 
    was-taken:1 delta:15 signed:address:48
 
-The header can be ignored and is merely informational.
+The 1024 byte header can be ignored and is merely informational JSON,
+for example
+
+```
+{
+  "title": "Branch Trace",
+  "format": [
+    {
+      "field": "was_taken",
+      "bits": 1
+    },
+    {
+      "field": "insn_delta",
+      "bits": 15
+    },
+    {
+      "field": "branch_addr",
+      "bits": 48
+    }
+  ],
+  "date": 20210418,
+  "args": [
+    "./temu","bool-linux.cfg"],
+  "launch": 1618801656,
+  "finished": 1618801657,
+  "duration": 1,
+  "branches": 15148555,
+  "instructions": 117501736,
+  "avg insn / branch":  7.757,
+  "avg MIPS": 117.502,
+  "avg taken ratio":  0.485
+}
+```
