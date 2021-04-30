@@ -252,7 +252,8 @@ static int bf_read_async(BlockDevice *bs,
         for(i = 0; i < n; i++) {
             if (!bf->sector_table[sector_num]) {
                 fseek(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
-                fread(buf, 1, SECTOR_SIZE, bf->f);
+                size_t got = fread(buf, 1, SECTOR_SIZE, bf->f);
+                assert(got == SECTOR_SIZE);
             } else {
                 memcpy(buf, bf->sector_table[sector_num], SECTOR_SIZE);
             }
@@ -261,7 +262,8 @@ static int bf_read_async(BlockDevice *bs,
         }
     } else {
         fseek(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
-        fread(buf, 1, n * SECTOR_SIZE, bf->f);
+        size_t got = fread(buf, 1, n * SECTOR_SIZE, bf->f);
+        assert(got == n * SECTOR_SIZE);
     }
     /* synchronous read */
     return 0;
@@ -359,7 +361,8 @@ static void tun_write_packet(EthernetDevice *net,
                              const uint8_t *buf, int len)
 {
     TunState *s = net->opaque;
-    write(s->fd, buf, len);
+    ssize_t res = write(s->fd, buf, len);
+    assert(res == len);
 }
 
 static void tun_select_fill(EthernetDevice *net, int *pfd_max,

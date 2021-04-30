@@ -1805,7 +1805,7 @@ static JSONValue json_load(const char *filename)
     JSONValue val;
     size_t size;
     char *buf;
-    
+
     f = fopen(filename, "rb");
     if (!f) {
         perror(filename);
@@ -1815,7 +1815,7 @@ static JSONValue json_load(const char *filename)
     size = ftell(f);
     fseek(f, 0, SEEK_SET);
     buf = malloc(size + 1);
-    fread(buf, 1, size, f);
+    assert(fread(buf, 1, size, f) == size);
     fclose(f);
     val = json_parse_value_len(buf, size);
     free(buf);

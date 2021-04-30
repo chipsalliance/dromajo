@@ -86,10 +86,27 @@ extern long branch_trace_last_instret;
 extern long branch_trace_last_count;
 extern long branch_trace_last_count_taken;
 
+/*
+ * XXX It might have been better to use the LSB of the pc for the
+ * "was_taken" bit and thus gained another bit for the seqno delta,
+ * but traces have been generated already and code written.
+ */
 static void dump_branch_event(uint64_t pc, bool was_taken, uint64_t instret)
 {
     uint64_t delta = instret - branch_trace_last_instret;
     branch_trace_last_instret = instret + 1;
+
+    /* Pad with dummy untaken branches if we can't fit the seqno delta -- untested! */
+    while ((1 << 15) <= delta) {
+        assert(0);
+
+        uint64_t packed_event = ((1ul << 15) - 1) << 48;
+        delta -= ((1 << 15) - 1);
+        size_t wrote = fwrite(&packed_event, sizeof packed_event, 1, branch_trace_file);
+        assert(wrote == 1);
+    }
+
+    assert((int64_t)pc == (int64_t)pc << 16 >> 16); // This must be true for Sv48
 
     uint64_t packed_event = ((uint64_t)was_taken << 63)
         | (delta << 48)
