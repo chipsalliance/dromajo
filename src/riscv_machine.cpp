@@ -861,15 +861,23 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
     return size;
 }
 
-static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len) {
+static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len, bool *has_bootrom) {
     Elf64_Ehdr *      ehdr = (Elf64_Ehdr *)image;
     const Elf64_Phdr *ph   = (Elf64_Phdr *)(image + ehdr->e_phoff);
+
+    *has_bootrom = false;
 
     for (int i = 0; i < ehdr->e_phnum; ++i, ++ph)
         if (ph->p_type == PT_LOAD) {
             size_t rounded_size = ph->p_memsz;
             rounded_size        = (rounded_size + DEVRAM_PAGE_SIZE - 1) & ~(DEVRAM_PAGE_SIZE - 1);
-            if (ph->p_vaddr != RAM_BASE_ADDR)
+            if (ph->p_vaddr == BOOT_BASE_ADDR)
+                *has_bootrom = true;
+            else if (ph->p_vaddr != RAM_BASE_ADDR)
+                /* XXX This is a kludge to taper over the fact that cpu_register_ram will
+                   happily allocate mapping covering existing mappings.  Unfortunately we
+                   can't fix this without a substantial rewrite as the handling of IO devices
+                   depends on this. */
                 cpu_register_ram(s->mem_map, ph->p_vaddr, rounded_size, 0);
             memcpy(get_ram_ptr(s, ph->p_vaddr), image + ph->p_offset, ph->p_filesz);
         }
@@ -951,6 +959,7 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
                        const uint8_t *initrd_buf, size_t initrd_buf_len, const char *bootrom_name, const char *dtb_name,
                        const char *cmd_line) {
     uint64_t initrd_start = 0, initrd_end = 0;
+    bool     elf_has_bootrom = false;
 
     if (fw_buf_len > s->ram_size) {
         vm_error("Firmware too big\n");
@@ -961,8 +970,9 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
     if (elf64_is_riscv64(fw_buf, fw_buf_len)) {
         // XXX if the ELF is given in the config file, then we don't get to set memory base based on that.
 
+        load_elf_image(s, fw_buf, fw_buf_len, &elf_has_bootrom);
         uint64_t fw_entrypoint = elf64_get_entrypoint(fw_buf);
-        if (fw_entrypoint != s->ram_base_addr) {
+        if (!elf_has_bootrom && fw_entrypoint != s->ram_base_addr) {
             fprintf(dromajo_stderr,
                     "DROMAJO currently requires a 0x%" PRIx64 " starting address, image assumes 0x%0" PRIx64 "\n",
                     s->ram_base_addr,
@@ -970,7 +980,6 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
             return 1;
         }
 
-        load_elf_image(s, fw_buf, fw_buf_len);
     } else
         memcpy(get_ram_ptr(s, s->ram_base_addr), fw_buf, fw_buf_len);
 
@@ -999,21 +1008,22 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
         memcpy(get_ram_ptr(s, initrd_start), initrd_buf, initrd_buf_len);
     }
 
-    int32_t bootromSzBytes = bootrom_name ? load_bootrom(s, bootrom_name) : generate_bootrom(s);
+    if (!elf_has_bootrom) {
+        int32_t bootromSzBytes = bootrom_name ? load_bootrom(s, bootrom_name) : generate_bootrom(s);
+        if (bootromSzBytes < 0)
+            return -1;
 
-    if (bootromSzBytes < 0)
-        return -1;
+        // setup the dtb
+        uint32_t fdt_off = (BOOT_BASE_ADDR - ROM_BASE_ADDR);
+        if (s->compact_bootrom)
+            fdt_off += bootromSzBytes;
+        else
+            fdt_off += 256;
 
-    // setup the dtb
-    uint32_t fdt_off = (BOOT_BASE_ADDR - ROM_BASE_ADDR);
-    if (s->compact_bootrom)
-        fdt_off += bootromSzBytes;
-    else
-        fdt_off += 256;
-
-    uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
-    if (riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line, initrd_start, initrd_end) < 0)
-        return -1;
+        uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
+        if (riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line, initrd_start, initrd_end) < 0)
+            return -1;
+    }
 
     for (int i = 0; i < s->ncpus; ++i) riscv_set_debug_mode(s->cpu_state[i], TRUE);
 
