@@ -63,7 +63,7 @@
 //#define DUMP_CLINT
 //#define DUMP_HTIF
 //#define DUMP_PLIC
-#define DUMP_DTB
+//#define DUMP_DTB
 
 #define USE_SIFIVE_UART
 
