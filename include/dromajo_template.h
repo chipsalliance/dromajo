@@ -520,7 +520,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
                         if (imm == 0)
                             goto illegal_insn;
                         write_reg(rd, imm);
-                    } else if (imm == 0)
+                    } else if (sext(get_field1(insn, 12, 17, 17) | get_field1(insn, 2, 12, 16), 18) == 0)
                         goto illegal_insn;
                     break;
                 case 4:
