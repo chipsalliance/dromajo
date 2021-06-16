@@ -892,10 +892,6 @@ static int csr_read(RISCVCPUState *s, target_ulong *pval, uint32_t csr, BOOL wil
             val = s->tdata2[s->tselect];
             break;
 
-        case 0x7a3:  // tdata3
-            val = s->tdata3[s->tselect];
-            break;
-
         case 0x7b0:
             if (!s->debug_mode)
                 goto invalid_csr;
@@ -1241,24 +1237,20 @@ static int csr_write(RISCVCPUState *s, uint32_t csr, target_ulong val) {
             s->tselect = val % MAX_TRIGGERS;
             break;
 
-        case 0x7a1:  // tdata1
+        case 0x7a1: { // tdata1
             // Only support No Trigger and MControl
-            {
-                int type = val >> 60;
-                if (type != 0 && type != 2)
-                    break;
-                // SW can write type and mcontrol bits M and EXECUTE
-                mask                  = ((target_ulong)15 << 60) | MCONTROL_M | MCONTROL_EXECUTE;
-                s->tdata1[s->tselect] = s->tdata1[s->tselect] & ~mask | val & mask;
-            }
+            // SW can write type and mcontrol bits M and EXECUTE
+            // mask 0010 0 000100 0....0 0011 1011 111 ==
+            //      m | s | u | execute | store | load
+            // type = 4d'2 maskmax = 4 (= 16 B?)
+            mask = 0x20800000000001dfULL;
+            val |= 0x2080000000000000ULL;
+            s->tdata1[s->tselect] = s->tdata1[s->tselect] & ~mask | val & mask;
             break;
+        }
 
         case 0x7a2:  // tdata2
             s->tdata2[s->tselect] = val;
-            break;
-
-        case 0x7a3:  // tdata3
-            s->tdata3[s->tselect] = val;
             break;
 
         case 0x7b0:
@@ -2127,7 +2119,6 @@ static void create_boot_rom(RISCVCPUState *s, const char *file, const uint64_t c
     create_csr64_recovery(rom, &code_pos, &data_pos, 0x7a0, s->tselect);  // tselect
     // FIXME: create_csr64_recovery(rom, &code_pos, &data_pos, 0x7a1, s->tdata1); // tdata1
     // FIXME: create_csr64_recovery(rom, &code_pos, &data_pos, 0x7a2, s->tdata2); // tdata2
-    // FIXME: create_csr64_recovery(rom, &code_pos, &data_pos, 0x7a3, s->tdata3); // tdata3
 
     create_csr64_recovery(rom, &code_pos, &data_pos, 0x302, s->medeleg);
     create_csr64_recovery(rom, &code_pos, &data_pos, 0x303, s->mideleg);
