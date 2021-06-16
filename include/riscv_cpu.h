@@ -218,7 +218,6 @@ typedef struct RISCVCPUState {
     uint32_t     tselect;
     target_ulong tdata1[MAX_TRIGGERS];
     target_ulong tdata2[MAX_TRIGGERS];
-    target_ulong tdata3[MAX_TRIGGERS];
 
     target_ulong mhpmevent[32];
 
