@@ -489,13 +489,16 @@ BOOL virt_machine_run(RISCVMachine *s, int hartid) {
     (void)virt_machine_get_sleep_duration(s, hartid, MAX_SLEEP_TIME);
 
     riscv_cpu_interp64(s->cpu_state[hartid], 1);
-
+    RISCVCPUState *cpu = s->cpu_state[hartid];
     if (s->htif_tohost_addr) {
         uint32_t tohost;
         bool     fail = true;
         tohost        = riscv_phys_read_u32(s->cpu_state[hartid], s->htif_tohost_addr, &fail);
-        if (!fail && tohost & 1)
+        if (!fail && tohost & 1) {
+            if (tohost != 1) 
+                cpu->benchmark_exit_code = tohost;
             return false;
+        }
     }
 
     return !riscv_terminated(s->cpu_state[hartid]) && s->common.maxinsns > 0;
