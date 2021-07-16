@@ -495,7 +495,7 @@ BOOL virt_machine_run(RISCVMachine *s, int hartid) {
         bool     fail = true;
         tohost        = riscv_phys_read_u32(s->cpu_state[hartid], s->htif_tohost_addr, &fail);
         if (!fail && tohost & 1) {
-            if (tohost != 1) 
+            if (tohost != 1)
                 cpu->benchmark_exit_code = tohost;
             return false;
         }
@@ -873,9 +873,6 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             perror(p->logfile);
             exit(1);
         }
-
-        dromajo_stdout = log_out;
-        dromajo_stderr = log_out;
     }
 
 #ifdef CONFIG_FS_NET

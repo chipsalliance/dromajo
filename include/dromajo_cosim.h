@@ -21,6 +21,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "machine.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -74,6 +76,14 @@ void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t 
  * DUT sets Dromajo memory. Used so that other devices (i.e. block device, accelerators, can write to memory).
  */
 int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, uint64_t dut_paddr, uint64_t dut_val, int size_log2);
+
+/*
+ * dromajo_install_new_loggers --
+ *
+ * Sets logging/error functions.
+ */
+void dromajo_install_new_loggers(dromajo_cosim_state_t *state, dromajo_logging_func_t *debug_log,
+                                 dromajo_logging_func_t *error_log);
 
 #ifdef __cplusplus
 }  // extern C

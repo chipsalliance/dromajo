@@ -48,6 +48,11 @@ typedef struct FBDevice FBDevice;
 
 typedef void SimpleFBDrawFunc(FBDevice *fb_dev, void *opaque, int x, int y, int w, int h);
 
+typedef void dromajo_logging_func_t(int hartid, const char *fmt, ...);
+
+#ifndef MACHINE_H
+#define MACHINE_H
+
 struct FBDevice {
     /* the following is set by the device */
     int      width;
@@ -58,9 +63,6 @@ struct FBDevice {
     void *   device_opaque;
     void (*refresh)(struct FBDevice *fb_dev, SimpleFBDrawFunc *redraw_func, void *opaque);
 };
-
-#ifndef MACHINE_H
-#define MACHINE_H
 
 #include <stdint.h>
 
@@ -219,6 +221,10 @@ typedef struct VirtMachine {
     bool cosim;
     int  pending_interrupt;
     int  pending_exception;
+
+    /* Central logging facility, so far only used in dromajo_cosim */
+    dromajo_logging_func_t *error_log;
+    dromajo_logging_func_t *debug_log;
 } VirtMachine;
 
 int load_file(uint8_t **pbuf, const char *filename);

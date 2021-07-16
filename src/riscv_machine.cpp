@@ -92,6 +92,22 @@ enum {
 
 static uint64_t rtc_get_time(RISCVMachine *m) { return m->cpu_state[0]->mcycle / RTC_FREQ_DIV; }
 
+void dromajo_default_error_log(int hartid, const char *fmt, ...) {
+    va_list args;
+
+    va_start(args, fmt);
+    vfprintf(dromajo_stderr, fmt, args);
+    va_end(args);
+}
+
+void dromajo_default_debug_log(int hartid, const char *fmt, ...) {
+    va_list args;
+
+    va_start(args, fmt);
+    vfprintf(dromajo_stderr, fmt, args);
+    va_end(args);
+}
+
 typedef struct SiFiveUARTState {
     CharacterDevice *cs;  // Console
     uint32_t         irq;
@@ -1076,6 +1092,10 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     s->mem_map->flush_tlb_write_range = riscv_flush_tlb_write_range;
     s->common.maxinsns                = p->maxinsns;
     s->common.snapshot_load_name      = p->snapshot_load_name;
+
+    /* loggers are changed using install_new_loggers() in dromajo_cosim */
+    s->common.debug_log = &dromajo_default_debug_log;
+    s->common.error_log = &dromajo_default_error_log;
 
     s->ncpus = p->ncpus;
 
