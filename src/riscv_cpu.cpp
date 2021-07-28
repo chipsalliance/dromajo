@@ -1745,6 +1745,8 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid) {
         s->tdata2[i] = ~(target_ulong)0;
     }
 
+    s->dcsr = (1 << 30) + 3;
+
     tlb_init(s);
 
     // Exit code of the user-space benchmark app
