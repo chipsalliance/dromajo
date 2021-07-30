@@ -55,10 +55,12 @@
 // int)mreq->getAddr()); fprintf(stderr,##a); fprintf(stderr,"\n"); }while(0)
 #define MTRACE(a...)
 
-LiveCache::LiveCache(const std::string &_name, int size) : name(_name) {
+LiveCache::LiveCache(const std::string &_name, int size, uint64_t _mem_base, uint64_t _mem_size) : name(_name) {
     cacheBank    = CacheType::create(size, 16, 64, "LRU", false);
     lineSize     = cacheBank->getLineSize();
     lineSizeBits = log2i(lineSize);
+    mem_base     = _mem_base;
+    mem_end      = _mem_base + _mem_size;
 
     nReadHit   = 0;
     nReadMiss  = 0;
@@ -92,6 +94,9 @@ LiveCache::~LiveCache() {
 }
 
 void LiveCache::read(uint64_t addr) {
+    if (addr<mem_base || addr>mem_end)
+      return; // only track between mem_base and mem_end
+
     Line *l = cacheBank->findLine(addr);
     if (l) {
         l->order = maxOrder++;
@@ -106,6 +111,9 @@ void LiveCache::read(uint64_t addr) {
 }
 
 void LiveCache::write(uint64_t addr) {
+    if (addr<mem_base || addr>mem_end)
+      return; // only track between mem_base and mem_end
+
     Line *l = cacheBank->findLine(addr);
     if (l) {
         l->order = maxOrder++;
@@ -121,7 +129,7 @@ void LiveCache::write(uint64_t addr) {
     l->order = maxOrder++;
 }
 
-uint64_t *LiveCache::traverse(int &n_entries) {
+uint64_t *LiveCache::traverse(uint64_t &n_entries) {
     // Creating an array of cache lines
     Line *   arr[lineCount];
     uint64_t cnt = 0;

@@ -568,6 +568,9 @@ static void usage(const char *prog, const char *msg) {
             "       --plic START:SIZE set PLIC start address and size in B (defaults to 0x%lx:0x%lx)\n"
             "       --clint START:SIZE set CLINT start address and size in B (defaults to 0x%lx:0x%lx)\n"
             "       --custom_extension add X extension to misa for all cores\n"
+#ifdef LIVECACHE
+            "       --live_cache_size live cache warmup for checkpoint (default 8M)\n"
+#endif
             "       --clear_ids clear mvendorid, marchid, mimpid for all cores\n",
             msg,
             CONFIG_VERSION,
@@ -629,6 +632,9 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     bool        custom_extension         = false;
     const char *simpoint_file            = 0;
     bool        clear_ids                = false;
+#ifdef LIVECACHE
+    uint64_t    live_cache_size          = 8*1024*1024;
+#endif
 
     dromajo_stdout = stdout;
     dromajo_stderr = stderr;
@@ -659,6 +665,9 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             {"clint",                   required_argument, 0,  'C' }, // CFG
             {"custom_extension",              no_argument, 0,  'u' }, // CFG
             {"clear_ids",                     no_argument, 0,  'L' }, // CFG
+#ifdef LIVECACHE
+            {"live_cache_size",         required_argument, 0,  'w' }, // CFG
+#endif
             {0,                         0,                 0,  0 }
         };
         // clang-format on
@@ -816,6 +825,23 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             case 'u': custom_extension = true; break;
 
             case 'L': clear_ids = true; break;
+
+#ifdef LIVECACHE
+            case 'w':
+                if (live_cache_size)
+                    usage(prog, "already had a live_cache_size");
+                live_cache_size = (uint64_t)atoll(optarg);
+                {
+                    char last = optarg[strlen(optarg) - 1];
+                    if (last == 'k' || last == 'K')
+                        live_cache_size *= 1000;
+                    else if (last == 'm' || last == 'M')
+                        live_cache_size *= 1000000;
+                    else if (last == 'g' || last == 'G')
+                        live_cache_size *= 1000000000;
+                }
+                break;
+#endif
 
             default: usage(prog, "I'm not having this argument");
         }
@@ -983,6 +1009,11 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     RISCVMachine *s = virt_machine_init(p);
     if (!s)
         return NULL;
+
+#ifdef LIVECACHE
+    // LiveCache (should be ~2x larger than real LLC)
+    s->llc = new LiveCache("LiveCache", live_cache_size, p->ram_base_addr, p->ram_size);
+#endif
 
     // Overwrite the value specified in the configuration file
     if (snapshot_load_name) {

@@ -100,6 +100,9 @@ class LiveCache {
     uint64_t lineCount;
     uint64_t maxOrder;
 
+    uint64_t mem_base;
+    uint64_t mem_end;
+
     long long nReadHit;
     long long nReadMiss;
     long long nWriteHit;
@@ -108,14 +111,14 @@ class LiveCache {
     void mergeSort(Line **arr, uint64_t len);
 
   public:
-    LiveCache(const std::string &_name, int size);
+    LiveCache(const std::string &_name, int size, uint64_t mem_base, uint64_t mem_size);
     virtual ~LiveCache();
 
     int32_t getLineSize() const { return lineSize; }
 
     void      read(uint64_t addr);
     void      write(uint64_t addr);
-    uint64_t *traverse(int &n_entries);
+    uint64_t *traverse(uint64_t &n_entries);
 };
 
 #endif

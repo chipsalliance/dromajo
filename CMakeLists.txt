@@ -44,6 +44,7 @@ project(dromajo)
 option(TRACEOS "TRACEOS" OFF)
 option(SIMPOINT "SIMPOINT" OFF)
 option(GOLDMEM "GOLDMEM" OFF)
+option(WARMUP "WARMUP" OFF)
 
 #set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
@@ -80,6 +81,11 @@ endif ()
 # Set Version Header
 set(CONFIG_VERSION "Dromajo-0.1")
 configure_file(include/config.h.in config.h @ONLY)
+
+if (WARMUP)
+  message(STATUS "Checkpoint with WARMUP is on (typically for simpoints, but any checkpoint can use it).")
+    add_compile_options( -DLIVECACHE)
+endif ()
 
 if (GOLDMEM)
     message(STATUS "GOLDMEM is on.")
