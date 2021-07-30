@@ -43,10 +43,6 @@ void check_inorder_init(int ncores);
 dromajo_cosim_state_t *dromajo_cosim_init(int argc, char *argv[]) {
     RISCVMachine *m = virt_machine_main(argc, argv);
 
-#ifdef LIVECACHE
-    // m->llc = new LiveCache("LLC", 1024*1024*32); // 32MB LLC (should be ~2x larger than real)
-    m->llc = new LiveCache("LLC", 1024 * 32);  // Small 32KB for testing
-#endif
 #ifdef GOLDMEM_INORDER
     check_inorder_init(m->ncpus);
 #endif

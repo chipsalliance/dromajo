@@ -151,7 +151,7 @@ static inline void track_write(RISCVCPUState *s, uint64_t vaddr, uint64_t paddr,
 #ifdef LIVECACHE
     s->machine->llc->write(paddr);
 #endif
-    // printf("track.st[%llx:%llx]=%llx\n", paddr, paddr+size-1, data);
+    //printf("track.st[%llx:%llx]=%llx\n", paddr, paddr+size-1, data);
     s->last_data_paddr = paddr;
 #ifdef GOLDMEM_INORDER
     s->last_data_value = data;
@@ -163,7 +163,7 @@ static inline uint64_t track_dread(RISCVCPUState *s, uint64_t vaddr, uint64_t pa
     s->machine->llc->read(paddr);
 #endif
     s->last_data_paddr = paddr;
-    // printf("track.ld[%llx:%llx]=%llx\n", paddr, paddr+size-1, data);
+    //printf("track.ld[%llx:%llx]=%llx\n", paddr, paddr+size-1, data);
 
     return data;
 }
@@ -172,6 +172,7 @@ static inline uint64_t track_iread(RISCVCPUState *s, uint64_t vaddr, uint64_t pa
 #ifdef LIVECACHE
     s->machine->llc->read(paddr);
 #endif
+    //printf("track.ic[%llx:%llx]=%llx\n", paddr, paddr+size-1, data);
     assert(size == 16 || size == 32);
 
     return data;
@@ -1891,6 +1892,10 @@ static uint32_t create_auipc(int rd, uint32_t addr) {
     return 0x17 | ((rd & 0x1F) << 7) | ((addr >> 12) << 12);
 }
 
+static uint32_t create_lui(int rd, uint32_t addr) {
+    return 0x37 | ((rd & 0x1F) << 7) | ((addr >> 12) << 12);
+}
+
 static uint32_t create_addi(int rd, uint32_t addr) {
     uint32_t pos = addr & 0xFFF;
 
@@ -1911,16 +1916,72 @@ static void create_csr12_recovery(uint32_t *rom, uint32_t *code_pos, uint32_t cs
 }
 
 #ifdef LIVECACHE
-static void create_read_warmup(uint32_t *rom, uint32_t *code_pos, uint32_t *data_pos, uint64_t val) {
+static void create_warmup_data(uint32_t *rom, uint32_t *data_pos, uint64_t addr) {
+    rom[(*data_pos)++] = addr & 0xFFFFFFFF;
+    rom[(*data_pos)++] = addr >> 32;
+}
+
+static void create_warmup_loop(uint32_t *rom, uint32_t *code_pos, uint32_t *data_pos, uint32_t warmup_size) {
     uint32_t data_off = sizeof(uint32_t) * (*data_pos - *code_pos);
 
-    rom[(*code_pos)++] = create_auipc(1, data_off);
-    rom[(*code_pos)++] = create_addi(1, data_off);
-    rom[(*code_pos)++] = create_ld(1, 1);
-    rom[(*code_pos)++] = create_ld(1, 1);
+// The warmup executes a loop very close to this (the total is not needed, but in C is needed to avoid dead-code-elimination.)
+//
+// int warmup_loop(long int *base, unsigned int base_size) {
+//   unsigned int total=0;
+//   for(unsigned int i=0;i<base_size;++i) {
+//     long int addr = base[i];
+//     char *ptr = (char *)addr; // OK to have 1 at LSB because we do LB/SB
+//     if (addr&1)
+//       *ptr = *ptr+1; // THIS IS TO AVOID elimination. should be *ptr+0
+//     else
+//       total += *ptr;
+//   }
+//
+//   return total;
+// }
+//
+// The assembly (without return at pointer check return)
+//
+    rom[(*code_pos)++] = create_auipc(10, data_off);  // s0 == data_pos (or begin of data trace
+    rom[(*code_pos)++] = create_addi(10, data_off);
+    rom[(*code_pos)++] = create_lui(11, warmup_size);
+    rom[(*code_pos)++] = create_addi(11, warmup_size);
 
-    rom[(*data_pos)++] = val & 0xFFFFFFFF;
-    rom[(*data_pos)++] = val >> 32;
+//   2:	fff5869b          	addiw	a3,a1,-1
+    rom[(*code_pos)++] = 0xfff5869b;
+//   6:	1682                slli	a3,a3,0x20
+//   8:	82f5                srli	a3,a3,0x1d
+    rom[(*code_pos)++] = 0x82f51682;
+//   a:	00850793          	addi	a5,a0,8
+    rom[(*code_pos)++] = 0x00850793;
+//   e:	96be                add	a3,a3,a5
+//  10:	4581                li	a1,0
+    rom[(*code_pos)++] = 0x458196be;
+//  12:	a039                j	20 <.L5>
+//
+//  14:	2701                addiw	a4,a4,1 // FIXED to a4,a4,0
+    rom[(*code_pos)++] = 0x2701a039;
+//  16:	00e78023          	sb	a4,0(a5)
+    rom[(*code_pos)++] = 0x00e78023;
+//  1a:	0521                addi	a0,a0,8
+//  1c:	00d50c63          	beq	a0,a3,34 <.L9>
+    rom[(*code_pos)++] = 0x0c630521;
+//
+//  20:	611c                ld	a5,0(a0)
+    rom[(*code_pos)++] = 0x611c00d5;
+//  22:	0017f613          	andi	a2,a5,1
+    rom[(*code_pos)++] = 0x0017f613;
+//  26:	0007c703          	lbu	a4,0(a5)
+    rom[(*code_pos)++] = 0x0007c703;
+//  2a:	f66d                bnez	a2,14 <.L10>
+//  2c:	0521                addi	a0,a0,8
+    rom[(*code_pos)++] = 0x0521f66d;
+//  2e:	9db9                addw	a1,a1,a4
+//  30:	fed518e3          	bne	a0,a3,20 <.L5>
+    rom[(*code_pos)++] = 0x18e39db9;
+//  34:	4501                li	a0,0 // A 2 byte NOP to have 4 bytes alignment
+    rom[(*code_pos)++] = 0x4501fed5;
+
 }
 #endif
 
@@ -2009,18 +2070,21 @@ static void create_boot_rom(RISCVCPUState *s, const char *file, const uint64_t c
     create_csr12_recovery(rom, &code_pos, 0x7b0, 0x600 | s->priv);
 
 #ifdef LIVECACHE
-    int       addr_size;
-    uint64_t *addr = s->machine->llc->traverse(addr_size);
+    uint64_t  n_addr=0;
+    uint64_t  n_addr_to_skip=0;
+    uint64_t *addr = s->machine->llc->traverse(n_addr);
 
-    if (addr_size > ROM_SIZE / 4) {
-        fprintf(stderr, "LiveCache: truncating boot rom from %d to %d\n", addr_size, ROM_SIZE / 4);
-        addr_size = ROM_SIZE / 4;
+    if (n_addr > (ROM_SIZE-1024)) {
+        fprintf(stderr, "LiveCache: truncating boot rom from %d to %d (you may want to increase ROM_SIZE for better warmup)\n", n_addr, ROM_SIZE-1024);
+        n_addr_to_skip = n_addr - (ROM_SIZE - 1024);
     }
+    uint32_t n_entries = n_addr-n_addr_to_skip;
 
-    for (int i = 0; i < addr_size; ++i) {
+    create_warmup_loop(rom, &code_pos, &data_pos, n_entries);
+    for (size_t i = n_addr_to_skip; i < n_addr; ++i) {
         uint64_t a = addr[i] & ~0x1ULL;
         printf("addr:%llx %s\n", (unsigned long long)a, (addr[i] & 1) ? "ST" : "LD");
-        create_read_warmup(rom, &code_pos, &data_pos, a);  // treat write like reads for the moment
+        create_warmup_data(rom, &data_pos, addr[i]);
     }
 #endif
 

@@ -15,9 +15,10 @@ make -C simpoint
 ## Compile dromajo with simpoint
 
 ```
-cd src
-make clean
-make SIMPOINT=1
+mkdir build
+cd build
+cmake -DSIMPOINT=On ../
+make
 ```
 
 
@@ -127,11 +128,25 @@ Repeat the checkpoint creation for each simpoint, and they are ready.
 
 NOTE: You can use a dromajo with or without SIMPOINT enabled for creating checkpoints. It ill be a bit faster without SIMPOINT.
 
+This means that to create checkpoints, you should use the default dromajo build options:
 ```
-cd src
-make clean
+mkdir build
+cd build
+cmake ../
 make
 ```
+
+If you want the checkpoints to have cache warmup:
+```
+mkdir build
+cd build
+cmake -DWARMUP=On ../
+make
+```
+
+Cache warmup will increase the boomrom size to insert all the memory requests needed. The advantage is that it can reduce the
+simpoint size to have accurate results.
+
 
 ## Run a checkpoint for each simpoint to characterize your application
 
