@@ -1117,10 +1117,10 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
                             s->mcycle += delta;
                             s->minstret += delta;
                         }
-                        if (csr_read(s, &val2, imm, TRUE))
+                        if (csr_read(s, funct3, &val2, imm, TRUE))
                             goto illegal_insn;
                         val2 = (intx_t)val2;
-                        err  = csr_write(s, imm, val);
+                        err  = csr_write(s, funct3, imm, val);
                         if (err == -2)
                             goto mmu_exception;
                         if (err < 0)
@@ -1145,7 +1145,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
                             s->mcycle += delta;
                             s->minstret += delta;
                         }
-                        if (csr_read(s, &val2, imm, (rs1 != 0)))
+                        if (csr_read(s, funct3, &val2, imm, (rs1 != 0)))
                             goto illegal_insn;
                         val2 = (intx_t)val2;
                         if (rs1 != 0) {
@@ -1153,7 +1153,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
                                 val = val2 | val;
                             else
                                 val = val2 & ~val;
-                            err = csr_write(s, imm, val);
+                            err = csr_write(s, funct3, imm, val);
                             if (err == -2)
                                 goto mmu_exception;
                             if (err < 0)

@@ -823,7 +823,7 @@ static BOOL counter_access_ok(RISCVCPUState *s, uint32_t csr) {
 
 /* return -1 if invalid CSR. 0 if OK. 'will_write' indicate that the
    csr will be written after (used for CSR access check) */
-static int csr_read(RISCVCPUState *s, target_ulong *pval, uint32_t csr, BOOL will_write) {
+static int csr_read(RISCVCPUState *s, uint32_t funct3, target_ulong *pval, uint32_t csr, BOOL will_write) {
     target_ulong val;
 
     if (((csr & 0xc00) == 0xc00) && will_write)
@@ -1046,7 +1046,7 @@ static int csr_read(RISCVCPUState *s, target_ulong *pval, uint32_t csr, BOOL wil
         default:
         invalid_csr:
             if (s->machine->hooks.csr_read)
-                return s->machine->hooks.csr_read(s, csr, pval);
+                return s->machine->hooks.csr_read(s, funct3, csr, pval);
 
 #ifdef DUMP_INVALID_CSR
             /* the 'time' counter is usually emulated */
@@ -1136,7 +1136,7 @@ static void unpack_pmpaddrs(RISCVCPUState *s) {
 
 /* return -1 if invalid CSR, 0 if OK, -2 if CSR raised an exception,
  * 2 if TLBs have been flushed. */
-static int csr_write(RISCVCPUState *s, uint32_t csr, target_ulong val) {
+static int csr_write(RISCVCPUState *s, uint32_t funct3, uint32_t csr, target_ulong val) {
     target_ulong mask;
 
 #if defined(DUMP_CSR)
@@ -1414,7 +1414,7 @@ static int csr_write(RISCVCPUState *s, uint32_t csr, target_ulong val) {
 
         default:
             if (s->machine->hooks.csr_write)
-                return s->machine->hooks.csr_write(s, csr, val);
+                return s->machine->hooks.csr_write(s, funct3, csr, val);
 
         invalid_csr:
 #ifdef DUMP_INVALID_CSR

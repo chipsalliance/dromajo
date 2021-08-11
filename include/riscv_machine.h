@@ -53,8 +53,8 @@
 /* Hooks */
 typedef struct RISCVMachineHooks {
     /* Returns -1 if invalid CSR, 0 if OK. */
-    int (*csr_read)(RISCVCPUState *s, uint32_t csr, uint64_t *pval);
-    int (*csr_write)(RISCVCPUState *s, uint32_t csr, uint64_t val);
+    int (*csr_read)(RISCVCPUState *s, uint32_t funct3, uint32_t csr, uint64_t *pval);
+    int (*csr_write)(RISCVCPUState *s, uint32_t funct3, uint32_t csr, uint64_t val);
 } RISCVMachineHooks;
 
 struct RISCVMachine {
