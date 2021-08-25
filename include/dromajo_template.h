@@ -1275,12 +1275,10 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
                 funct3 = (insn >> 12) & 7;
                 switch (funct3) {
                     case 0: /* fence */
-                        if (insn & 0xf00fff80)
-                            goto illegal_insn;
+                        /* all variantions are reserved for future use */
                         break;
                     case 1: /* fence.i */
-                        if (insn != 0x0000100f)
-                            goto illegal_insn;
+                        /* all variantions are reserved for future use */
                         break;
 #if XLEN >= 128
                     case 2: /* lq */
