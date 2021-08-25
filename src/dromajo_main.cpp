@@ -564,7 +564,6 @@ static void usage(const char *prog, const char *msg) {
             "       --dtb load in a dtb file (default is dromajo dtb)\n"
             "       --compact_bootrom have dtb be directly after bootrom (default 256B after boot base)\n"
             "       --reset_vector set reset vector for all cores (default 0x%lx)\n"
-            "       --mmio_range START:END [START,END) mmio range for cosim (overridden by config file)\n"
             "       --plic START:SIZE set PLIC start address and size in B (defaults to 0x%lx:0x%lx)\n"
             "       --clint START:SIZE set CLINT start address and size in B (defaults to 0x%lx:0x%lx)\n"
             "       --custom_extension add X extension to misa for all cores\n"
@@ -623,8 +622,6 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     char *      dtb_name                 = 0;
     bool        compact_bootrom          = false;
     uint64_t    reset_vector_override    = 0;
-    uint64_t    mmio_start_override      = 0;
-    uint64_t    mmio_end_override        = 0;
     uint64_t    plic_base_addr_override  = 0;
     uint64_t    plic_size_override       = 0;
     uint64_t    clint_base_addr_override = 0;
@@ -660,7 +657,6 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             {"compact_bootrom",               no_argument, 0,  'o' },
             {"reset_vector",            required_argument, 0,  'r' }, // CFG
             {"dtb",                     required_argument, 0,  'd' }, // CFG
-            {"mmio_range",              required_argument, 0,  'R' }, // CFG
             {"plic",                    required_argument, 0,  'p' }, // CFG
             {"clint",                   required_argument, 0,  'C' }, // CFG
             {"custom_extension",              no_argument, 0,  'u' }, // CFG
@@ -764,25 +760,6 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
                     usage(prog, "--reset_vector expects argument to start with 0x... ");
                 reset_vector_override = strtoll(optarg + 2, NULL, 16);
                 break;
-
-            case 'R': {
-                if (!strchr(optarg, ':'))
-                    usage(prog, "--mmio_range expects an argument like START:END");
-
-                char *copy       = strdup(optarg);
-                char *mmio_start = strtok(copy, ":");
-                char *mmio_end   = strtok(NULL, ":");
-
-                if (mmio_start[0] != '0' || mmio_start[1] != 'x')
-                    usage(prog, "--mmio_range START address must begin with 0x...");
-                mmio_start_override = strtoll(mmio_start + 2, NULL, 16);
-
-                if (mmio_end[0] != '0' || mmio_end[1] != 'x')
-                    usage(prog, "--mmio_range END address must begin with 0x...");
-                mmio_end_override = strtoll(mmio_end + 2, NULL, 16);
-
-                free(copy);
-            } break;
 
             case 'p': {
                 if (!strchr(optarg, ':'))
@@ -980,12 +957,6 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     // Setup particular reset vector
     if (reset_vector_override)
         p->reset_vector = reset_vector_override;
-
-    // MMIO ranges
-    if (mmio_start_override)
-        p->mmio_start = mmio_start_override;
-    if (mmio_end_override)
-        p->mmio_end = mmio_end_override;
 
     // PLIC params
     if (plic_base_addr_override)

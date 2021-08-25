@@ -93,29 +93,18 @@ static inline bool is_amo(uint32_t insn) {
 
 /*
  * is_mmio_load() --
- * calculated the effective address and check if the physical backing
- * is MMIO space.  NB: get_phys_addr() is the identity if the CPU is
+ * mmio values are copied from DUT, simple check to see if it is RAM/Virt Device
+ * Is considered mmio if it isn't RAM/VIRT Device which have addressed declared explicitly
+ * NB: get_phys_addr() is the identity if the CPU is
  * running without virtual memory enabled.
  */
-static inline bool is_mmio_load(RISCVCPUState *s, int reg, int offset, uint64_t mmio_start, uint64_t mmio_end) {
+static inline bool is_mmio_load(RISCVCPUState *s, int reg, int offset, size_t size) {
     uint64_t pa;
     uint64_t va = riscv_get_reg_previous(s, reg) + offset;
 
-    if (!riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) && mmio_start <= pa && pa < mmio_end) {
-        return true;
-    }
+    riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa);
 
-    if (s->machine->mmio_addrset_size > 0) {
-        RISCVMachine *m = s->machine;
-        for (size_t i = 0; i < m->mmio_addrset_size; ++i) {
-            uint64_t start = m->mmio_addrset[i].start;
-            uint64_t end   = m->mmio_addrset[i].start + m->mmio_addrset[i].size;
-            if (!riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) && start <= pa && pa < end)
-                return true;
-        }
-    }
-
-    return false;
+    return (!riscv_cpu_pmp_access_ok(s, pa, size, PMPCFG_R) || !get_phys_mem_range(s->mem_map, pa));
 }
 
 /*
@@ -128,14 +117,14 @@ static inline bool is_mmio_load(RISCVCPUState *s, int reg, int offset, uint64_t 
  *
  * Right now we handle just mcycle.
  */
-static inline void handle_dut_overrides(RISCVCPUState *s, uint64_t mmio_start, uint64_t mmio_end, int priv, uint64_t pc,
+static inline void handle_dut_overrides(RISCVCPUState *s, int priv, uint64_t pc,
                                         uint32_t insn, uint64_t emu_wdata, uint64_t dut_wdata) {
     int opcode = insn & 0x7f;
     int csrno  = insn >> 20;
     int rd     = (insn >> 7) & 0x1f;
     int rdc    = ((insn >> 2) & 7) + 8;
     int reg, offset;
-
+    size_t size = (insn >> 12) & 3;
     /* Catch reads from CSR mcycle, ucycle, instret, hpmcounters,
      * hpmoverflows, mip, and sip.
      * If the destination register is x0 then it is actually a csr-write
@@ -162,7 +151,7 @@ static inline void handle_dut_overrides(RISCVCPUState *s, uint64_t mmio_start, u
     } else
         return;
 
-    if (is_mmio_load(s, reg, offset, mmio_start, mmio_end)) {
+    if (is_mmio_load(s, reg, offset, size)) {
         riscv_set_reg(s, rd, dut_wdata);
     }
 }
@@ -405,8 +394,9 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
     }
 #endif
 
-    if (check)
-        handle_dut_overrides(s, r->mmio_start, r->mmio_end, emu_priv, emu_pc, emu_insn, emu_wdata, dut_wdata);
+    if (check) {
+        handle_dut_overrides(s, emu_priv, emu_pc, emu_insn, emu_wdata, dut_wdata);
+    }
 
     log_buff_space = 0;
     if (verbose) {
@@ -479,7 +469,7 @@ int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, uint64_
 #ifdef DUMP_INVALID_MEM_ACCESS
         (m.debug_log)(hartid, "riscv_cpu_write_memory: invalid physical address 0x%016" PRIx64 "\n", dut_paddr);
 #endif
-        return 1;
+        return 0;
     } else if (pr->is_ram) {
         phys_mem_set_dirty_bit(pr, dut_paddr - pr->addr);
         ptr = pr->phys_mem + (uintptr_t)(dut_paddr - pr->addr);

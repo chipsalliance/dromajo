@@ -507,16 +507,8 @@ no_inline int riscv_cpu_read_memory(RISCVCPUState *s, mem_uint_t *pval, target_u
             return -1;
         }
         pr = get_phys_mem_range_pmp(s, paddr, size, PMPCFG_R);
-        if (!pr) {
-#ifdef DUMP_INVALID_MEM_ACCESS
-            fprintf(dromajo_stderr, "riscv_cpu_read_memory: invalid physical address 0x");
-            print_target_ulong(paddr);
-            fprintf(dromajo_stderr, "\n");
-#endif
-            s->pending_tval      = addr;
-            s->pending_exception = CAUSE_FAULT_LOAD;
-            return -1;
-        }
+        if (!pr)
+            return 0;  // Isn't RAM or Virt Device, treated as mmio and memory copied from DUT
 
         if (pr->is_ram) {
             tlb_idx                    = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
@@ -596,14 +588,7 @@ no_inline int riscv_cpu_write_memory(RISCVCPUState *s, target_ulong addr, mem_ui
         }
         pr = get_phys_mem_range_pmp(s, paddr, size, PMPCFG_W);
         if (!pr) {
-#ifdef DUMP_INVALID_MEM_ACCESS
-            fprintf(dromajo_stderr, "riscv_cpu_write_memory: invalid physical address 0x");
-            print_target_ulong(paddr);
-            fprintf(dromajo_stderr, "\n");
-#endif
-            s->pending_tval      = addr;
-            s->pending_exception = CAUSE_FAULT_STORE;
-            return -1;
+            // Isn't RAM or Virt Device, treated as mmio and reads copy DUT data
         } else if (pr->is_ram) {
             phys_mem_set_dirty_bit(pr, paddr - pr->addr);
             tlb_idx                     = (addr >> PG_SHIFT) & (TLB_SIZE - 1);

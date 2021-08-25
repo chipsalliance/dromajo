@@ -85,32 +85,6 @@ int vm_get_int(JSONValue obj, const char *name, int64_t *pval) {
     return 0;
 }
 
-int vm_get_mmio_addrset_opt(JSONValue obj, VirtMachineParams *p) {
-    JSONValue val = json_object_get(obj, "mmio_addrset");
-
-    if (json_is_undefined(val))
-        return 0;
-
-    if (val.type != JSON_ARRAY) {
-        vm_error("%s: array expected\n", "mmio_addrset");
-        return -1;
-    }
-
-    uint64_t    mmio_addrset_size = val.u.array->len;
-    AddressSet *mmio_addrset      = (AddressSet *)mallocz(sizeof(AddressSet) * mmio_addrset_size);
-
-    for (int i = 0; i < val.u.array->len; ++i) {
-        JSONValue obj = json_array_get(val, i);
-        vm_get_int(obj, "start", (int64_t *)&mmio_addrset[i].start);
-        vm_get_int(obj, "size", (int64_t *)&mmio_addrset[i].size);
-    }
-
-    p->mmio_addrset      = mmio_addrset;
-    p->mmio_addrset_size = mmio_addrset_size;
-
-    return 0;
-}
-
 static void vm_get_uint64_opt(JSONValue obj, const char *name, uint64_t *pval) {
     JSONValue val = json_object_get(obj, name);
 
@@ -360,11 +334,6 @@ static int virt_machine_parse_config(VirtMachineParams *p, char *config_file_str
     }
 
     vm_get_uint64_opt(cfg, "ncpus", &p->ncpus);
-
-    vm_get_uint64_opt(cfg, "mmio_start", &p->mmio_start);
-    vm_get_uint64_opt(cfg, "mmio_end", &p->mmio_end);
-    if (vm_get_mmio_addrset_opt(cfg, p) < 0)
-        goto tag_fail;
 
     vm_get_uint64_opt(cfg, "physical_addr_len", &p->physical_addr_len);
 

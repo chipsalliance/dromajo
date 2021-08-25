@@ -130,16 +130,6 @@ static void uart_update_irq(SiFiveUARTState *s) {
     }
 }
 
-static uint32_t mmio_read(void *opaque, uint32_t offset, int size_log2) {
-    vm_error("mmio_read: offset=%x size_log2=%d\n", offset, size_log2);
-
-    return 0;
-}
-
-static void mmio_write(void *opaque, uint32_t offset, uint32_t val, int size_log2) {
-    vm_error("mmio_write: offset=%x size_log2=%d val=%x\n", offset, size_log2, val);
-}
-
 static uint32_t uart_read(void *opaque, uint32_t offset, int size_log2) {
     SiFiveUARTState *s = (SiFiveUARTState *)opaque;
 
@@ -1135,24 +1125,6 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
         s->cpu_state[i]->physical_addr_len = p->physical_addr_len;
     }
 
-    if (p->mmio_start) {
-        uint64_t sz = p->mmio_end - p->mmio_start;
-        cpu_register_device(s->mem_map, p->mmio_start, sz, 0, mmio_read, mmio_write, DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
-    }
-
-    if (p->mmio_addrset_size > 0) {
-        for (size_t i = 0; i < p->mmio_addrset_size; ++i) {
-            uint64_t sz = p->mmio_addrset[i].size;
-            cpu_register_device(s->mem_map,
-                                p->mmio_addrset[i].start,
-                                sz,
-                                0,
-                                mmio_read,
-                                mmio_write,
-                                DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
-        }
-    }
-
     SiFiveUARTState *uart = (SiFiveUARTState *)calloc(sizeof *uart, 1);
     uart->irq             = UART0_IRQ;
     uart->cs              = p->console;
@@ -1266,12 +1238,6 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
                            p->cmdline))
         return NULL;
 
-    /* mmio setup for cosim */
-    s->mmio_start        = p->mmio_start;
-    s->mmio_end          = p->mmio_end;
-    s->mmio_addrset      = p->mmio_addrset;
-    s->mmio_addrset_size = p->mmio_addrset_size;
-
     /* interrupts and exception setup for cosim */
     s->common.cosim             = false;
     s->common.pending_exception = -1;
@@ -1311,9 +1277,6 @@ void virt_machine_end(RISCVMachine *s) {
     for (int i = 0; i < s->ncpus; ++i) {
         riscv_cpu_end(s->cpu_state[i]);
     }
-
-    if (s->mmio_addrset_size > 0)
-        free(s->mmio_addrset);
 
     phys_mem_map_end(s->mem_map);
     free(s);

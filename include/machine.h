@@ -116,11 +116,6 @@ typedef struct {
     EthernetDevice *net;
 } VMEthEntry;
 
-typedef struct AddressSet {
-    uint64_t start;
-    uint64_t size;
-} AddressSet;
-
 #ifdef SIMPOINT_BB
 #include <vector>
 struct Simpoint {
@@ -171,12 +166,6 @@ typedef struct {
 
     /* number of cpus */
     uint64_t ncpus;
-
-    /* MMIO range (for co-simulation only) */
-    uint64_t    mmio_start;
-    uint64_t    mmio_end;
-    AddressSet *mmio_addrset;
-    uint64_t    mmio_addrset_size;
 
     /* PLIC/CLINT Params */
     uint64_t plic_base_addr;
