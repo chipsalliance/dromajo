@@ -1594,7 +1594,7 @@ static inline uint32_t get_pending_irq_mask(RISCVCPUState *s) {
 }
 
 static inline int8_t get_irq_platspecific(uint32_t mask) {
-    uint32_t local_ints = mask & ((-1) << 12);
+    uint32_t local_ints = mask & (0xFFFFFFFF << 12);
 
     // get irq number from plat specific section (priority to MSB)
     for (int8_t i = 31; i > 0; --i) {
