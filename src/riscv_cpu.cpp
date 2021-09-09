@@ -1111,7 +1111,7 @@ static void unpack_pmpaddrs(RISCVCPUState *s) {
                 int j;
                 // Count trailing ones
                 for (j = 0; j < 64; ++j)
-                    if ((s->csr_pmpaddr[i] & (1 << j)) == 0)
+                    if ((s->csr_pmpaddr[i] & (1llu << j)) == 0)
                         break;
                 j += 3;  // 8-byte is the lowest option
                 // NB, meaningless when i >= 56!
@@ -1643,9 +1643,8 @@ static int __must_use_result raise_interrupt(RISCVCPUState *s) {
 static inline int32_t sext(int32_t val, int n) { return (val << (32 - n)) >> (32 - n); }
 
 static inline uint32_t get_field1(uint32_t val, int src_pos, int dst_pos, int dst_pos_max) {
-    int mask;
     assert(dst_pos_max >= dst_pos);
-    mask = ((1 << (dst_pos_max - dst_pos + 1)) - 1) << dst_pos;
+    uint32_t mask = ((1 << (dst_pos_max - dst_pos + 1)) - 1) << dst_pos;
     if (dst_pos >= src_pos)
         return (val << (dst_pos - src_pos)) & mask;
     else
