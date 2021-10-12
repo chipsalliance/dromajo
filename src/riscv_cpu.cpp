@@ -1345,8 +1345,18 @@ static int csr_write(RISCVCPUState *s, uint32_t funct3, uint32_t csr, target_ulo
         case CSR_PMPADDR(12):
         case CSR_PMPADDR(13):
         case CSR_PMPADDR(14):
-        case CSR_PMPADDR(15):
+        case CSR_PMPADDR(15): {
             if (PMP_N <= csr - CSR_PMPADDR(0))
+                break;
+            uint64_t cfg = s->csr_pmpcfg[(csr - CSR_PMPADDR(0))/8];
+            cfg = cfg >> (csr - CSR_PMPADDR(0)) * 8;
+
+            if (cfg & PMPCFG_L) // pmpcfg entry is locked
+                break;
+
+            // Check if next pmpcfg(i+1) is set to TOR, writes to pmpaddr(i) are ignored
+            cfg = (cfg >> 8);
+            if(((cfg & PMPCFG_A_MASK) == PMPCFG_A_TOR) && (cfg & PMPCFG_L))
                 break;
 
             // Note, due to TOR ranges, one PMPADDR can affect two entries
@@ -1354,6 +1364,7 @@ static int csr_write(RISCVCPUState *s, uint32_t funct3, uint32_t csr, target_ulo
             s->csr_pmpaddr[csr - CSR_PMPADDR(0)] = val & PMPADDR_MASK;
             unpack_pmpaddrs(s);
             break;
+        }
 
         case 0xb00: /* mcycle */ s->mcycle = val; break;
         case 0xb02: /* minstret */ s->minstret = val; break;
