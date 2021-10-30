@@ -214,10 +214,16 @@ bool riscv_cpu_pmp_access_ok(RISCVCPUState *s, uint64_t paddr, size_t size, pmpc
 
     return priv == PRV_M;
 }
-
-static inline PhysMemoryRange *get_phys_mem_range_pmp(RISCVCPUState *s, uint64_t paddr, size_t size, pmpcfg_t perm) {
-    if (!riscv_cpu_pmp_access_ok(s, paddr, size, perm))
+// Returns PhysMemoryRange, NULL address or otherwise, if access isn't
+// considered pmp blocked, sets fail to false - otherwise NULL address
+// is returned no matter the mapping of the requested address
+// and fail is set to true
+static inline PhysMemoryRange *get_phys_mem_range_pmp(RISCVCPUState *s, uint64_t paddr, size_t size, pmpcfg_t perm, bool *fail) {
+    *fail = false;
+    if (!riscv_cpu_pmp_access_ok(s, paddr, size, perm)) {
+        *fail = true;
         return NULL;
+    }
     else
         return get_phys_mem_range(s->mem_map, paddr);
 }
@@ -225,8 +231,8 @@ static inline PhysMemoryRange *get_phys_mem_range_pmp(RISCVCPUState *s, uint64_t
 /* addr must be aligned. Only RAM accesses are supported */
 #define PHYS_MEM_READ_WRITE(size, uint_type)                                                         \
     void riscv_phys_write_u##size(RISCVCPUState *s, target_ulong paddr, uint_type val, bool *fail) { \
-        PhysMemoryRange *pr = get_phys_mem_range_pmp(s, paddr, size / 8, PMPCFG_W);                  \
-        if (!pr || !pr->is_ram) {                                                                    \
+        PhysMemoryRange *pr = get_phys_mem_range_pmp(s, paddr, size / 8, PMPCFG_W, fail);           \
+        if (!pr || *fail || !pr->is_ram) {                                                     \
             *fail = true;                                                                            \
             return;                                                                                  \
         }                                                                                            \
@@ -236,8 +242,8 @@ static inline PhysMemoryRange *get_phys_mem_range_pmp(RISCVCPUState *s, uint64_t
     }                                                                                                \
                                                                                                      \
     uint_type riscv_phys_read_u##size(RISCVCPUState *s, target_ulong paddr, bool *fail) {            \
-        PhysMemoryRange *pr = get_phys_mem_range_pmp(s, paddr, size / 8, PMPCFG_R);                  \
-        if (!pr) {                                                                                   \
+        PhysMemoryRange *pr = get_phys_mem_range_pmp(s, paddr, size / 8, PMPCFG_R, fail);           \
+        if (!pr || *fail) {                                                                    \
             *fail = true;                                                                            \
             return 0;                                                                                \
         }                                                                                            \
@@ -436,6 +442,7 @@ no_inline int riscv_cpu_read_memory(RISCVCPUState *s, mem_uint_t *pval, target_u
     uint8_t *        ptr;
     PhysMemoryRange *pr;
     mem_uint_t       ret;
+    bool             pmp_blocked = false;
 
     /* first handle unaligned accesses */
     size = 1 << size_log2;
@@ -506,7 +513,18 @@ no_inline int riscv_cpu_read_memory(RISCVCPUState *s, mem_uint_t *pval, target_u
             s->pending_exception = err == -1 ? CAUSE_LOAD_PAGE_FAULT : CAUSE_FAULT_LOAD;
             return -1;
         }
-        pr = get_phys_mem_range_pmp(s, paddr, size, PMPCFG_R);
+        pr = get_phys_mem_range_pmp(s, paddr, size, PMPCFG_R, &pmp_blocked);
+        if (pmp_blocked) {
+#ifdef DUMP_INVALID_MEM_ACCESS
+            fprintf(dromajo_stderr, "riscv_cpu_read_memory: invalid physical address 0x");
+            print_target_ulong(paddr);
+            fprintf(dromajo_stderr, "\n");
+#endif
+            s->pending_tval      = addr;
+            s->pending_exception = CAUSE_FAULT_LOAD;
+            return -1; // Invalid pmp access
+        }
+
         if (!pr)
             return 0;  // Isn't RAM or Virt Device, treated as mmio and memory copied from DUT
 
@@ -564,6 +582,7 @@ no_inline int riscv_cpu_write_memory(RISCVCPUState *s, target_ulong addr, mem_ui
     target_ulong     paddr, offset;
     uint8_t *        ptr;
     PhysMemoryRange *pr;
+    bool             pmp_blocked = false;
 
     /* first handle unaligned accesses */
     size = 1 << size_log2;
@@ -586,8 +605,13 @@ no_inline int riscv_cpu_write_memory(RISCVCPUState *s, target_ulong addr, mem_ui
             s->pending_exception = err == -1 ? CAUSE_STORE_PAGE_FAULT : CAUSE_FAULT_STORE;
             return -1;
         }
-        pr = get_phys_mem_range_pmp(s, paddr, size, PMPCFG_W);
-        if (!pr) {
+        pr = get_phys_mem_range_pmp(s, paddr, size, PMPCFG_W, &pmp_blocked);
+        if(pmp_blocked) {
+            s->pending_tval      = addr;
+            s->pending_exception = CAUSE_FAULT_STORE;
+            return -1;
+        }
+        else if (!pr) {
             // Isn't RAM or Virt Device, treated as mmio and reads copy DUT data
         } else if (pr->is_ram) {
             phys_mem_set_dirty_bit(pr, paddr - pr->addr);
@@ -650,6 +674,7 @@ static no_inline __must_use_result int target_read_insn_slow(RISCVCPUState *s, u
     target_ulong     paddr;
     uint8_t *        ptr;
     PhysMemoryRange *pr;
+    bool             pmp_blocked = false;
 
     int err = riscv_cpu_get_phys_addr(s, addr, ACCESS_CODE, &paddr);
     if (err) {
@@ -657,8 +682,8 @@ static no_inline __must_use_result int target_read_insn_slow(RISCVCPUState *s, u
         s->pending_exception = err == -1 ? CAUSE_FETCH_PAGE_FAULT : CAUSE_FAULT_FETCH;
         return -1;
     }
-    pr = get_phys_mem_range_pmp(s, paddr, size / 8, PMPCFG_X);
-    if (!pr || !pr->is_ram) {
+    pr = get_phys_mem_range_pmp(s, paddr, size / 8, PMPCFG_X, &pmp_blocked);
+    if (!pr || pmp_blocked || !pr->is_ram) {
         /* We only allow execution from RAM */
         s->pending_tval      = addr;
         s->pending_exception = CAUSE_FAULT_FETCH;
@@ -685,8 +710,8 @@ static no_inline __must_use_result int target_read_insn_slow(RISCVCPUState *s, u
             return -1;
         }
 
-        PhysMemoryRange *pr_cross = get_phys_mem_range_pmp(s, paddr_cross, 2, PMPCFG_X);
-        if (!pr_cross || !pr_cross->is_ram) {
+        PhysMemoryRange *pr_cross = get_phys_mem_range_pmp(s, paddr_cross, 2, PMPCFG_X, &pmp_blocked);
+        if (!pr_cross || pmp_blocked || !pr_cross->is_ram) {
             /* We only allow execution from RAM */
             s->pending_tval      = addr;
             s->pending_exception = CAUSE_FAULT_FETCH;
