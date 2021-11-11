@@ -1243,14 +1243,21 @@ static int csr_write(RISCVCPUState *s, uint32_t funct3, uint32_t csr, target_ulo
             // mask 0010 0 000100 0....0 0011 1011 111 ==
             //      m | s | u | execute | store | load
             // type = 4d'2 maskmax = 4 (= 16 B?)
-            mask = 0x20800000000001dfULL;
-            val |= 0x2080000000000000ULL;
-            s->tdata1[s->tselect] = s->tdata1[s->tselect] & ~mask | val & mask;
+            if (!(s->tdata1[s->tselect] & MCONTROL_DMODE) || s->debug_mode) {
+                /* When D-mode bit set, cannot write outside of debug */
+                mask = 0x20800000000011dfULL;
+                val |= 0x2080000000000000ULL;
+                /* D-mode bit can only be set in debug  */
+                if (s->debug_mode)
+                    mask += 0x800000000000000ULL;
+                s->tdata1[s->tselect] = s->tdata1[s->tselect] & ~mask | val & mask;
+            }
             break;
         }
 
         case 0x7a2:  // tdata2
-            s->tdata2[s->tselect] = val;
+            if (!(s->tdata1[s->tselect] & MCONTROL_DMODE) || s->debug_mode)
+                s->tdata2[s->tselect] = val;
             break;
 
         case 0x7b0:
@@ -1751,7 +1758,7 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid) {
 
     s->tselect = 0;
     for (int i = 0; i < MAX_TRIGGERS; ++i) {
-        s->tdata1[i] = 2l << 60;
+        s->tdata1[i] = MCONTROL_TYPE_AD_MATCH | MCONTROL_MAXMASK_4;
         s->tdata2[i] = ~(target_ulong)0;
     }
 
