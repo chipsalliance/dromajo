@@ -1717,7 +1717,8 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid) {
     s->pc              = machine->reset_vector;
     s->priv            = PRV_M;
     s->mstatus         = ((uint64_t)2 << MSTATUS_UXL_SHIFT) | ((uint64_t)2 << MSTATUS_SXL_SHIFT) | (3 << MSTATUS_MPP_SHIFT);
-    s->plic_enable_irq = 0;
+    s->plic_enable_irq[0] = 0;
+    s->plic_enable_irq[1] = 0;
     s->misa |= MCPUID_SUPER | MCPUID_USER | MCPUID_I | MCPUID_M | MCPUID_A;
     s->most_recently_written_reg = -1;
 #if FLEN >= 32

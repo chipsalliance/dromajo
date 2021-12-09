@@ -125,7 +125,7 @@ struct RISCVMachine {
 #define IDE_BASE_ADDR         0x40009000
 #define VIRTIO_BASE_ADDR      0x40010000
 #define VIRTIO_SIZE           0x1000
-#define VIRTIO_IRQ            1
+#define VIRTIO_IRQ            10 // Moved to avoid colliding
 #define FRAMEBUFFER_BASE_ADDR 0x41000000
 
 // sifive,uart, same as qemu UART0 (qemu has 2 sifive uarts)

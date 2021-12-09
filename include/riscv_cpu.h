@@ -244,7 +244,7 @@ typedef struct RISCVCPUState {
     target_ulong dpc;       // Debug DPC 0x7b1 (debug spec only)
     target_ulong dscratch;  // Debug dscratch 0x7b2 (debug spec only)
 
-    uint32_t plic_enable_irq;
+    uint32_t plic_enable_irq[2];
 
     target_ulong load_res; /* for atomic LR/SC */
 
