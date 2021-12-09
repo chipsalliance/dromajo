@@ -50,6 +50,7 @@ option(WARMUP "WARMUP" OFF)
 
 add_compile_options(
         -std=c++11
+        -g
         -Wall
         -Wno-parentheses
         -MMD
