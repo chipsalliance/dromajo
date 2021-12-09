@@ -286,10 +286,15 @@ static void clint_write(void *opaque, uint32_t offset, uint32_t val, int size_lo
 static void plic_update_mip(RISCVMachine *s, int hartid) {
     uint32_t       mask = s->plic_pending_irq & ~s->plic_served_irq;
     RISCVCPUState *cpu  = s->cpu_state[hartid];
-    if (mask) {
-        riscv_cpu_set_mip(cpu, MIP_MEIP | MIP_SEIP);
-    } else {
-        riscv_cpu_reset_mip(cpu, MIP_MEIP | MIP_SEIP);
+
+    for (int ctx = 0; ctx < 2; ++ctx) {
+        unsigned mip_mask = ctx == 0 ? MIP_SEIP : MIP_MEIP;
+
+        if (mask & cpu->plic_enable_irq[ctx]) {
+            riscv_cpu_set_mip(cpu, mip_mask);
+        } else {
+            riscv_cpu_reset_mip(cpu, mip_mask);
+        }
     }
 }
 
@@ -301,7 +306,7 @@ static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2) {
 
     assert(size_log2 == 2);
     if (PLIC_PRIORITY_BASE <= offset && offset < PLIC_PRIORITY_BASE + (PLIC_NUM_SOURCES << 2)) {
-        uint32_t irq = ((offset - PLIC_PRIORITY_BASE) >> 2) + 1;
+        uint32_t irq = (offset - PLIC_PRIORITY_BASE) >> 2;
         assert(irq < PLIC_NUM_SOURCES);
         val = plic_priority[irq];
     } else if (PLIC_PENDING_BASE <= offset && offset < PLIC_PENDING_BASE + (PLIC_NUM_SOURCES >> 3)) {
@@ -315,7 +320,7 @@ static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2) {
         if (hartid < s->ncpus) {
             // uint32_t wordid = (offset & (PLIC_ENABLE_STRIDE-1)) >> 2;
             RISCVCPUState *cpu = s->cpu_state[hartid];
-            val                = cpu->plic_enable_irq;
+            val                = cpu->plic_enable_irq[addrid % 2];
         } else {
             val = 0;
         }
@@ -324,13 +329,14 @@ static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2) {
         uint32_t wordid = (offset & (PLIC_CONTEXT_STRIDE - 1)) >> 2;
         if (wordid == 0) {
             val = 0;  // target_priority in qemu
-        } else if (wordid == 4) {
+        } else if (wordid == 1) {
             uint32_t mask = s->plic_pending_irq & ~s->plic_served_irq;
             if (mask != 0) {
                 int i = ctz32(mask);
                 s->plic_served_irq |= 1 << i;
+                s->plic_pending_irq &= ~(1 << i);
                 plic_update_mip(s, hartid);
-                val = i + 1;
+                val = i;
             } else {
                 val = 0;
             }
@@ -351,7 +357,7 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
 
     assert(size_log2 == 2);
     if (PLIC_PRIORITY_BASE <= offset && offset < PLIC_PRIORITY_BASE + (PLIC_NUM_SOURCES << 2)) {
-        uint32_t irq = ((offset - PLIC_PRIORITY_BASE) >> 2) + 1;
+        uint32_t irq = (offset - PLIC_PRIORITY_BASE) >> 2;
         assert(irq < PLIC_NUM_SOURCES);
         plic_priority[irq] = val & 7;
 
@@ -363,17 +369,16 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
         if (hartid < s->ncpus) {
             // uint32_t wordid = (offset & (PLIC_ENABLE_STRIDE - 1)) >> 2;
             RISCVCPUState *cpu   = s->cpu_state[hartid];
-            cpu->plic_enable_irq = val;
+            cpu->plic_enable_irq[addrid % 2] = val;
         }
     } else if (PLIC_CONTEXT_BASE <= offset && offset < PLIC_CONTEXT_BASE + PLIC_CONTEXT_STRIDE * MAX_CPUS) {
         uint32_t hartid = (offset - PLIC_CONTEXT_BASE) / PLIC_CONTEXT_STRIDE;
         uint32_t wordid = (offset & (PLIC_CONTEXT_STRIDE - 1)) >> 2;
         if (wordid == 0) {
             plic_priority[wordid] = val;
-        } else if (wordid == 4) {
+        } else if (wordid == 1) {
             int irq = val & 31;
-            vm_error("plic_write: hartid=%d claim wordid=%d offset=%x val=%x irq=%d\n", hartid, wordid, offset, val, irq);
-            uint32_t mask = 1 << (irq - 1);
+            uint32_t mask = 1 << irq;
             s->plic_served_irq &= ~mask;
         } else {
             vm_error("plic_write: hartid=%d ERROR?? unexpected wordid=%d offset=%x val=%x\n", hartid, wordid, offset, val);
@@ -389,7 +394,7 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
 static void plic_set_irq(void *opaque, int irq_num, int state) {
     RISCVMachine *m = (RISCVMachine *)opaque;
 
-    uint32_t mask = 1 << (irq_num - 1);
+    uint32_t mask = 1 << irq_num;
 
     if (state)
         m->plic_pending_irq |= mask;
