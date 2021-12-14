@@ -42,6 +42,7 @@
 
 #include <inttypes.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
@@ -200,5 +201,12 @@ void dbuf_write(DynBuf *s, size_t offset, const uint8_t *data, size_t len);
 void dbuf_putc(DynBuf *s, uint8_t c);
 void dbuf_putstr(DynBuf *s, const char *str);
 void dbuf_free(DynBuf *s);
+
+
+static inline double get_current_time_in_seconds(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
 
 #endif /* CUTILS_H */
