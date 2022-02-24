@@ -287,37 +287,11 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
 
         ++insn_executed;
 
-        /* Handled any breakpoint triggers in order (note, we
-         * precompute the mask and pattern to lower some of the
-         * cost). */
-        target_ulong t_mctl = MCONTROL_EXECUTE | (MCONTROL_U << s->priv);
-
-        for (int i = 0; i < MAX_TRIGGERS; ++i)
-            if ((s->tdata1[i] & t_mctl) == t_mctl) {
-                target_ulong t_match = (s->tdata1[i] & MCONTROL_MATCH) >> 7;
-                // Matches when the top M bits of the value
-                // match the top M bits of tdata2. M is XLEN-1
-                // minus the index of the least-significant bit
-                // containing 0 in tdata2.
-                target_ulong napot_mask = ~(s->tdata2[i] + 1 ^ s->tdata2[i]);
-                target_ulong napot_pc = napot_mask & s->pc;
-                target_ulong napot_tdata2 = napot_mask & s->tdata2[i];
-                if (t_match == MCONTROL_MATCH_EQUAL && s->pc == s->tdata2[i]
-                    || t_match == MCONTROL_MATCH_NAPOT && napot_pc == napot_tdata2
-                    || t_match == MCONTROL_MATCH_GE && s->pc >= s->tdata2[i]
-                    || t_match == MCONTROL_MATCH_LT && s->pc < s->tdata2[i]) {
-                    if (s->tdata1[i] & MCONTROL_ACTION && s->tdata1[i] & MCONTROL_DMODE) {
-                        /* Only m control action mode debug mode is implemented */
-                        riscv_set_debug_mode(s, true);
-                        s->pc = 0x0800;
-                        // TO-DO: implement debug mode
-                        goto done_interp;
-                    }
-                    s->pending_exception = CAUSE_BREAKPOINT;
-                    s->pending_tval      = 0;
-                    goto exception;
-                }
-            }
+        if (check_triggers(s, MCONTROL_EXECUTE, s->pc))
+            if (s->debug_mode)
+                goto done_interp;
+            else
+                goto exception;
 
         if (unlikely(code_ptr >= code_end)) {
             uint32_t     tlb_idx;
@@ -834,6 +808,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
                 funct3 = (insn >> 12) & 7;
                 imm    = (int32_t)insn >> 20;
                 addr   = read_reg(rs1) + imm;
+
                 switch (funct3) {
                     case 0: /* lb */
                     {
@@ -906,6 +881,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
                 imm    = (imm << 20) >> 20;
                 addr   = read_reg(rs1) + imm;
                 val    = read_reg(rs2);
+
                 switch (funct3) {
                     case 0: /* sb */
                         if (target_write_u8(s, addr, val))
@@ -1353,7 +1329,8 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
             case 0x18: /* amominu.w */                                                  \
             case 0x1c: /* amomaxu.w */                                                  \
                 if (target_read_u##size(s, &rval, addr)) {                              \
-                    s->pending_exception += 2; /* LD -> ST */                           \
+                    if (s->pending_exception != CAUSE_BREAKPOINT)                       \
+                        s->pending_exception += 2; /* LD -> ST */                       \
                     goto mmu_exception;                                                 \
                 }                                                                       \
                 val  = (int##size##_t)rval;                                             \

@@ -228,6 +228,44 @@ static inline PhysMemoryRange *get_phys_mem_range_pmp(RISCVCPUState *s, uint64_t
         return get_phys_mem_range(s->mem_map, paddr);
 }
 
+static inline bool check_triggers(RISCVCPUState *s, target_ulong t_mctl, target_ulong addr) {
+    if (s->debug_mode) //Triggers do not fire while in Debug Mode.
+        return false;
+
+    /* Handled any breakpoint triggers in order (note, we
+     * precompute the mask and pattern to lower some of the
+     * cost). */
+    t_mctl |= MCONTROL_U << s->priv;
+
+    for (int i = 0; i < MAX_TRIGGERS; ++i)
+        if ((s->tdata1[i] & t_mctl) == t_mctl) {
+            target_ulong t_match = (s->tdata1[i] & MCONTROL_MATCH) >> 7;
+            // Matches when the top M bits of the value
+            // match the top M bits of tdata2. M is XLEN-1
+            // minus the index of the least-significant bit
+            // containing 0 in tdata2.
+            target_ulong napot_mask = ~(s->tdata2[i] + 1 ^ s->tdata2[i]);
+            target_ulong napot_addr = napot_mask & addr;
+            target_ulong napot_tdata2 = napot_mask & s->tdata2[i];
+            if (t_match == MCONTROL_MATCH_EQUAL && addr == s->tdata2[i]
+                || t_match == MCONTROL_MATCH_NAPOT && napot_addr == napot_tdata2
+                || t_match == MCONTROL_MATCH_GE && addr >= s->tdata2[i]
+                || t_match == MCONTROL_MATCH_LT && addr < s->tdata2[i]) {
+                if (s->tdata2[i] & MCONTROL_ACTION && s->tdata1[i] & MCONTROL_DMODE) {
+                    /* Only m control action mode debug mode is implemented */
+                    riscv_set_debug_mode(s, true);
+                    /* TO-DO: implement debug-mode */
+                    s->pc = 0x0800;
+                    return true;
+                }
+                s->pending_exception = CAUSE_BREAKPOINT;
+                s->pending_tval      = addr;
+                return true;
+            }
+        }
+    return false;
+}
+
 /* addr must be aligned. Only RAM accesses are supported */
 #define PHYS_MEM_READ_WRITE(size, uint_type)                                                         \
     void riscv_phys_write_u##size(RISCVCPUState *s, target_ulong paddr, uint_type val, bool *fail) { \
@@ -260,6 +298,8 @@ PHYS_MEM_READ_WRITE(64, uint64_t)
 /* return 0 if OK, != 0 if exception */
 #define TARGET_READ_WRITE(size, uint_type, size_log2)                                                                       \
     static inline __must_use_result int target_read_u##size(RISCVCPUState *s, uint_type *pval, target_ulong addr) {         \
+        if (check_triggers(s, MCONTROL_LOAD, addr))                                                                         \
+            return -1;                                                                                                      \
         uint32_t tlb_idx;                                                                                                   \
         if (!CONFIG_ALLOW_MISALIGNED_ACCESS && (addr & (size / 8 - 1)) != 0) {                                              \
             s->pending_tval      = addr;                                                                                    \
@@ -283,6 +323,8 @@ PHYS_MEM_READ_WRITE(64, uint64_t)
     }                                                                                                                       \
                                                                                                                             \
     static inline __must_use_result int target_write_u##size(RISCVCPUState *s, target_ulong addr, uint_type val) {          \
+        if (check_triggers(s, MCONTROL_STORE, addr))                                                                        \
+            return -1;                                                                                                      \
         uint32_t tlb_idx;                                                                                                   \
         if (!CONFIG_ALLOW_MISALIGNED_ACCESS && (addr & (size / 8 - 1)) != 0) {                                              \
             s->pending_tval      = addr;                                                                                    \
