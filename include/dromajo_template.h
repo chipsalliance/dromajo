@@ -1663,7 +1663,8 @@ mmu_exception:
 exception:
     s->pc = GET_PC();
     if (s->pending_exception >= 0) {
-        if (s->pending_exception < CAUSE_USER_ECALL || s->pending_exception > CAUSE_USER_ECALL + 3) {
+        if ((s->pending_exception < CAUSE_USER_ECALL || s->pending_exception > CAUSE_USER_ECALL + 3) &&
+             s->pending_exception != CAUSE_BREAKPOINT) {
             /* All other causes cancelled the instruction and shouldn't be
              * counted in minstret */
             --insn_counter_addend;
