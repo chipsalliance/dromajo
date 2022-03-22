@@ -883,6 +883,10 @@ static int csr_read(RISCVCPUState *s, uint32_t funct3, target_ulong *pval, uint3
     if (s->priv < ((csr >> 8) & 3))
         return -1; /* not enough priviledge */
 
+    if (s->machine->hooks.csr_read)
+        if (!s->machine->hooks.csr_read(s, funct3, csr, pval))
+            return 0;
+
     switch (csr) {
 #if FLEN > 0
         case 0x001: /* fflags */
@@ -1097,8 +1101,6 @@ static int csr_read(RISCVCPUState *s, uint32_t funct3, target_ulong *pval, uint3
 
         default:
         invalid_csr:
-            if (s->machine->hooks.csr_read)
-                return s->machine->hooks.csr_read(s, funct3, csr, pval);
 
 #ifdef DUMP_INVALID_CSR
             /* the 'time' counter is usually emulated */
@@ -1196,6 +1198,11 @@ static int csr_write(RISCVCPUState *s, uint32_t funct3, uint32_t csr, target_ulo
     print_target_ulong(val);
     fprintf(dromajo_stderr, "\n");
 #endif
+
+    if (s->machine->hooks.csr_write)
+        if (!s->machine->hooks.csr_write(s, funct3, csr, val))
+            return 0;
+
     switch (csr) {
 #if FLEN > 0
         case 0x001: /* fflags */
@@ -1483,8 +1490,6 @@ static int csr_write(RISCVCPUState *s, uint32_t funct3, uint32_t csr, target_ulo
 #endif
 
         default:
-            if (s->machine->hooks.csr_write)
-                return s->machine->hooks.csr_write(s, funct3, csr, val);
 
         invalid_csr:
 #ifdef DUMP_INVALID_CSR
