@@ -146,3 +146,4 @@ else ()
     target_link_libraries(dromajo_cosim rt)
 endif ()
 
+install(TARGETS dromajo_cosim DESTINATION .)
