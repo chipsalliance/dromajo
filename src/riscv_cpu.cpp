@@ -1543,7 +1543,7 @@ static void raise_exception2(RISCVCPUState *s, uint64_t cause, target_ulong tval
                 s->priv,
                 cause_s[cause],
                 (uintmax_t)s->pc);
-        fprintf(dromajo_stderr, "hartid=%d0           tval 0x%016jx\n", (int)s->mhartid, (uintmax_t)tval);
+        fprintf(dromajo_stderr, "hartid=%d            tval 0x%016jx\n", (int)s->mhartid, (uintmax_t)tval);
     } else {
         fprintf(dromajo_stderr, "hartid=%d: exception %d, epc 0x%016jx\n", (int)s->mhartid, (int)cause, (uintmax_t)s->pc);
         fprintf(dromajo_stderr, "hartid=%d:           tval 0x%016jx\n", (int)s->mhartid, (uintmax_t)tval);
