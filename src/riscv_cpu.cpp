@@ -2019,39 +2019,39 @@ static void create_warmup_loop(uint32_t *rom, uint32_t *code_pos, uint32_t *data
     rom[(*code_pos)++] = create_lui(11, warmup_size);
     rom[(*code_pos)++] = create_addi(11, warmup_size);
 
-//   2:	fff5869b          	addiw	a3,a1,-1
+//   2: fff5869b                addiw   a3,a1,-1
     rom[(*code_pos)++] = 0xfff5869b;
-//   6:	1682                slli	a3,a3,0x20
-//   8:	82f5                srli	a3,a3,0x1d
+//   6: 1682                slli        a3,a3,0x20
+//   8: 82f5                srli        a3,a3,0x1d
     rom[(*code_pos)++] = 0x82f51682;
-//   a:	00850793          	addi	a5,a0,8
+//   a: 00850793                addi    a5,a0,8
     rom[(*code_pos)++] = 0x00850793;
-//   e:	96be                add	a3,a3,a5
-//  10:	4581                li	a1,0
+//   e: 96be                add a3,a3,a5
+//  10: 4581                li  a1,0
     rom[(*code_pos)++] = 0x458196be;
-//  12:	a039                j	20 <.L5>
+//  12: a039                j   20 <.L5>
 //
-//  14:	2701                addiw	a4,a4,1 // FIXED to a4,a4,0
+//  14: 2701                addiw       a4,a4,1 // FIXED to a4,a4,0
     rom[(*code_pos)++] = 0x2701a039;
-//  16:	00e78023          	sb	a4,0(a5)
+//  16: 00e78023                sb      a4,0(a5)
     rom[(*code_pos)++] = 0x00e78023;
-//  1a:	0521                addi	a0,a0,8
-//  1c:	00d50c63          	beq	a0,a3,34 <.L9>
+//  1a: 0521                addi        a0,a0,8
+//  1c: 00d50c63                beq     a0,a3,34 <.L9>
     rom[(*code_pos)++] = 0x0c630521;
 //
-//  20:	611c                ld	a5,0(a0)
+//  20: 611c                ld  a5,0(a0)
     rom[(*code_pos)++] = 0x611c00d5;
-//  22:	0017f613          	andi	a2,a5,1
+//  22: 0017f613                andi    a2,a5,1
     rom[(*code_pos)++] = 0x0017f613;
-//  26:	0007c703          	lbu	a4,0(a5)
+//  26: 0007c703                lbu     a4,0(a5)
     rom[(*code_pos)++] = 0x0007c703;
-//  2a:	f66d                bnez	a2,14 <.L10>
-//  2c:	0521                addi	a0,a0,8
+//  2a: f66d                bnez        a2,14 <.L10>
+//  2c: 0521                addi        a0,a0,8
     rom[(*code_pos)++] = 0x0521f66d;
-//  2e:	9db9                addw	a1,a1,a4
-//  30:	fed518e3          	bne	a0,a3,20 <.L5>
+//  2e: 9db9                addw        a1,a1,a4
+//  30: fed518e3                bne     a0,a3,20 <.L5>
     rom[(*code_pos)++] = 0x18e39db9;
-//  34:	4501                li	a0,0 // A 2 byte NOP to have 4 bytes alignment
+//  34: 4501                li  a0,0 // A 2 byte NOP to have 4 bytes alignment
     rom[(*code_pos)++] = 0x4501fed5;
 
 }
