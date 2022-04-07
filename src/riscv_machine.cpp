@@ -828,46 +828,32 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         fdt_end_node(s); /* / */
 
         size = fdt_output(s, dst);
+        fdt_end(s);
     } else {
-        // write from other dts
-        FILE *        fPtr;
-        unsigned long fLen;
+        FILE *f = fopen(dtb_name, "rb");
+        fseek(f, 0, SEEK_END);
+        size = ftell(f);
+        rewind(f);
 
-        fPtr = fopen(dtb_name, "rb");  // Open the file in binary mode
-        fseek(fPtr, 0, SEEK_END);      // Jump to the end of the file
-        fLen = ftell(fPtr);            // Get the current byte offset in the file
-        rewind(fPtr);                  // Jump back to the beginning of the file
-
-        size_t result = fread((char *)dst, sizeof(uint8_t), fLen, fPtr);  // Read in the entire file
-        if (result != fLen) {
-            vm_error("DROMAJO failed reading the dts string\n");
+        if (fread((char *)dst, 1, size, f) != (size_t)size) {
+            vm_error("dromajo: %s: %s\n", dtb_name, strerror(errno));
             return -1;
         }
 
-        // DEBUG
-        // for (unsigned long i = 0; i < fLen; ++i)
-        //    printf("[DEBUG][%p][%ld/%ld] == 0x%x\n", &dst[i], i, fLen, dst[i]);
-        // printf("[DEBUG] Done printing\n");
-
-        fclose(fPtr);  // Close the file
-
-        size = fLen;
+        fclose(f);
     }
 
 #ifdef DUMP_DTB
     {
         FILE *f = fopen("dromajo.dtb", "wb");
-        if (f == nullptr) {
-            vm_error("DROMAJO failed to open dromajo.dtb dump file (disable DUMP_DTB?)\n");
+        if (!f) {
+            vm_error("dromajo: %s: %s\n", "dromajo.dtb", strerror(errno));
             return -1;
         }
         fwrite(dst, 1, size, f);
         fclose(f);
     }
 #endif
-
-    if (!dtb_name)
-        fdt_end(s);
 
     return size;
 }
