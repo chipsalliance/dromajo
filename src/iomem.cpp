@@ -215,6 +215,7 @@ void phys_mem_set_addr(PhysMemoryRange *pr, uint64_t addr, BOOL enabled) {
 /* IRQ support */
 
 void irq_init(IRQSignal *irq, SetIRQFunc *set_irq, void *opaque, int irq_num) {
+    assert(irq_num != 0); // "Interrupt source 0 does not exist"
     irq->set_irq = set_irq;
     irq->opaque  = opaque;
     irq->irq_num = irq_num;

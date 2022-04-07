@@ -236,6 +236,7 @@ static int bf_read_async(BlockDevice *bs, uint64_t sector_num, uint8_t *buf, int
             if (!bf->sector_table[sector_num]) {
                 fseek(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
                 size_t got = fread(buf, 1, SECTOR_SIZE, bf->f);
+                (void) got; // Make GCC happy
                 assert(got == SECTOR_SIZE);
             } else {
                 memcpy(buf, bf->sector_table[sector_num], SECTOR_SIZE);
@@ -246,6 +247,7 @@ static int bf_read_async(BlockDevice *bs, uint64_t sector_num, uint8_t *buf, int
     } else {
         fseek(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
         size_t got = fread(buf, 1, n * SECTOR_SIZE, bf->f);
+        (void) got; // Make GCC happy
         assert(got == n * SECTOR_SIZE);
     }
     /* synchronous read */
@@ -332,6 +334,7 @@ typedef struct {
 static void tun_write_packet(EthernetDevice *net, const uint8_t *buf, int len) {
     TunState *s   = (TunState *)net->opaque;
     ssize_t   got = write(s->fd, buf, len);
+    (void) got; // Make GCC happy
     assert(got == len);
 }
 
