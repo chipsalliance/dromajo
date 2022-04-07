@@ -653,7 +653,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             {"maxinsns",                required_argument, 0,  'm' }, // CFG
             {"trace   ",                required_argument, 0,  't' },
             {"ignore_sbi_shutdown",     required_argument, 0,  'P' }, // CFG
-            {"dump_memories",           required_argument, 0,  'D' }, // CFG
+            {"dump_memories",                 no_argument, 0,  'D' }, // CFG
             {"memory_size",             required_argument, 0,  'M' }, // CFG
             {"memory_addr",             required_argument, 0,  'A' }, // CFG
             {"bootrom",                 required_argument, 0,  'b' }, // CFG
