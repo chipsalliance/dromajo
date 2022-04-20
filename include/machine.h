@@ -227,10 +227,13 @@ void        vm_add_cmdline(VirtMachineParams *p, const char *cmdline);
 char *      get_file_path(const char *base_filename, const char *filename);
 void        virt_machine_free_config(VirtMachineParams *p);
 RISCVMachine *virt_machine_init(const VirtMachineParams *p);
+RISCVMachine *virt_machine_load(const VirtMachineParams *p, RISCVMachine *s);
 int           virt_machine_get_sleep_duration(RISCVMachine *s, int hartid, int delay);
 BOOL          vm_mouse_is_absolute(RISCVMachine *s);
 void          vm_send_mouse_event(RISCVMachine *s1, int dx, int dy, int dz, unsigned int buttons);
 void          vm_send_key_event(RISCVMachine *s1, BOOL is_down, uint16_t key_code);
+void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len);
+void load_hex_image(RISCVMachine *s, uint8_t *image, size_t image_len);
 
 /* gui */
 void sdl_refresh(RISCVMachine *m);

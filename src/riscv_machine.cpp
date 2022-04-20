@@ -50,6 +50,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <err.h>
 
 #include "cutils.h"
 #include "dromajo.h"
@@ -871,19 +872,20 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
     return size;
 }
 
-static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len, bool *has_bootrom) {
+void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len) {
     Elf64_Ehdr *      ehdr = (Elf64_Ehdr *)image;
     const Elf64_Phdr *ph   = (Elf64_Phdr *)(image + ehdr->e_phoff);
-
-    *has_bootrom = false;
 
     for (int i = 0; i < ehdr->e_phnum; ++i, ++ph)
         if (ph->p_type == PT_LOAD) {
             size_t rounded_size = ph->p_memsz;
             rounded_size        = (rounded_size + DEVRAM_PAGE_SIZE - 1) & ~(DEVRAM_PAGE_SIZE - 1);
-            if (ph->p_vaddr == BOOT_BASE_ADDR)
-                *has_bootrom = true;
-            else if (ph->p_vaddr != RAM_BASE_ADDR)
+            if (ph->p_vaddr == BOOT_BASE_ADDR) {
+                if (s->bootrom_loaded) {
+                    vm_error("dromajo: WARNING multiple bootrams; last wins");
+                }
+                s->bootrom_loaded = true;
+            } else if (ph->p_vaddr != s->ram_base_addr)
                 /* XXX This is a kludge to taper over the fact that cpu_register_ram will
                    happily allocate mapping covering existing mappings.  Unfortunately we
                    can't fix this without a substantial rewrite as the handling of IO devices
@@ -891,6 +893,32 @@ static void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_l
                 cpu_register_ram(s->mem_map, ph->p_vaddr, rounded_size, 0);
             memcpy(get_ram_ptr(s, ph->p_vaddr), image + ph->p_offset, ph->p_filesz);
         }
+}
+
+void load_hex_image(RISCVMachine *s, uint8_t *image, size_t image_len) {
+    char *p = (char *)image;
+
+    for (;;) {
+        long unsigned offset = 0;
+        unsigned data = 0;
+        if (p[0] == '0' && p[1] == 'x')
+          p += 2;
+        char *nl = strchr(p, '\n');
+        if (nl)
+            *nl = 0;
+        int n = sscanf(p, "%lx %x", &offset, &data);
+        if (n != 2)
+            break;
+        uint32_t *mem = (uint32_t *)get_ram_ptr(s, offset);
+        if (!mem)
+          errx(1, "dromajo: can't load hex file, no memory at 0x%lx", offset);
+
+        *mem = data;
+
+        if (!nl)
+            break;
+        p = nl + 1;
+    }
 }
 
 static int load_bootrom(RISCVMachine *s, const char *bootrom_name) {
@@ -965,11 +993,11 @@ static int generate_bootrom(RISCVMachine *s) {
 }
 
 /* Return non-zero on failure */
-static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len, const uint8_t *kernel_buf, size_t kernel_buf_len,
+static int copy_kernel(RISCVMachine *s, uint8_t *fw_buf, size_t fw_buf_len, const uint8_t *kernel_buf, size_t kernel_buf_len,
                        const uint8_t *initrd_buf, size_t initrd_buf_len, const char *bootrom_name, const char *dtb_name,
                        const char *cmd_line) {
-    uint64_t initrd_start = 0, initrd_end = 0;
-    bool     elf_has_bootrom = false;
+    uint64_t initrd_end = 0;
+    s->initrd_start     = 0;
 
     if (fw_buf_len > s->ram_size) {
         vm_error("Firmware too big\n");
@@ -980,9 +1008,9 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
     if (elf64_is_riscv64(fw_buf, fw_buf_len)) {
         // XXX if the ELF is given in the config file, then we don't get to set memory base based on that.
 
-        load_elf_image(s, fw_buf, fw_buf_len, &elf_has_bootrom);
+        load_elf_image(s, fw_buf, fw_buf_len);
         uint64_t fw_entrypoint = elf64_get_entrypoint(fw_buf);
-        if (!elf_has_bootrom && fw_entrypoint != s->ram_base_addr) {
+        if (!s->bootrom_loaded && fw_entrypoint != s->ram_base_addr) {
             fprintf(dromajo_stderr,
                     "DROMAJO currently requires a 0x%" PRIx64 " starting address, image assumes 0x%0" PRIx64 "\n",
                     s->ram_base_addr,
@@ -990,6 +1018,9 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
             return 1;
         }
 
+        load_elf_image(s, fw_buf, fw_buf_len);
+    } else if (fw_buf_len > 2 && fw_buf[0] == '0' && fw_buf[0] == 'x') {
+        load_hex_image(s, fw_buf, fw_buf_len);
     } else
         memcpy(get_ram_ptr(s, s->ram_base_addr), fw_buf, fw_buf_len);
 
@@ -1012,27 +1043,33 @@ static int copy_kernel(RISCVMachine *s, const uint8_t *fw_buf, size_t fw_buf_len
             vm_error("Initrd too big\n");
             return 1;
         }
-        initrd_end   = s->ram_base_addr + s->ram_size;
-        initrd_start = initrd_end - initrd_buf_len;
-        initrd_start = (initrd_start >> 12) << 12;
-        memcpy(get_ram_ptr(s, initrd_start), initrd_buf, initrd_buf_len);
+        initrd_end      = s->ram_base_addr + s->ram_size;
+        s->initrd_start = initrd_end - initrd_buf_len;
+        s->initrd_start = (s->initrd_start >> 12) << 12;
+        memcpy(get_ram_ptr(s, s->initrd_start), initrd_buf, initrd_buf_len);
     }
 
-    if (!elf_has_bootrom) {
-        int32_t bootromSzBytes = bootrom_name ? load_bootrom(s, bootrom_name) : generate_bootrom(s);
-        if (bootromSzBytes < 0)
-            return -1;
+    if (!s->bootrom_loaded) {
+        if (bootrom_name) {
+            if (load_bootrom(s, bootrom_name) < 0)
+                return -1;
+        } else {
+            int32_t bootromSzBytes = generate_bootrom(s);
 
-        // setup the dtb
-        uint32_t fdt_off = (BOOT_BASE_ADDR - ROM_BASE_ADDR);
-        if (s->compact_bootrom)
-            fdt_off += bootromSzBytes;
-        else
-            fdt_off += 256;
+            if (bootromSzBytes < 0)
+                return -1;
 
-        uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
-        if (riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line, initrd_start, initrd_end) < 0)
-            return -1;
+            // setup the dtb
+            uint32_t fdt_off = (BOOT_BASE_ADDR - ROM_BASE_ADDR);
+            if (s->compact_bootrom)
+                fdt_off += bootromSzBytes;
+            else
+                fdt_off += 256;
+
+            uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
+            if (riscv_build_fdt(s, ram_ptr + fdt_off, dtb_name, cmd_line, s->initrd_start, initrd_end) < 0)
+                return -1;
+        }
     }
 
     for (int i = 0; i < s->ncpus; ++i) riscv_set_debug_mode(s->cpu_state[i], TRUE);
@@ -1064,6 +1101,50 @@ uint8_t       dromajo_get_byte_direct(uint64_t paddr) {
         return 0;
 
     return *ptr;
+}
+
+static void dump_dram(RISCVMachine *s, FILE *f[16], const char *region, uint64_t start, uint64_t len) {
+    if (len == 0)
+        return;
+
+    assert(start % 1024 == 0);
+
+    uint64_t end = start + len;
+
+    fprintf(stderr, "Dumping %-10s [%016lx; %016lx) %6.2f MiB\n", region, start, end, len / (1024 * 1024.0));
+
+    /*
+      Bytes
+      0 ..31   memImage_dwrow0_even.hex:0-7
+      32..63   memImage_dwrow1_even.hex:0-7
+               memImage_dwrow2_even.hex:0-7
+               memImage_dwrow3_even.hex:0-7
+               memImage_derow0_even.hex:0-7
+               memImage_derow1_even.hex:0-7
+               memImage_derow2_even.hex:0-7
+               memImage_derow3_even.hex:0-7
+               memImage_dwrow0_odd.hex:0-7
+
+               memImage_dwrow0_even.hex:8-15? (Not verified, but that would be logical)
+
+      IOW,  16 banks of 64-bit wide memories, striped in cache sized (64B) blocks.  16 * 64 = 1 KiB
+
+
+      @00000000 0053c5634143b383
+    */
+
+    for (int line = (start - s->ram_base_addr) / 1024; start < end; ++line) {
+        for (int bank = 0; bank < 16; ++bank) {
+            for (int word = 0; word < 8; ++word) {
+                fprintf(f[bank],
+                        "@%08x %016lx\n",
+                        // Yes, this is mental
+                        (line % 8) * 0x01000000 + line / 8 * 8 + word,
+                        *(uint64_t *)get_ram_ptr(s, start));
+                start += sizeof(uint64_t);
+            }
+        }
+    }
 }
 
 RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
@@ -1258,19 +1339,61 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     s->clint_base_addr = p->clint_base_addr;
     s->clint_size      = p->clint_size;
 
+    return s;
+}
+
+RISCVMachine *virt_machine_load(const VirtMachineParams *p, RISCVMachine *s) {
+    if (!p->files[VM_FILE_BIOS].buf) {
+        vm_error("No bios given\n");
+        return NULL;
+    } else if (copy_kernel(s,
+                           p->files[VM_FILE_BIOS].buf,
+                           p->files[VM_FILE_BIOS].len,
+                           p->files[VM_FILE_KERNEL].buf,
+                           p->files[VM_FILE_KERNEL].len,
+                           p->files[VM_FILE_INITRD].buf,
+                           p->files[VM_FILE_INITRD].len,
+                           p->bootrom_name,
+                           p->dtb_name,
+                           p->cmdline))
+        return NULL;
+
     if (p->dump_memories) {
-        FILE *fd = fopen("BootRAM.hex", "w+");
-        if (fd == 0) {
-            vm_error("ERROR: could not create BootRAM.hex\n");
+        FILE *f = fopen("BootRAM.hex", "w+");
+        if (!f) {
+            vm_error("dromajo: %s: %s\n", "BootRAM.hex", strerror(errno));
             return NULL;
         }
 
         uint8_t *ram_ptr = get_ram_ptr(s, ROM_BASE_ADDR);
         for (int i = 0; i < ROM_SIZE / 4; ++i) {
             uint32_t *q_base = (uint32_t *)(ram_ptr + (BOOT_BASE_ADDR - ROM_BASE_ADDR));
-            fprintf(fd, "@%06x %08x\n", i, q_base[i]);
+            fprintf(f, "@%06x %08x\n", i, q_base[i]);
         }
-        fclose(fd);
+
+        fclose(f);
+
+        {
+            FILE *f[16] = {0};
+
+            char hexname[60];
+            for (int i = 0; i < 16; ++i) {
+                snprintf(hexname, sizeof hexname, "memImage_d%crow%d_%s.hex", "we"[i / 4 % 2], i % 4, i / 8 == 0 ? "even" : "odd");
+                f[i] = fopen(hexname, "w");
+                if (!f[i]) {
+                    vm_error("dromajo: %s: %s\n", hexname, strerror(errno));
+                    return NULL;
+                }
+            }
+
+            dump_dram(s, f, "firmware", s->ram_base_addr, p->files[VM_FILE_BIOS].len);
+            dump_dram(s, f, "kernel", s->ram_base_addr + KERNEL_OFFSET, p->files[VM_FILE_KERNEL].len);
+            dump_dram(s, f, "initrd", s->initrd_start, p->files[VM_FILE_INITRD].len);
+
+            for (int i = 0; i < 16; ++i) {
+                fclose(f[i]);
+            }
+        }
     }
 
     global_virt_machine = s;

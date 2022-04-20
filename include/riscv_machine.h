@@ -86,12 +86,15 @@ struct RISCVMachine {
 
     /* Bootrom Params */
     bool compact_bootrom;
+    bool bootrom_loaded;
 
     /* PLIC/CLINT Params */
     uint64_t plic_base_addr;
     uint64_t plic_size;
     uint64_t clint_base_addr;
     uint64_t clint_size;
+
+    uint64_t initrd_start;
 
     /* Append to misa custom extensions */
     bool custom_extension;
