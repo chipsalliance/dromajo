@@ -65,7 +65,7 @@
 //#define DUMP_PLIC
 //#define DUMP_DTB
 
-#define USE_SIFIVE_UART
+//#define USE_SIFIVE_UART
 
 enum {
     SIFIVE_UART_TXFIFO = 0,
@@ -657,7 +657,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
     int       size;
     if (!dtb_name) {
         int       intc_phandle = 0;
-        int       max_xlen, i, cur_phandle, plic_phandle;
+        int       max_xlen, i, cur_phandle;
         char      isa_string[128], *q;
         uint32_t  misa;
         uint32_t  tab[4 * MAX_CPUS];
@@ -767,7 +767,7 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
 
         fdt_prop_tab_u32(s, "interrupts-extended", tab, m->ncpus * 4);
 
-        plic_phandle = cur_phandle++;
+        int plic_phandle = cur_phandle++;
         fdt_prop_u32(s, "phandle", plic_phandle);
 
         fdt_end_node(s); /* plic */
@@ -790,17 +790,30 @@ static int riscv_build_fdt(RISCVMachine *m, uint8_t *dst, const char *dtb_name, 
         fdt_end_node(s); /* uart */
 #endif
 
-        // Fake Synopsys™ DesignWare™ ABP™ UART (NS16550 compatible)
-        fdt_begin_node_num(s, "uart", DW_APB_UART0_BASE_ADDR);
-        {
-            fdt_prop_str(s, "compatible", "ns16550");
-            fdt_prop_tab_u64_2(s, "reg", DW_APB_UART0_BASE_ADDR, DW_APB_UART0_SIZE);
-            fdt_prop_u32(s, "clock-frequency", 3686400);  // Arbitrary, just to stop complaining
+        for (unsigned uart_no = 0; uart_no < 2; ++uart_no) {
+            uint64_t base_addr = uart_no == 0 ? DW_APB_UART0_BASE_ADDR : DW_APB_UART1_BASE_ADDR;
+            // Fake Synopsys™ DesignWare™ ABP™ UART (NS16550 compatible)
+            fdt_begin_node_num(s, "uart", base_addr);
+            // interrupts = <0x0a>;
+            // interrupt-parent = <0x09>;
+
+            fdt_prop_tab_u64_2(s, "reg", base_addr, DW_APB_UART0_SIZE);
+            fdt_prop_u32(s, "current-speed", 115200);
+            fdt_prop_u32(s, "clock-frequency", 25000000);
             fdt_prop_u32(s, "reg-shift", 2);
             fdt_prop_u32(s, "reg-io-width", 4);
-            // No interrupts?
+            // fdt_prop_str(s, "compatible", "snps,dw-apb-uart");
+            fdt_prop_str(s, "compatible", "ns16550a");
+            /*
+            tab[0] = plic_phandle;
+            tab[1] = DW_APB_UART0_IRQ;
+            fdt_prop_tab_u32(s, "interrupts-extended", tab, 2);
+            */
+
+            fdt_prop_u32(s, "interrupt-parent", plic_phandle);
+            fdt_prop_u32(s, "interrupts", uart_no == 0 ? DW_APB_UART0_IRQ : DW_APB_UART1_IRQ);
+            fdt_end_node(s);
         }
-        fdt_end_node(s);
 
         fb_dev = m->common.fb_dev;
         if (fb_dev) {
@@ -1116,11 +1129,22 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     cpu_register_device(s->mem_map, UART0_BASE_ADDR, UART0_SIZE, uart, uart_read, uart_write, DEVIO_SIZE32);
 
     DW_apb_uart_state *dw_apb_uart = (DW_apb_uart_state *)calloc(sizeof *dw_apb_uart, 1);
-    dw_apb_uart->irq               = DW_APB_UART0_IRQ;
+    dw_apb_uart->irq               = &s->plic_irq[DW_APB_UART0_IRQ];
     dw_apb_uart->cs                = p->console;
     cpu_register_device(s->mem_map,
                         DW_APB_UART0_BASE_ADDR,
                         DW_APB_UART0_SIZE,
+                        dw_apb_uart,
+                        dw_apb_uart_read,
+                        dw_apb_uart_write,
+                        DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
+
+    DW_apb_uart_state *dw_apb_uart1 = (DW_apb_uart_state *)calloc(sizeof *dw_apb_uart, 1);
+    dw_apb_uart1->irq               = &s->plic_irq[DW_APB_UART1_IRQ];
+    dw_apb_uart1->cs                = p->console;
+    cpu_register_device(s->mem_map,
+                        DW_APB_UART1_BASE_ADDR,
+                        DW_APB_UART1_SIZE,
                         dw_apb_uart,
                         dw_apb_uart_read,
                         dw_apb_uart_write,
@@ -1149,7 +1173,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     irq_num       = VIRTIO_IRQ;
 
     /* virtio console */
-    if (p->console) {
+    if (p->console && 0) {
         vbus->irq             = &s->plic_irq[irq_num];
         s->common.console_dev = virtio_console_init(vbus, p->console);
         vbus->addr += VIRTIO_SIZE;
