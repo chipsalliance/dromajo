@@ -89,12 +89,14 @@
 #define MCPUID_Q     (1 << ('Q' - 'A'))
 #define MCPUID_C     (1 << ('C' - 'A'))
 #define MCPUID_X     (1 << ('X' - 'A'))
+#define MCPUID_V     (1 << ('V' - 'A'))
 
 /* mstatus CSR */
 
 #define MSTATUS_SPIE_SHIFT 5
 #define MSTATUS_MPIE_SHIFT 7
 #define MSTATUS_SPP_SHIFT  8
+#define MSTATUS_VS_SHIFT   9
 #define MSTATUS_MPP_SHIFT  11
 #define MSTATUS_FS_SHIFT   13
 #define MSTATUS_UXL_SHIFT  32
@@ -109,7 +111,7 @@
 #define MSTATUS_HPIE     (1 << 6)
 #define MSTATUS_MPIE     (1 << MSTATUS_MPIE_SHIFT)
 #define MSTATUS_SPP      (1 << MSTATUS_SPP_SHIFT)
-#define MSTATUS_HPP      (3 << 9)
+#define MSTATUS_VS       (3 << MSTATUS_VS_SHIFT)
 #define MSTATUS_MPP      (3 << MSTATUS_MPP_SHIFT)
 #define MSTATUS_FS       (3 << MSTATUS_FS_SHIFT)
 #define MSTATUS_XS       (3 << 15)

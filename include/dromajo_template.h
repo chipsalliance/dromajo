@@ -254,6 +254,12 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
     uint32_t rs3;
     int32_t  rm;
 #endif
+#if VLEN > 0
+    target_ulong avl, vl;
+    uint8_t      vset, vmem_result, funct6;
+    bool         vm;
+    clear_most_recently_written_vregs(s);
+#endif
     int insn_executed               = 0;
     s->most_recently_written_reg    = -1;
     s->most_recently_written_fp_reg = -1;
@@ -1379,17 +1385,16 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
                 if (rd != 0)
                     write_reg(rd, val);
                 NEXT_INSN;
-#if FLEN > 0
-                /* FPU */
-            case 0x07: /* fp load */
-                if (s->fs == 0)
-                    goto illegal_insn;
+            case 0x07:
                 funct3 = (insn >> 12) & 7;
                 imm    = (int32_t)insn >> 20;
                 addr   = read_reg(rs1) + imm;
                 switch (funct3) {
+#if FLEN > 0
                     case 2: /* flw */
                     {
+                        if (s->fs == 0)
+                            goto illegal_insn;
                         uint32_t rval;
                         if (target_read_u32(s, &rval, addr))
                             goto mmu_exception;
@@ -1398,6 +1403,8 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
 #if FLEN >= 64
                     case 3: /* fld */
                     {
+                        if (s->fs == 0)
+                            goto illegal_insn;
                         uint64_t rval;
                         if (target_read_u64(s, &rval, addr))
                             goto mmu_exception;
@@ -1407,42 +1414,87 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
 #if FLEN >= 128
                     case 4: /* flq */
                     {
+                        if (s->fs == 0)
+                            goto illegal_insn;
                         uint128_t rval;
                         if (target_read_u128(s, &rval, addr))
                             goto mmu_exception;
                         write_fp_reg(rd, rval);
                     } break;
 #endif
+#endif  // FLEN > 0
+#if VLEN > 0
+                    /* Vector loads */
+                    case 0:
+                    case 5:
+                    case 6:
+                    case 7:
+                        if (s->vs == 0)
+                            goto illegal_insn;
+                        vmem_result = vmem_op(s, insn, true, v_load_config);
+                        if (vmem_result == 2)
+                            goto mmu_exception;
+                        else if (vmem_result == 1) {
+                            s->vtype = VILL;
+                            goto illegal_insn;
+                        }
+                        break;
+#endif
                     default: goto illegal_insn;
                 }
                 NEXT_INSN;
-            case 0x27: /* fp store */
-                if (s->fs == 0)
-                    goto illegal_insn;
+            case 0x27:
                 funct3 = (insn >> 12) & 7;
                 imm    = rd | ((insn >> (25 - 5)) & 0xfe0);
                 imm    = (imm << 20) >> 20;
                 addr   = read_reg(rs1) + imm;
                 switch (funct3) {
+#if FLEN > 0
                     case 2: /* fsw */
+                        if (s->fs == 0)
+                            goto illegal_insn;
                         if (target_write_u32(s, addr, read_fp_reg(rs2)))
                             goto mmu_exception;
                         break;
 #if FLEN >= 64
                     case 3: /* fsd */
+                        if (s->fs == 0)
+                            goto illegal_insn;
                         if (target_write_u64(s, addr, read_fp_reg(rs2)))
                             goto mmu_exception;
                         break;
 #endif
 #if FLEN >= 128
                     case 4: /* fsq */
+                        if (s->fs == 0)
+                            goto illegal_insn;
                         if (target_write_u128(s, addr, read_fp_reg(rs2)))
                             goto mmu_exception;
+                        break;
+#endif
+
+#endif  // FLEN > 0
+#if VLEN > 0
+                    /* vector stores */
+                    case 0:
+                    case 5:
+                    case 6:
+                    case 7:
+                        if (s->vs == 0)
+                            goto illegal_insn;
+                        vmem_result = vmem_op(s, insn, false, v_store_config);
+                        if (vmem_result == 2)
+                            goto mmu_exception;
+                        else if (vmem_result == 1) {
+                            s->vtype = VILL;
+                            goto illegal_insn;
+                        }
                         break;
 #endif
                     default: goto illegal_insn;
                 }
                 NEXT_INSN;
+#if FLEN > 0
             case 0x43: /* fmadd */
                 if (s->fs == 0)
                     goto illegal_insn;
@@ -1625,6 +1677,132 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
 #endif
 
                     default: goto illegal_insn;
+                }
+                NEXT_INSN;
+#endif
+#if VLEN > 0
+            case 0x57:
+                if (s->vs == 0)
+                    goto illegal_insn;
+                s->vs  = 3;
+                vl     = s->vl;
+                vm     = (insn >> 25) & 1;
+                funct3 = (insn >> 12) & 7;
+                funct6 = (insn >> 26) & 0x3F;
+                switch (funct3) {
+                    case 0: /* OPIVV */
+                        switch (funct6) {
+                            case 0: /* vadd.vv */
+                                if (vectorize_arithmetic(s, rs2, rd, rs1, SINGLE_WIDTH, true, vm, v_add_config))
+                                    goto illegal_insn;
+                                break;
+                            default: goto illegal_insn;
+                        }
+                        break;
+                    case 2: /* OPMVV */
+                        switch (funct6) {
+                            case 0x30: /* vwaddu.vv */
+                                if (vectorize_arithmetic(s, rs2, rd, rs1, WIDEN_VD, true, vm, vw_addu_config))
+                                    goto illegal_insn;
+                                break;
+                            case 0x31: /* vwadd.vv */
+                                if (vectorize_arithmetic(s, rs2, rd, rs1, WIDEN_VD, true, vm, vw_add_config))
+                                    goto illegal_insn;
+                                break;
+                            case 0x34: /* vwaddu.wv */
+                                if (vectorize_arithmetic(s, rs2, rd, rs1, WIDEN_VD_VS2, true, vm, vw_adduw_config))
+                                    goto illegal_insn;
+                                break;
+                            case 0x35: /* vwadd.wv */
+                                if (vectorize_arithmetic(s, rs2, rd, rs1, WIDEN_VD_VS2, true, vm, vw_addw_config))
+                                    goto illegal_insn;
+                                break;
+                            default: goto illegal_insn;
+                        }
+                        break;
+                    case 3: /* OPIVI */
+                        switch (funct6) {
+                            case 0: /* vadd.vi */
+                                imm = rs1;
+                                imm = imm << 27 >> 27;  // sign extend 5-bit immediate
+                                if (vectorize_arithmetic(s, rs2, rd, imm, SINGLE_WIDTH, false, vm, v_add_config))
+                                    goto illegal_insn;
+                                break;
+                            default: goto illegal_insn;
+                        }
+                        break;
+                    case 4: /* OPIVX */
+                        switch (funct6) {
+                            case 0: /* vadd.vx */
+                                if (vectorize_arithmetic(s, rs2, rd, read_reg(rs1), SINGLE_WIDTH, false, vm, v_add_config))
+                                    goto illegal_insn;
+                                break;
+                            default: goto illegal_insn;
+                        }
+                        break;
+                    case 6: /* OPMVX */
+                        switch (funct6) {
+                            case 0x30: /* vwaddu.vx */
+                                if (vectorize_arithmetic(s, rs2, rd, read_reg(rs1), WIDEN_VD, false, vm, vw_addu_config))
+                                    goto illegal_insn;
+                                break;
+                            case 0x31: /* vwadd.vx */
+                                if (vectorize_arithmetic(s, rs2, rd, read_reg(rs1), WIDEN_VD, false, vm, vw_add_config))
+                                    goto illegal_insn;
+                                break;
+                            case 0x34: /* vwaddu.wx */
+                                if (vectorize_arithmetic(s, rs2, rd, read_reg(rs1), WIDEN_VD_VS2, false, vm, vw_adduw_config))
+                                    goto illegal_insn;
+                                break;
+                            case 0x35: /* vwadd.wx */
+                                if (vectorize_arithmetic(s, rs2, rd, read_reg(rs1), WIDEN_VD_VS2, false, vm, vw_addw_config))
+                                    goto illegal_insn;
+                                break;
+                            default: goto illegal_insn;
+                        }
+                        break;
+                    case 7: /* OPCFG */
+                        vset = (insn >> 30) & 3;
+                        avl  = 0;
+                        switch (vset) {
+                            case 0:
+                            case 1: /* vsetvli */ rs2 = 0; s->vtype = (insn >> 20) & 0x7ff;
+                            case 2:         /* vsetvl  */
+                                if (rs2) {  // vill set, vl cleared if reserved bits are written by rs2
+                                    target_ulong vtype = read_reg(rs2);
+                                    if (vtype > 0xff || vtype & 0x20 || (vtype & 0x4) == 0x4) {
+                                        s->vtype = VILL;
+                                        break;
+                                    }
+                                    s->vtype = vtype;
+                                }
+                                if (rs1)  // Normal stripmining
+                                    avl = read_reg(rs1);
+                                else if (rd)  // Set vl to VLMAX
+                                    avl = ~0;
+                                else  // Keep existing vl
+                                    /* XXX - pg 26: "Use of the instruction with a new SEW/LMUL
+                                     * ration that would result in a change of VLMAX is reserved.
+                                     * Implementations may set vill in this case."
+                                     * Spike doesn't do this so neither do we, worth asking about */
+                                    avl = vl;
+                                break;
+                            case 3: /* vsetivli*/
+                                s->vtype = (insn >> 20) & 0x3ff;
+                                avl      = (insn >> 15) & 0x1f;
+                                break;
+                        }
+
+                        if (get_sew(s) >= VLEN * get_lmul(s) / 8) {  // vector must be more than one elm long
+                            s->vtype = VILL;
+                            s->vl    = 0;
+                        } else if (avl <= get_vlmax(s))
+                            s->vl = avl;
+                        else
+                            s->vl = get_vlmax(s);
+                        if (rd)
+                            write_reg(rd, s->vl);
+                        break;
                 }
                 NEXT_INSN;
 #endif

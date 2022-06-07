@@ -830,19 +830,337 @@ void riscv_cpu_flush_tlb_write_range_ram(RISCVCPUState *s, uint8_t *ram_ptr, siz
         }
 }
 
-#define SSTATUS_MASK (MSTATUS_SIE | MSTATUS_SPIE | MSTATUS_SPP | MSTATUS_FS | MSTATUS_SUM | MSTATUS_MXR | MSTATUS_UXL_MASK)
+#if VLEN > 0
+#ifdef MASK_AGNOSTIC_FILL
+static inline void mask_agnostic_fill(RISCVCPUState *s, target_ulong elm_size, uint8_t* elm_ptr) {
+    if ((s->vtype >> 7 & 1) == 0)
+        return
+
+    int fill_val = -1;
+    if (elm_size == 8)
+        *elm_ptr = fill_val;
+    else if (elm_size == 16) {
+        uint16_t *elm_ptr_e16 = (uint16_t *)elm_ptr;
+        *elm_ptr_e16 = fill_val;
+    } else if (elm_size == 32) {
+        uint32_t *elm_ptr_e32 = (uint32_t *)elm_ptr;
+        *elm_ptr_e32 = fill_val;
+    } else {
+        uint64_t *elm_ptr_e64 = (uint64_t *)elm_ptr;
+        *elm_ptr_e64 = fill_val;
+    }
+}
+#endif
+static inline void clear_most_recently_written_vregs(RISCVCPUState *s) {
+    for (int i = 0; i < 32; i++) s->most_recently_written_vregs[i] = false;
+}
+
+static inline target_ulong get_lmul(RISCVCPUState *s) {
+    target_ulong lmul = s->vtype & LMUL_MASK;
+    if (lmul & LMUL_BOUNDARY)
+        return 1 << lmul - LMUL_BOUNDARY - 1;
+    return 1 << lmul + 3;
+}
+
+static inline target_ulong get_sew(RISCVCPUState *s) {
+    target_ulong vsew = s->vtype >> SEW_SHIFT & SEW_MASK;
+    return 1 << vsew + 3;
+}
+
+static inline target_ulong get_vlmax(RISCVCPUState *s) {
+    target_ulong vlmul = s->vtype & LMUL_MASK;
+    if (vlmul & LMUL_BOUNDARY) {
+        vlmul -= LMUL_BOUNDARY;
+        return VLEN / get_sew(s) / (16 >> vlmul);
+    }
+    return (1 << vlmul) * VLEN / get_sew(s);
+}
+
+// returns true if i bit of v0 mask reg is high
+static inline bool v0_mask(RISCVCPUState *s) {
+    uint16_t vstart = s->vstart;
+    uint8_t  val    = s->v_reg[0][vstart / 8] >> vstart % 8;
+    return val & 1;
+}
+
+V_REG_ACCESS_CONFIG(v_reg_read, V_REG_READ)
+V_MEM_OP_CONFIG(v_load, V_LOAD)
+V_MEM_OP_CONFIG(v_store, V_STORE)
+// XXX - most of this function belongs in the dromajo template
+/* Vector memory operation, makes distinction between load/store
+ * returns 0 if no exceptions
+ * returns 1 if illegal insn
+ * returns 2 if other exception
+ */
+static inline int vmem_op(RISCVCPUState *s, int insn, bool ld, Vector_Memory_Op (*vmem_op_config)(uint8_t)) {
+    int eew;
+    int vlmax = get_vlmax(s);
+    int width = insn >> 12 & 0x7;
+
+    switch (width) {
+        case 7: eew = 64; break;
+        case 6: eew = 32; break;
+        case 5: eew = 16; break;
+        case 0: eew = 8; break;
+        default: return 1;
+    }
+
+    int byte_advance       = eew / 8;
+    int vec_size           = VLEN / eew, index_vec_size = 0;
+    Vector_Reg_Access read_vreg = NULL;
+    int               i, j, k;
+    int               mem_advance = 0, vs2_emul, index_vstart = 0;
+    bool              fault_first = false, vector_indexed = false;
+    int               emul = 8 * vlmax * eew / VLEN;  // scaled up by 8 to avoid using floats
+    int               rd   = insn >> 7 & 0x1F;
+    int               rs1  = insn >> 15 & 0x1F;
+    int               rs2  = insn >> 20 & 0x1F;
+    bool              vm   = insn >> 25 & 1;
+    int               mop  = insn >> 26 & 0x3;
+    int               nf   = (insn >> 29 & 0x7) + 1;
+    int               vl   = s->vl;
+    // int vstart = s->vstart;
+    if (mop != 0 || rs2 != 8)  // whole reg ld/st ignore VILL
+        if (s->vtype == VILL)
+            return 1;
+
+    switch (mop) {
+        case 0:  // unit-stride
+            mem_advance = eew / 8;
+            switch (rs2) {
+                case 0: /* unit stride - vle{}/vse{} */ break;
+                case 8:                         /* whole register - vl{}re{}/vs{}re{} */
+                    if (!ld && width || !vm ||  // stores are done byte by byte, no masking allowed
+                        !IS_PO2(nf))
+                        return 1;
+                    emul = nf * 8;  // nf field encodes emul directly, ignores vlmax
+                    nf   = 1;       // useful when vector configuration unknown
+                    break;
+                case 11:             /* mask - vlm/vsm */
+                    emul = eew = 8;  // evl = ceil(vl/8)
+                    vl         = vl < 8 ? 1 : vl / 8;
+                    break;
+                case 16: /* fault-only-first - vle{}ff/vse{}ff */
+                    /* XXX - "When the fault-only-first instruction takes a trap due to an interrupt,
+                     * implementations should not reduce vl and should instead set a vstart value" */
+                    if (!ld)
+                        return 1;
+                    fault_first = true;
+                    break;
+                default: return 1;
+            }
+            break;
+        case 2: /* constant stride - vlse{}/vsse{} */
+            /* "When rs2=x0, then an implementation is allowed, but not required, to perform fewer memory
+             * operations than the number of active elements, and may perform different numbers of memory
+             * operations across different dynamic executions of the same static instruction." */
+            mem_advance = read_reg(rs2);
+            break;
+        case 1: /* vector-indexed unordered - vluxei{}/vsuxei{} */
+            /* for the sake of simulation, unordered memory accesses are implemented the same as ordered */
+        case 3: /* vector-indexed ordered - vloxei{}/vsoxei{} */
+            vs2_emul = emul;
+            if ((vs2_emul == 0 || vs2_emul > 64) || (vs2_emul * nf > 64) || (rs2 + (nf * vs2_emul / 8) > 32 || rs2 + nf > 32)
+                || (vs2_emul >= 8 && ((rs2 * 8) % vs2_emul)))
+                return 1;
+
+            vs2_emul = vs2_emul < 8 ? 1 : vs2_emul / 8;
+            emul     = get_lmul(s) < 8 ? 1 : get_lmul(s) / 8;
+            if (ld && (nf > 1) && ((rs2 <= rd && rd <= rs2 + (nf - 1) * vs2_emul) ||
+                (rs2 <= rd + (nf - 1) * emul && rd + (nf - 1) * emul <= rs2 + (nf - 1) * vs2_emul)))
+                return 1;                              // vec seg loads, destination and source v_reg groups cannot overlap
+            emul     = get_lmul(s);
+
+            vector_indexed = true;
+            read_vreg      = v_reg_read_config(eew);
+            index_vstart   = rs2 * VLEN / eew + s->vstart;
+            byte_advance   = get_sew(s) / 8;
+            vec_size       = VLEN / get_sew(s);
+            index_vec_size = VLEN / eew;
+            break;
+    }
+    if ((emul == 0 || emul > 64) ||                     // out of range EMUL [1/8 : 8] is reserved
+        (emul * nf > 64) ||                             // can't access more than 1/4th of vreg file at once
+        (rd + (nf * emul / 8) > 32 || rd + nf > 32) ||  // v_regs accessed cant go past v31
+        (emul >= 8 && ((rd * 8) % emul)))               // must have legal register specifier for selected EMUL
+        return 1;
+
+    /* given elm width configures the element and data size of memory access */
+    Vector_Memory_Op v_op;
+    if (vector_indexed)  // data size = sew, mem offset size = eew
+        v_op = (*vmem_op_config)(get_sew(s));
+    else
+        v_op = (*vmem_op_config)(eew);
+
+    if (fault_first) { /* First try dummy load to elm 0 addr to cause exception */
+        uint8_t dummy, *dummy_ptr = &dummy;
+        if (s->vstart == 0 && (*v_op)(s, read_reg(rs1), dummy_ptr))
+            return 2;
+    }
+
+    int scaled_emul = emul < 8 ? 1 : emul / 8;
+    if (ld)  // Register vregs prepared for insn
+        for (i = 0; i < scaled_emul; i++)
+            for (j = 1; j <= nf; j++) s->most_recently_written_vregs[rd + i + scaled_emul * (j - 1)] = true;
+
+    if (vec_size > vl)
+        vec_size = vl;
+    for (i = 0; i < scaled_emul; i++) {
+        int elm_start = s->vstart - vec_size * i;  // starting element of current v_reg
+
+        if (elm_start < vec_size) {                // segments expected to load for this vreg field
+            target_ulong addr = read_reg(rs1);
+            if (!vector_indexed)
+                addr += (elm_start * mem_advance) + (nf * i * VLEN / 8);
+            elm_start *= byte_advance;             // scale to size
+            int vec_size_scaled = vec_size * byte_advance;
+
+            for (j = elm_start; j < vec_size_scaled; j += byte_advance) {
+                for (k = 0; k <= nf - 1; k++) {    // store each member of segment
+                    if (vector_indexed) {
+                        int index_vec = index_vstart / index_vec_size;
+                        int index_elm = index_vstart % index_vec_size;
+                        if (vm || v0_mask(s)) {
+                            if ((*v_op)(s, addr + read_vreg(s, index_vec, index_elm) + (k * byte_advance),
+                                &s->v_reg[rd + i + k * scaled_emul][j]))
+                                    return 2;
+                        }
+#ifdef MASK_AGNOSTIC_FILL
+                        else if (ld)
+                            mask_agnostic_fill(s, get_sew(s), &s->v_reg[rd + i + k * scaled_emul][j]);
+#endif
+                    } else {
+                        if (vm || v0_mask(s)) {
+                            if ((*v_op)(s, addr, &s->v_reg[rd + i + (k * (nf - 1))][j]))
+                                if (!fault_first)      // fault can happen at any point
+                                    return 2;          // memory access caused exception
+                                else {                 // fault-only-first
+                                    s->vl                = s->vstart;
+                                    s->pending_tval      = 0;
+                                    s->pending_exception = -1;
+                                    s->vstart            = 0;
+                                    return 0;
+                                }
+                        }
+#ifdef MASK_AGNOSTIC_FILL
+                        else if (ld)
+                            mask_agnostic_fill(s, eew, &s->v_reg[rd + i + (k * (nf - 1))][j]);
+#endif
+                        addr += mem_advance;
+                    }
+                }
+                s->vstart++;
+                index_vstart++;
+            }
+        }
+    }
+    s->vstart = 0;
+    return 0;
+}
+
+bool vectorize_arithmetic(RISCVCPUState *s, uint8_t vs2, uint8_t vd, target_ulong vs1, uint8_t width_config, bool vv, bool vm,
+                          Vector_Integer_Op (*v_op_config)(uint8_t)) {
+    if (s->vtype == VILL)
+        return true;
+
+    /* v op config returns the instruction with the proper element size to be looped */
+    int               sew  = get_sew(s);
+    Vector_Integer_Op v_op = (*v_op_config)(sew);
+    if (!v_op)  // illegal sew width
+        return true;
+
+    int lmul_scaled = get_lmul(s) / 8;
+    if (lmul_scaled == 0)
+        lmul_scaled = 1;
+    else {  // vregs accessed must be aligned with lmul/emul size
+        if (vv && vs1 % lmul_scaled)
+            return true;
+        switch (width_config) {  // only vd and vs2 can be widened
+            case SINGLE_WIDTH:
+                if (vd % lmul_scaled || vs2 % lmul_scaled)
+                    return true;
+                break;
+            case WIDEN_VS2:     // narrow insn - SEW = 2*SEW op SEW
+            case WIDEN_VD_VS2:  // widen insn  - 2*SEW = 2*SEW op SEW
+                if (vs2 % (lmul_scaled * 2))
+                    return true;
+                if (width_config == WIDEN_VS2)
+                    break;
+            case WIDEN_VD:  // widen insn  - 2*SEW = SEW op SEW
+                if (vd % (lmul_scaled * 2))
+                    return true;
+                lmul_scaled <<= 1;
+                sew <<= 1;  // lmul and sew are relative to vd
+                break;
+        }
+    }
+    uint8_t *vs2_ptr;
+    void *   vs1_ptr      = &vs1;  // precalculate vs1 value if not vv operation
+    int      byte_advance = sew / 8;
+    int      vec_size     = VLEN / sew;
+    int      vs2_mod, vs1_mod, vs2_elm_mod, vs1_elm_mod;  // narrowing/widening modifiers set vs2/vs1 relative to vd
+    vs2_mod = vs1_mod = vs2_elm_mod = vs1_elm_mod = 0;
+    for (int i = 0; i < lmul_scaled; i++) {        // lmul/sew are relative to vd
+        int elm_start = s->vstart - vec_size * i;  // starting element of current vd
+
+        if (elm_start < vec_size) {                         // operations expected to happen for this vreg
+            s->most_recently_written_vregs[vd + i] = true;  // register vd(s) prepared for insn
+            elm_start *= byte_advance;                      // scale to size
+            int vec_size_scaled = VLEN / 8;
+
+            for (int j = elm_start; j < vec_size_scaled; j += byte_advance) {
+                if (width_config)
+                    switch (width_config) {
+                        case WIDEN_VD_VS2:  // needs to modify vs1
+                        case WIDEN_VD:      // needs to modify vs1 vs2
+                            vs1_mod = -(i / 2 + i % 2);
+                            if (i % 2)
+                                vs1_elm_mod = (vec_size_scaled >> 1) - (j >> 1);
+                            else
+                                vs1_elm_mod = -j / 2;
+                            if (width_config == WIDEN_VD_VS2)
+                                break;
+                            vs2_mod     = vs1_mod;
+                            vs2_elm_mod = vs1_elm_mod;
+                            break;
+                        case WIDEN_VS2:  // needs to modify vs2
+                            vs2_mod     = 2 * j / vec_size_scaled;
+                            vs2_elm_mod = j;
+                            break;
+                    }
+
+                if (vv)  // vector-vector operation
+                    vs1_ptr = &s->v_reg[vs1 + i + vs1_mod][j + vs1_elm_mod];
+                vs2_ptr = &s->v_reg[vs2 + i + vs2_mod][j + vs2_elm_mod];
+
+                if (vm || v0_mask(s))
+                    (*v_op)(s, &s->v_reg[vd + i][j], vs2_ptr, vs1_ptr);
+#ifdef MASK_AGNOSTIC_FILL
+                else
+                    mask_agnostic_fill(s, sew, &s->v_reg[vd + i][j]);
+#endif
+                s->vstart++;
+            }
+        }
+    }
+    s->vstart = 0;
+    return false;
+}
+#endif
+
+#define SSTATUS_MASK (MSTATUS_SIE | MSTATUS_SPIE | MSTATUS_SPP | MSTATUS_VS | MSTATUS_FS | MSTATUS_SUM | MSTATUS_MXR | MSTATUS_UXL_MASK)
 
 #define MSTATUS_MASK                                                                                                               \
-    (MSTATUS_SIE | MSTATUS_MIE | MSTATUS_SPIE | MSTATUS_MPIE | MSTATUS_SPP | MSTATUS_MPP | MSTATUS_FS | MSTATUS_MPRV | MSTATUS_SUM \
+    (MSTATUS_SIE | MSTATUS_MIE | MSTATUS_SPIE | MSTATUS_MPIE | MSTATUS_SPP | MSTATUS_MPP | MSTATUS_VS | MSTATUS_FS | MSTATUS_MPRV | MSTATUS_SUM \
      | MSTATUS_MXR | MSTATUS_TVM | MSTATUS_TW | MSTATUS_TSR | MSTATUS_UXL_MASK | MSTATUS_SXL_MASK)
 
 /* return the complete mstatus with the SD bit */
 static target_ulong get_mstatus(RISCVCPUState *s, target_ulong mask) {
     target_ulong val;
     BOOL         sd;
-    val = s->mstatus | (s->fs << MSTATUS_FS_SHIFT);
+    val = s->mstatus | (s->fs << MSTATUS_FS_SHIFT) | (s->vs << MSTATUS_VS_SHIFT);
     val &= mask;
-    sd = ((val & MSTATUS_FS) == MSTATUS_FS) | ((val & MSTATUS_XS) == MSTATUS_XS);
+    sd = ((val & MSTATUS_VS) == MSTATUS_VS) | ((val & MSTATUS_FS) == MSTATUS_FS) | ((val & MSTATUS_XS) == MSTATUS_XS);
     if (sd)
         val |= (target_ulong)1 << 63;
     return val;
@@ -855,8 +1173,9 @@ static void set_mstatus(RISCVCPUState *s, target_ulong val) {
         tlb_flush_all(s);
     }
     s->fs = (val >> MSTATUS_FS_SHIFT) & 3;
+    s->vs = (val >> MSTATUS_VS_SHIFT) & 3;
 
-    target_ulong mask = MSTATUS_MASK & ~(MSTATUS_FS | MSTATUS_UXL_MASK | MSTATUS_SXL_MASK);
+    target_ulong mask = MSTATUS_MASK & ~(MSTATUS_FS | MSTATUS_VS | MSTATUS_UXL_MASK | MSTATUS_SXL_MASK);
     s->mstatus        = s->mstatus & ~mask | val & mask;
 }
 
@@ -903,6 +1222,28 @@ static int csr_read(RISCVCPUState *s, uint32_t funct3, target_ulong *pval, uint3
             if (s->fs == 0)
                 return -1;
             val = s->fflags | (s->frm << 5);
+            break;
+#endif
+#if VLEN > 0
+        case 0x008: /* vstart */
+           if (s->vs == 0)
+               return -1;
+           val = s->vstart;
+            break;
+        case 0x009: /* vxsat */
+            if (s->vs == 0)
+                return -1;
+            val = s->vxsat;
+           break;
+        case 0x00A: /* vxrm */
+            if (s->vs == 0)
+                return -1;
+           val = s->vxrm;
+            break;
+        case 0x00F: /* vcsr */
+            if (s->vs == 0)
+                return -1;
+           val = s->vxsat | s->vxrm << 1;
             break;
 #endif
         case 0x100: val = get_mstatus(s, SSTATUS_MASK); break;
@@ -1041,7 +1382,23 @@ static int csr_read(RISCVCPUState *s, uint32_t funct3, target_ulong *pval, uint3
                 goto invalid_csr;
             val = 0;  // mhpmcounter3..31
             break;
-
+#if VLEN > 0
+        case 0xc20: /* vl */
+            if (s->vs == 0)
+                return -1;
+            val = s->vl;
+            break;
+        case 0xc21: /* vtype */
+            if (s->vs == 0)
+               return -1;
+            val = s->vtype;
+            break;
+        case 0xc22: /* vlenb */
+            if (s->vs == 0)
+                return -1;
+            val = VLEN / 8; /* The value in vlenb is a design-time constant in any implementation */
+            break;
+#endif
         case 0xf14: val = s->mhartid; break;
         case 0xf13: val = s->mimpid; break;
         case 0xf12: val = s->marchid; break;
@@ -1217,6 +1574,34 @@ static int csr_write(RISCVCPUState *s, uint32_t funct3, uint32_t csr, target_ulo
             set_frm(s, (val >> 5) & 7);
             s->fflags = val & 0x1f;
             s->fs     = 3;
+            break;
+#endif
+#if VLEN > 0
+        case 0x008: /* vstart */
+            if (s->vs == 0)
+                return -1;
+            s->vstart = val & VSTART_MASK;
+            s->vs     = 3;
+            break;
+        case 0x009: /* vxsat */
+            if (s->vs == 0)
+                return -1;
+            s->vxsat = val & VXSAT_MASK;
+            s->vs    = 3;
+            break;
+        case 0x00A: /* vxrm */
+            if (s->vs == 0)
+                return -1;
+            s->vxrm = val & VXRM_MASK;
+            s->vs   = 3;
+            break;
+        case 0x00F: /* vcsr */
+            if (s->vs == 0)
+                return -1;
+            val     &= VCSR_MASK;
+            s->vxsat = val & VCSR_VXSAT; /* vcsr[0] = vxsat */
+            s->vxrm  = (val & VCSR_VXRM) >> 1; /* vcsr[2:1] = vxrm */
+            s->vs    = 3;
             break;
 #endif
         case 0x100: /* sstatus */ set_mstatus(s, s->mstatus & ~SSTATUS_MASK | val & SSTATUS_MASK); break;
@@ -1796,6 +2181,10 @@ RISCVCPUState *riscv_cpu_init(RISCVMachine *machine, int hartid) {
 #endif
 #if FLEN >= 128
     s->misa |= MCPUID_Q;
+#endif
+#if VLEN > 0
+    clear_most_recently_written_vregs(s);
+    s->misa |= MCPUID_V;
 #endif
     s->misa |= MCPUID_C;
 

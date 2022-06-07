@@ -96,6 +96,38 @@ typedef uint128_t fp_uint;
 #endif
 #endif
 
+/* VLEN is the vector register width */
+#define IS_PO2(n)    ((n) && ((n) & ((n)-1)) == 0)
+#define ELEN_MIN     (1 << 3)
+#define VLEN_MAX     (1 << 16)
+#define ELEN_DEFAULT (1 << 6)
+#define VLEN_DEFAULT (1 << 7)
+/* Modify these lines to fit architectural params */
+//#define VLEN <size_in_bits_here>
+//#define ELEN <typically_default_but_might_be_rattified>
+/* Uncomment the next line to DISABLE Vector Simulation "V-extension" */
+//#define VLEN 0
+/* Uncomment the next line to have masked elements under mask-agnotic policy be filled with 1's
+ * useful for vector register renaming, where masked elements dont need to be copied */
+//#define MASK_AGNOSTIC_FILL 1
+#ifndef VLEN
+#define VLEN VLEN_DEFAULT
+#endif
+#ifndef ELEN
+#define ELEN ELEN_DEFAULT
+#endif
+#if (ELEN < ELEN_MIN || VLEN < ELEN || !IS_PO2(ELEN))
+#undef ELEN
+#define ELEN ELEN_DEFAULT
+#endif
+#if (VLEN_MAX < VLEN || VLEN < ELEN || !IS_PO2(VLEN))
+#undef VLEN
+#define VLEN VLEN_DEFAULT
+#endif
+#if VLEN > 0
+#include "vector_template.h"
+#endif
+
 /* MLEN is the maximum memory access width */
 #if 64 <= 32 && FLEN <= 32
 #define MLEN 32
@@ -181,8 +213,21 @@ typedef struct RISCVCPUState {
     uint8_t  frm;
 #endif
 
+#if VLEN > 0
+    uint8_t  v_reg[32][VLEN / 8];
+    bool     most_recently_written_vregs[32];
+
+    /* CSRs */
+    uint16_t     vstart;
+    uint8_t      vxsat;
+    uint8_t      vxrm;
+    target_ulong vtype; /* ro */
+    target_ulong vl;    /* ro */
+#endif
+
     uint8_t priv; /* see PRV_x */
     uint8_t fs;   /* MSTATUS_FS value */
+    uint8_t vs;   /* MSTATUS_VS value */
 
     uint64_t insn_counter;  // Simulator internal
     uint64_t minstret;      // RISCV CSR (updated when insn_counter increases)
