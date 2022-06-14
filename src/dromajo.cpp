@@ -121,8 +121,10 @@ int simpoint_step(RISCVMachine *m, int hartid) {
 }
 #endif
 
-int iterate_core(RISCVMachine *m, int hartid) {
-    if (m->common.maxinsns-- <= 0)
+static int iterate_core(RISCVMachine *m, int hartid, int n_cycles) {
+    m->common.maxinsns -= n_cycles;
+
+    if (m->common.maxinsns <= 0)
         /* Succeed after N instructions without failure. */
         return 0;
 
@@ -134,13 +136,18 @@ int iterate_core(RISCVMachine *m, int hartid) {
     uint64_t last_pc  = virt_machine_get_pc(m, hartid);
     int      priv     = riscv_get_priv_level(cpu);
     uint32_t insn_raw = -1;
-    (void)riscv_read_insn(cpu, &insn_raw, last_pc);
-    int keep_going = virt_machine_run(m, hartid);
-    if (last_pc == virt_machine_get_pc(m, hartid))
-        return 0;
+    bool     do_trace = false;
 
-    if (m->common.trace) {
-        --m->common.trace;
+    (void)riscv_read_insn(cpu, &insn_raw, last_pc);
+    if (m->common.trace < (unsigned) n_cycles) {
+        n_cycles = 1;
+        do_trace = true;
+    }
+    m->common.trace -= n_cycles;
+
+    int keep_going = virt_machine_run(m, hartid, n_cycles);
+
+    if (!do_trace) {
         return keep_going;
     }
 
@@ -216,6 +223,7 @@ int main(int argc, char **argv) {
     if (!m)
         return 1;
 
+    int n_cycles = 10000;
     execution_start_ts = get_current_time_in_seconds();
     execution_progress_meassure = &m->cpu_state[0]->minstret;
     signal(SIGINT, sigintr_handler);
@@ -223,7 +231,7 @@ int main(int argc, char **argv) {
     int keep_going;
     do {
         keep_going = 0;
-        for (int i = 0; i < m->ncpus; ++i) keep_going |= iterate_core(m, i);
+        for (int i = 0; i < m->ncpus; ++i) keep_going |= iterate_core(m, i, n_cycles);
 #ifdef SIMPOINT_BB
         if (simpoint_roi) {
             if (!simpoint_step(m, 0))
