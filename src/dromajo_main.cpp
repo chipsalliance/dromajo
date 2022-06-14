@@ -489,10 +489,10 @@ static EthernetDevice *slirp_open(void) {
 
 #endif /* CONFIG_SLIRP */
 
-BOOL virt_machine_run(RISCVMachine *s, int hartid) {
+BOOL virt_machine_run(RISCVMachine *s, int hartid, int n_cycles) {
     (void)virt_machine_get_sleep_duration(s, hartid, MAX_SLEEP_TIME);
 
-    riscv_cpu_interp64(s->cpu_state[hartid], 1);
+    riscv_cpu_interp64(s->cpu_state[hartid], n_cycles);
     RISCVCPUState *cpu = s->cpu_state[hartid];
     if (s->htif_tohost_addr) {
         uint32_t tohost;
