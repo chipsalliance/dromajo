@@ -110,7 +110,7 @@ static inline bool is_mmio_load(RISCVCPUState *s,
     uint64_t va = riscv_get_reg_previous(s, reg) + offset;
 
     if(!riscv_cpu_get_phys_addr(s, va, ACCESS_READ, &pa) &&
-       mmio_start <= pa && pa < mmio_end) {
+       (mmio_start <= pa && pa < mmio_end) ||(pa == 0x4000) ) {
         return true;
     }
 
@@ -196,7 +196,8 @@ static inline void handle_dut_overrides(RISCVCPUState *s,
 void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t cause)
 {
     VirtMachine   *m = (VirtMachine  *)state;
-
+    fprintf(dromajo_stderr, "cause %lx\n", cause);
+    fprintf(dromajo_stderr, "m->pending_interrupt: %x \n", m->pending_interrupt);
     if (cause < 0) {
         assert(m->pending_interrupt == -1);
         m->pending_interrupt = cause & 63;
@@ -222,6 +223,8 @@ void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t 
  * time, and instret.  For all these cases the model will override
  * with the expected values.
  */
+
+//look here
 int dromajo_cosim_step(dromajo_cosim_state_t *state,
                        int                    hartid,
                        uint64_t               dut_pc,

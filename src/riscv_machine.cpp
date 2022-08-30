@@ -1068,6 +1068,7 @@ void virt_machine_set_defaults(VirtMachineParams *p)
 
 RISCVMachine *virt_machine_init(const VirtMachineParams *p)
 {
+    //setting up SoC 
     VIRTIODevice *blk_dev;
     int irq_num, i;
     VIRTIOBusDef vbus_s, *vbus = &vbus_s;
@@ -1114,6 +1115,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p)
 
     /* RAM */
     cpu_register_ram(s->mem_map, 0, 4096, 0); // Have memory at 0 for uaccess-etcsr to pass
+    cpu_register_ram(s->mem_map, 16384, 8192, 0);
     cpu_register_ram(s->mem_map, s->ram_base_addr, s->ram_size, 0);
     cpu_register_ram(s->mem_map, ROM_BASE_ADDR, ROM_SIZE, 0);
 
