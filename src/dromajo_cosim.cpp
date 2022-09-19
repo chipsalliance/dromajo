@@ -155,11 +155,32 @@ static inline void handle_dut_overrides(RISCVCPUState *s,
      * hpmoverflows, mip, and sip.
      * If the destination register is x0 then it is actually a csr-write
      */
+    bool is_pmp = (csrno == CSR_PMPCFG(0)) || 
+                    (csrno == CSR_PMPCFG(2)) || 
+                    (csrno == CSR_PMPADDR(0)) || 
+                    (csrno == CSR_PMPADDR(1)) || 
+                    (csrno == CSR_PMPADDR(2)) || 
+                    (csrno == CSR_PMPADDR(3)) || 
+                    (csrno == CSR_PMPADDR(4)) || 
+                    (csrno == CSR_PMPADDR(5)) || 
+                    (csrno == CSR_PMPADDR(6)) || 
+                    (csrno == CSR_PMPADDR(7)) || 
+                    (csrno == CSR_PMPADDR(8)) || 
+                    (csrno == CSR_PMPADDR(9)) || 
+                    (csrno == CSR_PMPADDR(10)) || 
+                    (csrno == CSR_PMPADDR(11)) || 
+                    (csrno == CSR_PMPADDR(12)) || 
+                    (csrno == CSR_PMPADDR(13)) || 
+                    (csrno == CSR_PMPADDR(14)) || 
+                    (csrno == CSR_PMPADDR(15));
     if (opcode == 0x73 && rd != 0 &&
         (0xB00 <= csrno && csrno < 0xB20 ||
          0xC00 <= csrno && csrno < 0xC20 ||
          (csrno == 0x344 /* mip */ ||
-          csrno == 0x144 /* sip */)))
+          csrno == 0x144 /* sip */|| 
+          csrno == 0x306 /* mcounteren */|| 
+          csrno == 0x106 /* scounteren */|| 
+          is_pmp)))
         riscv_set_reg(s, rd, dut_wdata);
 
     /* Catch loads and amo from MMIO space */
