@@ -637,6 +637,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     uint64_t    live_cache_size          = 8*1024*1024;
 #endif
     bool        elf_based                = false;
+    bool        allow_ctrlc              = false;
 
     dromajo_stdout = stdout;
     dromajo_stderr = stderr;
@@ -666,6 +667,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             {"clint",                   required_argument, 0,  'C' }, // CFG
             {"custom_extension",              no_argument, 0,  'u' }, // CFG
             {"clear_ids",                     no_argument, 0,  'L' }, // CFG
+            {"ctrlc",                         no_argument, 0,  'X' },
 #ifdef LIVECACHE
             {"live_cache_size",         required_argument, 0,  'w' }, // CFG
 #endif
@@ -678,6 +680,9 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             break;
 
         switch (c) {
+            case 'X':
+                allow_ctrlc = true;
+                break;
             case 'c':
                 if (cmdline)
                     usage(prog, "already had a kernel command line");
@@ -954,7 +959,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
         }
     }
 
-    p->console       = console_init(TRUE, stdin, dromajo_stdout);
+    p->console       = console_init(allow_ctrlc, stdin, dromajo_stdout);
     p->dump_memories = dump_memories;
 
     // Setup bootrom params
