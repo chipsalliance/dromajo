@@ -1226,7 +1226,7 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     cpu_register_device(s->mem_map,
                         DW_APB_UART1_BASE_ADDR,
                         DW_APB_UART1_SIZE,
-                        dw_apb_uart,
+                        dw_apb_uart1,
                         dw_apb_uart_read,
                         dw_apb_uart_write,
                         DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
