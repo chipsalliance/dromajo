@@ -150,8 +150,6 @@ static void write_thr(DW_apb_uart_state *s, uint8_t val) {
         unsigned char    ch = val;
         // DEBUG("{<   TRANSMIT '%c' (0x%02x)>}", val, val);
         cs->write_data(cs->opaque, &ch, 1);
-        s->lsr &= ~((1 << 5) | (1 << 6));
-        update_isr(s);
         dw_apb_uart_poll(s);
     }
 }
