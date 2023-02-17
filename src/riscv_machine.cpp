@@ -1143,6 +1143,9 @@ static void dump_dram(RISCVMachine *s, FILE *f[16], const char *region, uint64_t
     }
 }
 
+extern DW_apb_uart_state *dw_apb_uart0;
+extern DW_apb_uart_state *dw_apb_uart1;
+
 RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     int           irq_num, i;
     VIRTIOBusDef  vbus_s, *vbus = &vbus_s;
@@ -1204,20 +1207,20 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
     uart->cs              = p->console;
     cpu_register_device(s->mem_map, UART0_BASE_ADDR, UART0_SIZE, uart, uart_read, uart_write, DEVIO_SIZE32);
 
-    DW_apb_uart_state *dw_apb_uart = (DW_apb_uart_state *)calloc(sizeof *dw_apb_uart, 1);
-    dw_apb_uart->irq               = &s->plic_irq[DW_APB_UART0_IRQ];
-    dw_apb_uart->cs                = p->console;
+    dw_apb_uart0 = (DW_apb_uart_state *)calloc(sizeof *dw_apb_uart0, 1);
+    dw_apb_uart0->irq = &s->plic_irq[DW_APB_UART0_IRQ];
+    dw_apb_uart0->cs  = p->console;
     cpu_register_device(s->mem_map,
                         DW_APB_UART0_BASE_ADDR,
                         DW_APB_UART0_SIZE,
-                        dw_apb_uart,
+                        dw_apb_uart0,
                         dw_apb_uart_read,
                         dw_apb_uart_write,
                         DEVIO_SIZE32 | DEVIO_SIZE16 | DEVIO_SIZE8);
 
-    DW_apb_uart_state *dw_apb_uart1 = (DW_apb_uart_state *)calloc(sizeof *dw_apb_uart, 1);
-    dw_apb_uart1->irq               = &s->plic_irq[DW_APB_UART1_IRQ];
-    dw_apb_uart1->cs                = p->console;
+    dw_apb_uart1 = (DW_apb_uart_state *)calloc(sizeof *dw_apb_uart1, 1);
+    dw_apb_uart1->irq = &s->plic_irq[DW_APB_UART1_IRQ];
+    dw_apb_uart1->cs  = p->console;
     cpu_register_device(s->mem_map,
                         DW_APB_UART1_BASE_ADDR,
                         DW_APB_UART1_SIZE,

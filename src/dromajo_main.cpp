@@ -489,6 +489,11 @@ static EthernetDevice *slirp_open(void) {
 
 #endif /* CONFIG_SLIRP */
 
+void *dw_apb_uart1;
+void *dw_apb_uart0;
+
+void dw_apb_uart_poll(void *dw_apb_uart);
+
 BOOL virt_machine_run(RISCVMachine *s, int hartid, int n_cycles) {
     (void)virt_machine_get_sleep_duration(s, hartid, MAX_SLEEP_TIME);
 
@@ -504,6 +509,9 @@ BOOL virt_machine_run(RISCVMachine *s, int hartid, int n_cycles) {
             return false;
         }
     }
+
+    dw_apb_uart_poll(dw_apb_uart0);
+    dw_apb_uart_poll(dw_apb_uart1);
 
     return !riscv_terminated(s->cpu_state[hartid]) && s->common.maxinsns > 0;
 }

@@ -238,6 +238,9 @@ static void write_spr(DW_apb_uart_state *s, uint8_t val) { s->spr = val; }
 void dw_apb_uart_poll(void *opaque) {
     DW_apb_uart_state *s = (DW_apb_uart_state *)opaque;
 
+    if (s->cs == NULL)
+      return;
+
     if (!(s->lsr & 1)) {
         CharacterDevice *cs = s->cs;
         s->lsr |= cs->read_data(cs->opaque, &s->rhr, 1) != 0;
