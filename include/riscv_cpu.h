@@ -44,7 +44,7 @@
 
 #include "riscv.h"
 
-#define ROM_SIZE       0x00001000
+#define ROM_SIZE       0x00002000
 #define ROM_BASE_ADDR  0x00010000
 #define BOOT_BASE_ADDR 0x00010000
 
