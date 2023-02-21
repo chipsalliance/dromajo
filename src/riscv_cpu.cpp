@@ -569,15 +569,16 @@ no_inline int riscv_cpu_read_memory(RISCVCPUState *s, mem_uint_t *pval, target_u
 
         if (!pr) {
             // Isn't RAM or Virt Device, treated as mmio
+#if 0
             static uint64_t suppress = 1;
             if (paddr != suppress) {
-                fprintf(dromajo_stderr, "Dropping %d-bit load from 0x%lx\n", 1 << (3 + size_log2), paddr);
+                fprintf(dromajo_stderr, "Dromajo: dropping %d-bit load from 0x%lx\n",
+                        1 << (3 + size_log2), paddr);
                 suppress = paddr;
             }
-            return ~0;  // Isn't RAM or Virt Device, treated as mmio and memory copied from DUT
-        }
-
-        if (pr->is_ram) {
+#endif
+            ret = 0;
+        } else if (pr->is_ram) {
             tlb_idx                    = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
             ptr                        = pr->phys_mem + (uintptr_t)(paddr - pr->addr);
             s->tlb_read[tlb_idx].vaddr = addr & ~PG_MASK;
@@ -662,11 +663,14 @@ no_inline int riscv_cpu_write_memory(RISCVCPUState *s, target_ulong addr, mem_ui
         }
         else if (!pr) {
             // Isn't RAM or Virt Device, treated as mmio and reads copy DUT data
+#if 0
             static uint64_t suppress = 1;
             if (paddr != suppress) {
-                fprintf(dromajo_stderr, "Dropping %d-bit store to 0x%lx\n", 1 << (3 + size_log2), paddr);
+                fprintf(dromajo_stderr, "Dromajo: dropping %d-bit store to 0x%lx\n",
+                        1 << (3 + size_log2), paddr);
                 suppress = paddr;
             }
+#endif
         } else if (pr->is_ram) {
             phys_mem_set_dirty_bit(pr, paddr - pr->addr);
             tlb_idx                     = (addr >> PG_SHIFT) & (TLB_SIZE - 1);
