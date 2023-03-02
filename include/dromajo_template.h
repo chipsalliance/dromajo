@@ -294,10 +294,7 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
         ++insn_executed;
 
         if (check_triggers(s, MCONTROL_EXECUTE, s->pc))
-            if (s->debug_mode)
-                goto done_interp;
-            else
-                goto exception;
+            goto exception;
 
         if (unlikely(code_ptr >= code_end)) {
             uint32_t     tlb_idx;
