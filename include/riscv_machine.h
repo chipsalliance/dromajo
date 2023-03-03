@@ -65,6 +65,14 @@ struct RISCVMachine {
     LiveCache *llc;
 #endif
     RISCVCPUState *cpu_state[MAX_CPUS];
+
+    /*
+     * Each write to memory increases the memseqno.  We use this to
+     * enable SC to invalidate a load reservation if memory has been
+     * written by an external agent (including another hart).
+     */
+    uint64_t memseqno;
+
     int            ncpus;
     uint64_t       ram_size;
     uint64_t       ram_base_addr;
