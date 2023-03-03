@@ -1296,28 +1296,28 @@ int no_inline glue(riscv_cpu_interp, XLEN)(RISCVCPUState *s, int n_cycles) {
         addr   = read_reg(rs1);                                                         \
         funct3 = insn >> 27;                                                            \
         switch (funct3) {                                                               \
-            case 2: /* lr.w */                                                          \
+            case 2: /* lr.w/lr.d */                                                     \
                 if (rs2 != 0)                                                           \
                     goto illegal_insn;                                                  \
                 if (target_read_u##size(s, &rval, addr))                                \
                     goto mmu_exception;                                                 \
                 val         = (int##size##_t)rval;                                      \
                 s->load_res = addr;                                                     \
+                s->load_res_memseqno = s->machine->memseqno;                            \
                 break;                                                                  \
                                                                                         \
-            case 3: /* sc.w */                                                          \
-                                                                                        \
+            case 3: /* sc.w/sc.d */                                                     \
                 if ((addr & (size / 8 - 1)) != 0) {                                     \
                     s->pending_tval      = addr;                                        \
                     s->pending_exception = CAUSE_MISALIGNED_STORE;                      \
                     goto mmu_exception;                                                 \
                 }                                                                       \
-                                                                                        \
-                if (s->load_res == addr) {                                              \
+                if (s->load_res == addr && s->load_res_memseqno == s->machine->memseqno) { \
                     if (target_write_u##size(s, addr, read_reg(rs2)))                   \
                         goto mmu_exception;                                             \
                     val         = 0;                                                    \
                     s->load_res = ~0;                                                   \
+                    s->load_res_memseqno = 0;                                           \
                 } else {                                                                \
                     val = 1;                                                            \
                 }                                                                       \

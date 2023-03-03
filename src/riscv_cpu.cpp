@@ -323,19 +323,24 @@ PHYS_MEM_READ_WRITE(64, uint64_t)
     }                                                                                                                       \
                                                                                                                             \
     static inline __must_use_result int target_write_u##size(RISCVCPUState *s, target_ulong addr, uint_type val) {          \
+                                                                                                                            \
         if (check_triggers(s, MCONTROL_STORE, addr))                                                                        \
             return -1;                                                                                                      \
-        uint32_t tlb_idx;                                                                                                   \
-        if (!CONFIG_ALLOW_MISALIGNED_ACCESS && (addr & (size / 8 - 1)) != 0) {                                              \
+                                                                                                                            \
+        if (unlikely(!CONFIG_ALLOW_MISALIGNED_ACCESS && (addr & (size / 8 - 1)) != 0)) {                                    \
             s->pending_tval      = addr;                                                                                    \
             s->pending_exception = CAUSE_MISALIGNED_STORE;                                                                  \
             return -1;                                                                                                      \
         }                                                                                                                   \
-        tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);                                                                      \
+                                                                                                                            \
+        uint32_t tlb_idx = (addr >> PG_SHIFT) & (TLB_SIZE - 1);                                                             \
         if (likely(s->tlb_write[tlb_idx].vaddr == (addr & ~(PG_MASK & ~((size / 8) - 1))))) {                               \
             *(uint_type *)(s->tlb_write[tlb_idx].mem_addend + (uintptr_t)addr) = val;                                       \
-            uint64_t paddr                                                     = s->tlb_write_paddr_addend[tlb_idx] + addr; \
-            track_write(s, addr, paddr, val, size);                                                                         \
+                                                                                                                            \
+            ++s->machine->memseqno;                                                                                         \
+            ++s->load_res_memseqno;                                                                                         \
+                                                                                                                            \
+            track_write(s, addr, s->tlb_write_paddr_addend[tlb_idx] + addr, val, size);                                     \
             return 0;                                                                                                       \
         }                                                                                                                   \
                                                                                                                             \
@@ -694,6 +699,8 @@ no_inline int riscv_cpu_write_memory(RISCVCPUState *s, target_ulong addr, mem_ui
 #endif
                 default: abort();
             }
+            ++s->machine->memseqno;
+            ++s->load_res_memseqno;
         } else {
             offset = paddr - pr->addr;
             if (((pr->devio_flags >> size_log2) & 1) != 0) {

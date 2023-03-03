@@ -290,7 +290,17 @@ typedef struct RISCVCPUState {
 
     uint32_t plic_enable_irq[2];
 
+    /*
+     * "The SC must fail if a store to the reservation set from
+     * another hart can be observed to occur between the LR and SC."
+     *
+     * To achieve this in a scalable and low-overhead way we maintain
+     * a sequence number for global memory and one per reservation.
+     * As long as the reservation tracks the global number, we know no
+     * other hart has written memory.
+     */
     target_ulong load_res; /* for atomic LR/SC */
+    uint64_t     load_res_memseqno;
 
     PhysMemoryMap *mem_map;
     int            physical_addr_len;
