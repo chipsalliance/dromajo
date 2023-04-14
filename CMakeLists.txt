@@ -139,8 +139,8 @@ else ()
 endif ()
 
 if (${CMAKE_HOST_APPLE})
-    include_directories(/usr/local/include /usr/local/include/libelf)
-    target_link_libraries(dromajo_cosim -L/usr/local/lib -lelf)
+    include_directories(/usr/local/include /usr/local/include/libelf /opt/homebrew/include /opt/homebrew/include/libelf)
+    target_link_libraries(dromajo_cosim -L/usr/local/lib -L/opt/homebrew/lib -lelf)
 else ()
     # add librt for Linux
     target_link_libraries(dromajo_cosim rt)
