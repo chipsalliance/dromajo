@@ -155,6 +155,7 @@ case (0x18 << 2) | OPID:
     }
     if (rd != 0)
         write_reg(rd, val);
+    s->fs = 3;
     break;
 case (0x14 << 2) | OPID:
     switch (rm) {
@@ -165,6 +166,7 @@ case (0x14 << 2) | OPID:
     }
     if (rd != 0)
         write_reg(rd, val);
+    s->fs = 3;
     break;
 case (0x1a << 2) | OPID:
     rm = get_insn_rm(s, rm);
@@ -269,3 +271,4 @@ case (0x1e << 2) | OPID: /* fmv.w.x */
 #undef F_HIGH
 #undef OPID
 #undef FSIGN_MASK
+[
