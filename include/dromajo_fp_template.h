@@ -271,4 +271,3 @@ case (0x1e << 2) | OPID: /* fmv.w.x */
 #undef F_HIGH
 #undef OPID
 #undef FSIGN_MASK
-[
