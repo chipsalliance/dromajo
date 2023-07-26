@@ -131,7 +131,8 @@ static int console_read(void *opaque, uint8_t *buf, int len) {
     if (len <= 0)
         return 0;
 
-    int ret = fread(buf, len, 1, s->stdin);
+    int ret = -1;
+    // int ret = fread(buf, len, 1, s->stdin);
     if (ret <= 0)
         return 0;
 
@@ -179,7 +180,7 @@ CharacterDevice *console_init(BOOL allow_ctrlc, FILE *stdin, FILE *out) {
     s->out               = out;
     /* Note: the glibc does not properly tests the return value of
        write() in printf, so some messages on out may be lost */
-    fcntl(fileno(s->stdin), F_SETFL, O_NONBLOCK);
+    // fcntl(fileno(s->stdin), F_SETFL, O_NONBLOCK);
 
     s->resize_pending   = TRUE;
     global_stdio_device = s;
