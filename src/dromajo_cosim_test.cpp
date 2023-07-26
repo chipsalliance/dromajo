@@ -146,7 +146,7 @@ int main(int argc, char *argv[]) {
             fprintf(dromajo_stdout, "exception %d with tval %08" PRIx64 "\n", exception, tval);
             continue;
         }
-        int r = dromajo_cosim_step(s, hartid, insn_addr, insn, wdata, 0, true);
+        int r = dromajo_cosim_step(s, hartid, insn_addr, insn, wdata, 0, true, true);
         if (r) {
             fprintf(dromajo_stdout, "Exited with %08x\n", r);
             goto fail;

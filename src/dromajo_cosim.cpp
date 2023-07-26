@@ -192,7 +192,7 @@ void dromajo_cosim_raise_trap(dromajo_cosim_state_t *state, int hartid, int64_t 
  * with the expected values.
  */
 int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc, uint32_t dut_insn, uint64_t dut_wdata,
-                       uint64_t dut_mstatus, bool check) {
+                       uint64_t dut_mstatus, bool check, bool verbose) {
     RISCVMachine *r = (RISCVMachine *)state;
     assert(r->ncpus > hartid);
     RISCVCPUState *s = r->cpu_state[hartid];
@@ -202,7 +202,6 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
     uint32_t       emu_insn;
     bool           emu_wrote_data = false;
     int            exit_code      = 0;
-    bool           verbose        = true;
     int            iregno, fregno;
     char           log_buffer[512];
     int            log_buff_space;
