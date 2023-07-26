@@ -406,6 +406,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
     }
 
     log_buff_space = 0;
+    log_buffer[0] = 0;
     if (verbose) {
         log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, "%d 0x%016" PRIx64 " ", emu_priv, emu_pc);
         log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, "(0x%08x) ", emu_insn);
