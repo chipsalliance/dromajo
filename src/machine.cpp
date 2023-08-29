@@ -233,7 +233,7 @@ static int virt_machine_parse_config(VirtMachineParams *p, char *config_file_str
     }
 
     vm_get_uint64_opt(cfg, "htif_base_addr", &p->htif_base_addr);
-    vm_get_int(cfg, "maxinsns", &p->maxinsns);
+    vm_get_uint64_opt(cfg, "maxinsns", &p->maxinsns);
 
     if (vm_get_str_opt(cfg, "load", &p->snapshot_load_name) < 0)
         goto tag_fail;

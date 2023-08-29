@@ -151,7 +151,7 @@ typedef struct {
     VMFileEntry files[VM_FILE_COUNT];
 
     /* maximum increment of instructions to execute */
-    int64_t maxinsns;
+    uint64_t maxinsns;
 
     /* snapshot load file */
     char *snapshot_load_name;
@@ -203,7 +203,7 @@ typedef struct VirtMachine {
     char *   snapshot_load_name;
     char *   snapshot_save_name;
     char *   terminate_event;
-    int64_t maxinsns;
+    uint64_t maxinsns;
     uint64_t trace;
 
     /* For co-simulation only, they are -1 if nothing is pending. */

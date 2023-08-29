@@ -51,7 +51,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <err.h>
-#include <sstream>
 
 #include "cutils.h"
 #include "dromajo.h"
@@ -1416,35 +1415,19 @@ void virt_machine_end(RISCVMachine *s) {
 }
 
 void virt_machine_serialize(RISCVMachine *m, const char *dump_name) {
-    /* Serialize core states. */
-    for (int i = 0; i < m->ncpus; ++i) {
-        RISCVCPUState *s = m->cpu_state[i];
+    RISCVCPUState *s = m->cpu_state[0];  // FIXME: MULTICORE
 
-        vm_error("plic: %x %x timecmp=%llx\n", m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
+    vm_error("plic: %x %x timecmp=%llx\n", m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
 
-        /* Append core number suffix to the file name. */
-        std::stringstream core_dump_name;
-        core_dump_name << dump_name << i;
-        riscv_cpu_serialize(s, core_dump_name.str().c_str(), m->clint_base_addr);
-    }
-
-    /* Serialize memory. */
-    riscv_ram_serialize(m->cpu_state[0], dump_name);
+    assert(m->ncpus == 1);  // FIXME: riscv_cpu_serialize must be patched for multicore
+    riscv_cpu_serialize(s, dump_name, m->clint_base_addr);
 }
 
 void virt_machine_deserialize(RISCVMachine *m, const char *dump_name) {
-    /* Deserialize core states. */
-    for (int i = 0; i < m->ncpus; ++i) {
-        RISCVCPUState *s = m->cpu_state[i];
+    RISCVCPUState *s = m->cpu_state[0];  // FIXME: MULTICORE
 
-        /* Append core number suffix to the file name. */
-        std::stringstream core_dump_name;
-        core_dump_name << dump_name << i;
-        riscv_cpu_deserialize(s, core_dump_name.str().c_str());
-    }
-
-    /* Deserialize memory. */
-    riscv_ram_deserialize(m->cpu_state[0], dump_name);
+    assert(m->ncpus == 1);  // FIXME: riscv_cpu_serialize must be patched for multicore
+    riscv_cpu_deserialize(s, dump_name);
 }
 
 int virt_machine_get_sleep_duration(RISCVMachine *m, int hartid, int ms_delay) {
