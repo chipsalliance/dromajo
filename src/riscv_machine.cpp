@@ -1199,7 +1199,9 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
 
     /* RAM */
     cpu_register_ram(s->mem_map, s->ram_base_addr, s->ram_size, 0);
-    cpu_register_ram(s->mem_map, ROM_BASE_ADDR, ROM_SIZE, 0);
+
+    /* Boot ROM. */
+    cpu_register_ram(s->mem_map, ROM_BASE_ADDR, s->ncpus * ROM_SIZE, 0);
 
     for (int i = 0; i < s->ncpus; ++i) {
         s->cpu_state[i]->physical_addr_len = p->physical_addr_len;
@@ -1416,32 +1418,85 @@ void virt_machine_end(RISCVMachine *s) {
 }
 
 void virt_machine_serialize(RISCVMachine *m, const char *dump_name) {
-    /* Serialize core states. */
-    for (int i = 0; i < m->ncpus; ++i) {
+    /* Check that all cores are out of the ROM. */
+    bool is_serializable = true;
+    for (int i = 0; i < m->ncpus && is_serializable; ++i) {
         RISCVCPUState *s = m->cpu_state[i];
-
-        vm_error("plic: %x %x timecmp=%llx\n", m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
-
-        /* Append core number suffix to the file name. */
-        std::stringstream core_dump_name;
-        core_dump_name << dump_name << i;
-        riscv_cpu_serialize(s, core_dump_name.str().c_str(), m->clint_base_addr);
+        is_serializable = s->priv != 3 || (ROM_BASE_ADDR + (m->ncpus * ROM_SIZE) < s->pc);
     }
 
-    /* Serialize memory. */
-    riscv_ram_serialize(m->cpu_state[0], dump_name);
+    /* Serialize core states. */
+    if (is_serializable) {
+        /* Create serialization file per core. */
+        for (int i = 0; i < m->ncpus; ++i) {
+            RISCVCPUState *s = m->cpu_state[i];
+
+            vm_error("plic: %x %x timecmp=%llx\n", m->plic_pending_irq, m->plic_served_irq, (unsigned long long)s->timecmp);
+
+            /* Append core number suffix to the file name. */
+            std::stringstream core_dump_name;
+            core_dump_name << dump_name << i;
+
+            riscv_cpu_serialize(s, core_dump_name.str().c_str(), m->clint_base_addr);
+        }
+
+        /* Generate single boot ROM for all cores. */
+        const uint32_t kTotalRomSize = (m->ncpus * ROM_SIZE) / 4;
+        uint32_t rom[kTotalRomSize];
+        memset(rom, 0, sizeof(rom));
+
+        // ROM organization
+        // Core 0:
+        // 0000..003F wasted
+        // 0040..0AFF boot code (2,752 B)
+        // 0B00..0FFF boot data (  512 B)
+        // Core 1:
+        // 1000..003F wasted
+        // 1040..0AFF boot code (2,752 B)
+        // 1B00..0FFF boot data (  512 B)
+        // repeats for each core ...
+        for (int i = 0; i < m->ncpus; ++i) {
+            RISCVCPUState *s = m->cpu_state[i];
+            uint32_t code_pos = ((i << 12) | (BOOT_BASE_ADDR - ROM_BASE_ADDR)) / sizeof(*rom);
+            uint32_t data_pos = ((i << 12) | 0xB00) / sizeof(*rom);
+
+            /* All cores start by determining the PC they should jump to. */
+            rom[code_pos++] = 0xf1402573; // csrr   a0, mhartid
+            rom[code_pos++] = 0x00c5151b; // slliw  a0, a0, 12
+
+            /* These four instructions must be the last in preamble. */
+            /* If other instructions should be added, add them before these four. */
+            rom[code_pos++] = 0x00000597; // auipc   a1, 0x0
+            rom[code_pos++] = 0x0105859b; // addiw a1, a1, 0xc
+            rom[code_pos++] = 0x00b5053b; // addw a0, a0, a1
+            rom[code_pos++] = 0x50067; // jr a0
+
+            /* Generates and appends recovery code for each core to rom. */
+            generate_core_boot_rom(rom, kTotalRomSize, code_pos, data_pos, s, m->clint_base_addr);
+        }
+
+        /* Write generated boot ROM to file. */
+        uint32_t name_len = strlen(dump_name) + 64;
+        char *f_name      = (char *)alloca(name_len);
+        snprintf(f_name, name_len, "%s.bootram", dump_name);
+        create_boot_rom_image(rom, 4 * kTotalRomSize, f_name);
+
+        /* Write memory state. */
+        riscv_ram_serialize(m->cpu_state[0], dump_name);
+    }
+    else
+    {
+        fprintf(dromajo_stderr, "ERROR: could not checkpoint. One or more cores running inside the ROM.\n");
+        exit(-4);
+    }
 }
 
 void virt_machine_deserialize(RISCVMachine *m, const char *dump_name) {
     /* Deserialize core states. */
-    for (int i = 0; i < m->ncpus; ++i) {
-        RISCVCPUState *s = m->cpu_state[i];
+    RISCVCPUState *s = m->cpu_state[0];
 
-        /* Append core number suffix to the file name. */
-        std::stringstream core_dump_name;
-        core_dump_name << dump_name << i;
-        riscv_cpu_deserialize(s, core_dump_name.str().c_str());
-    }
+    /* Append core number suffix to the file name. */
+    riscv_cpu_deserialize(s, dump_name);
 
     /* Deserialize memory. */
     riscv_ram_deserialize(m->cpu_state[0], dump_name);
