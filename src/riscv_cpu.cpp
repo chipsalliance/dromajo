@@ -2337,11 +2337,14 @@ static void serialize_memory(const void *base, size_t size, const char *file) {
     if (f_fd < 0)
         err(-3, "trying to write %s", file);
 
+    char *potr = (char *)base;
+
     while (size) {
-        ssize_t written = write(f_fd, base, size);
+        ssize_t written = write(f_fd, potr, size);
         if (written <= 0)
             err(-3, "while writing %s", file);
         size -= written;
+        potr += written;
     }
 
     close(f_fd);
@@ -2353,10 +2356,14 @@ static void deserialize_memory(void *base, size_t size, const char *file) {
     if (f_fd < 0)
         err(-3, "trying to read %s", file);
 
-    size_t sz = read(f_fd, base, size);
-
-    if (sz != size)
+    char *potr = (char *)base;
+    while (size) {
+      ssize_t sz = read(f_fd, potr, size);
+      if (sz < 0)
         err(-3, "%s %zd size does not match memory size %zd", file, sz, size);
+      size -= sz;
+      potr += sz;
+    }
 
     close(f_fd);
 }
