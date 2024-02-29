@@ -22,7 +22,7 @@ $(TOP): $(TOP).o
 	riscv64-unknown-elf-gcc $(LDFLAGS) $^ -Wl,-Ttext=0x80000000 -o $@
 
 run: $(TOP)
-	../../build/dromajo --memory_addr=0x80000000 $<
+	../../build/dromajo --ctrlc --memory_addr=0x80000000 $<
 
 $(TOP).bin: $(TOP)
 	riscv64-unknown-elf-objcopy -O binary $< $@
@@ -37,4 +37,4 @@ $(TOP).spout: $(TOP)
 	spike -l $< >& $@
 
 $(TOP).drout: $(TOP) Makefile
-	../../build/dromajo --trace=0 $(TOP) |& ../commitlog-helper.py | spike-dasm | head -80
+	../../build/dromajo --ctrlc --trace=0 $(TOP) |& ../commitlog-helper.py | spike-dasm | head -80
