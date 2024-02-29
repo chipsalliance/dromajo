@@ -61,7 +61,8 @@ add_compile_options(
         -D__STDC_FORMAT_MACROS
 )
 
-add_compile_options($<$<CONFIG:Release>:-Ofast>)
+# XXX -O is a temporary workaround for issue #77 (gcc miscompilation on -Ofast)
+add_compile_options($<$<CONFIG:Release>:-O>)
 
 if (TRACEOS)
     message(STATUS "TRACEOS is on.")
