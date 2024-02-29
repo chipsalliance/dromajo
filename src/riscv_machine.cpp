@@ -1017,8 +1017,6 @@ static int copy_kernel(RISCVMachine *s, uint8_t *fw_buf, size_t fw_buf_len, cons
                     fw_entrypoint);
             return 1;
         }
-
-        load_elf_image(s, fw_buf, fw_buf_len);
     } else if (fw_buf_len > 2 && fw_buf[0] == '0' && fw_buf[0] == 'x') {
         load_hex_image(s, fw_buf, fw_buf_len);
     } else
