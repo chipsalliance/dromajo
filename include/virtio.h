@@ -42,6 +42,7 @@
 
 #include "cutils.h"
 #include "iomem.h"
+#include "json.h"
 #include "pci.h"
 
 #define VIRTIO_PAGE_SIZE 4096
@@ -134,5 +135,9 @@ VIRTIODevice *virtio_input_init(VIRTIOBusDef *bus, VirtioInputTypeEnum type);
 #include "fs.h"
 
 VIRTIODevice *virtio_9p_init(VIRTIOBusDef *bus, FSDevice *fs, const char *mount_tag);
+
+void virtio_device_serialize(VIRTIODevice *s, JSONValue vio_device);
+
+void virtio_device_deserialize(VIRTIODevice *s, JSONValue vio_device);
 
 #endif /* VIRTIO_H */

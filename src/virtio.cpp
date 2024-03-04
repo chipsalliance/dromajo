@@ -47,6 +47,7 @@
 #include <string.h>
 
 #include "cutils.h"
+#include "json.h"
 #include "list.h"
 
 #define DEBUG_VIRTIO
@@ -804,6 +805,53 @@ static void virtio_config_change_notify(VIRTIODevice *s) {
     /* INT_CONFIG interrupt */
     s->int_status |= 2;
     set_irq(s->irq, 1);
+}
+
+void virtio_device_serialize(VIRTIODevice *s, JSONValue vio_device) {
+    JSONValue j;
+
+    j = json_int64_new(s->status);
+    json_object_set(vio_device, "status", j);
+    j = json_int64_new(s->queue_sel);
+    json_object_set(vio_device, "queue_sel", j);
+
+    JSONValue a = json_array_new();
+    for (int i = 0; i < MAX_QUEUE; ++i) {
+        JSONValue q = json_object_new();
+        j           = json_int64_new(s->queue[i].ready);
+        json_object_set(q, "ready", j);
+        j = json_int64_new(s->queue[i].desc_addr);
+        json_object_set(q, "desc_addr", j);
+        j = json_int64_new(s->queue[i].avail_addr);
+        json_object_set(q, "avail_addr", j);
+        j = json_int64_new(s->queue[i].used_addr);
+        json_object_set(q, "used_addr", j);
+        j = json_int64_new(s->queue[i].last_avail_idx);
+        json_object_set(q, "last_avail_idx", j);
+        json_array_set(a, i, q);
+    }
+    json_object_set(vio_device, "queues", a);
+}
+
+void virtio_device_deserialize(VIRTIODevice *s, JSONValue vio_device) {
+    JSONValue val = json_object_get(vio_device, "status");
+    s->status     = (uint32_t)json_get_int64(val);
+    val           = json_object_get(vio_device, "queue_sel");
+    s->queue_sel  = (uint32_t)json_get_int64(val);
+    val           = json_object_get(vio_device, "queues");
+    for (int i = 0; i < MAX_QUEUE; ++i) {
+        JSONValue qobj             = json_array_get(val, i);
+        JSONValue qval             = json_object_get(qobj, "ready");
+        s->queue[i].ready          = (uint32_t)json_get_int64(qval);
+        qval                       = json_object_get(qobj, "desc_addr");
+        s->queue[i].desc_addr      = (uint64_t)json_get_int64(qval);
+        qval                       = json_object_get(qobj, "avail_addr");
+        s->queue[i].avail_addr     = (uint64_t)json_get_int64(qval);
+        qval                       = json_object_get(qobj, "used_addr");
+        s->queue[i].used_addr      = (uint64_t)json_get_int64(qval);
+        qval                       = json_object_get(qobj, "last_avail_idx");
+        s->queue[i].last_avail_idx = (uint16_t)json_get_int64(qval);
+    }
 }
 
 /*********************************************************************/

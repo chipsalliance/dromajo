@@ -305,8 +305,6 @@ static void plic_update_mip(RISCVMachine *s, int hartid) {
     }
 }
 
-static uint32_t plic_priority[PLIC_NUM_SOURCES + 1];  // XXX migrate to VirtMachine!
-
 static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2) {
     uint32_t      val = 0;
     RISCVMachine *s   = (RISCVMachine *)opaque;
@@ -315,7 +313,7 @@ static uint32_t plic_read(void *opaque, uint32_t offset, int size_log2) {
     if (PLIC_PRIORITY_BASE <= offset && offset < PLIC_PRIORITY_BASE + (PLIC_NUM_SOURCES << 2)) {
         uint32_t irq = (offset - PLIC_PRIORITY_BASE) >> 2;
         assert(irq < PLIC_NUM_SOURCES);
-        val = plic_priority[irq];
+        val = s->plic_priority[irq];
     } else if (PLIC_PENDING_BASE <= offset && offset < PLIC_PENDING_BASE + (PLIC_NUM_SOURCES >> 3)) {
         if (offset == PLIC_PENDING_BASE)
             val = s->plic_pending_irq;
@@ -366,7 +364,7 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
     if (PLIC_PRIORITY_BASE <= offset && offset < PLIC_PRIORITY_BASE + (PLIC_NUM_SOURCES << 2)) {
         uint32_t irq = (offset - PLIC_PRIORITY_BASE) >> 2;
         assert(irq < PLIC_NUM_SOURCES);
-        plic_priority[irq] = val & 7;
+        s->plic_priority[irq] = val & 7;
 
     } else if (PLIC_PENDING_BASE <= offset && offset < PLIC_PENDING_BASE + (PLIC_NUM_SOURCES >> 3)) {
         vm_error("plic_write: INVALID pending write to offset=0x%x\n", offset);
@@ -382,7 +380,7 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
         uint32_t hartid = (offset - PLIC_CONTEXT_BASE) / PLIC_CONTEXT_STRIDE;
         uint32_t wordid = (offset & (PLIC_CONTEXT_STRIDE - 1)) >> 2;
         if (wordid == 0) {
-            plic_priority[wordid] = val;
+            s->plic_priority[wordid] = val;
         } else if (wordid == 1) {
             int      irq  = val & 31;
             uint32_t mask = 1 << irq;
@@ -1146,7 +1144,6 @@ static void dump_dram(RISCVMachine *s, FILE *f[16], const char *region, uint64_t
 }
 
 RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
-    VIRTIODevice *blk_dev;
     int           irq_num, i;
     VIRTIOBusDef  vbus_s, *vbus = &vbus_s;
     RISCVMachine *s = (RISCVMachine *)mallocz(sizeof *s);
@@ -1257,39 +1254,36 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
         s->common.console_dev = virtio_console_init(vbus, p->console);
         vbus->addr += VIRTIO_SIZE;
         irq_num++;
-        s->virtio_count++;
+        s->virtio_devices[s->virtio_count++] = s->common.console_dev;
     }
 
     /* virtio net device */
     for (i = 0; i < p->eth_count; ++i) {
-        vbus->irq = &s->plic_irq[irq_num];
-        virtio_net_init(vbus, p->tab_eth[i].net);
-        s->common.net = p->tab_eth[i].net;
+        vbus->irq             = &s->plic_irq[irq_num];
+        VIRTIODevice *net_dev = virtio_net_init(vbus, p->tab_eth[i].net);
+        s->common.net         = p->tab_eth[i].net;
         vbus->addr += VIRTIO_SIZE;
         irq_num++;
-        s->virtio_count++;
+        s->virtio_devices[s->virtio_count++] = net_dev;
     }
 
     /* virtio block device */
     for (i = 0; i < p->drive_count; ++i) {
-        vbus->irq = &s->plic_irq[irq_num];
-        blk_dev   = virtio_block_init(vbus, p->tab_drive[i].block_dev);
-        (void)blk_dev;
+        vbus->irq             = &s->plic_irq[irq_num];
+        VIRTIODevice *blk_dev = virtio_block_init(vbus, p->tab_drive[i].block_dev);
         vbus->addr += VIRTIO_SIZE;
         irq_num++;
-        s->virtio_count++;
+        s->virtio_devices[s->virtio_count++] = blk_dev;
         // virtio_set_debug(blk_dev, 1);
     }
 
     /* virtio filesystem */
     for (i = 0; i < p->fs_count; ++i) {
-        VIRTIODevice *fs_dev;
-        vbus->irq = &s->plic_irq[irq_num];
-        fs_dev    = virtio_9p_init(vbus, p->tab_fs[i].fs_dev, p->tab_fs[i].tag);
-        (void)fs_dev;
+        vbus->irq            = &s->plic_irq[irq_num];
+        VIRTIODevice *fs_dev = virtio_9p_init(vbus, p->tab_fs[i].fs_dev, p->tab_fs[i].tag);
         vbus->addr += VIRTIO_SIZE;
         irq_num++;
-        s->virtio_count++;
+        s->virtio_devices[s->virtio_count++] = fs_dev;
     }
 
     if (p->input_device) {
@@ -1298,13 +1292,13 @@ RISCVMachine *virt_machine_init(const VirtMachineParams *p) {
             s->keyboard_dev = virtio_input_init(vbus, VIRTIO_INPUT_TYPE_KEYBOARD);
             vbus->addr += VIRTIO_SIZE;
             irq_num++;
-            s->virtio_count++;
+            s->virtio_devices[s->virtio_count++] = s->keyboard_dev;
 
             vbus->irq    = &s->plic_irq[irq_num];
             s->mouse_dev = virtio_input_init(vbus, VIRTIO_INPUT_TYPE_TABLET);
             vbus->addr += VIRTIO_SIZE;
             irq_num++;
-            s->virtio_count++;
+            s->virtio_devices[s->virtio_count++] = s->mouse_dev;
         } else {
             vm_error("unsupported input device: %s\n", p->input_device);
             return NULL;
@@ -1412,6 +1406,59 @@ void virt_machine_end(RISCVMachine *s) {
     free(s);
 }
 
+static inline void serialize_plic(RISCVMachine *m, JSONValue devs_json) {
+    JSONValue plic_device, a, j;
+    plic_device = json_object_new();
+    // PLIC priority
+    a = json_array_new();
+    for (int irq = 0; irq < PLIC_NUM_SOURCES + 1; ++irq) {
+        j           = json_int64_new(m->plic_priority[irq]);
+        JSONValue o = json_object_new();
+        json_object_set(o, "irq", j);
+        json_array_set(a, irq, o);
+    }
+    json_object_set(plic_device, "plic_priority", a);
+    // PLIC pending
+    j = json_int64_new(m->plic_pending_irq);
+    json_object_set(plic_device, "plic_pending_irq", j);
+    // PLIC served
+    j = json_int64_new(m->plic_served_irq);
+    json_object_set(plic_device, "plic_served_irq", j);
+    // PLIC enable (NOTE: should probably be handled by the CPU)
+    a = json_array_new();
+    for (int ctx = 0; ctx < 2; ++ctx) {
+        j           = json_int64_new(m->cpu_state[0]->plic_enable_irq[ctx]);  // FIXME: update for multicore
+        JSONValue o = json_object_new();
+        json_object_set(o, "ctx", j);
+        json_array_set(a, ctx, o);
+    }
+    json_object_set(plic_device, "plic_enable_irq", a);
+    json_object_set(devs_json, "plic", plic_device);
+}
+
+static inline void serialize_devices(RISCVMachine *m, const char *dump_base) {
+    JSONValue devs_json = json_object_new();
+    serialize_plic(m, devs_json);
+    for (int i = 0; i < m->virtio_count; ++i) {
+        JSONValue vio_device = json_object_new();
+        virtio_device_serialize(m->virtio_devices[i], vio_device);
+        char dev_name[5];
+        snprintf(dev_name, 5, "vio%d", i);
+        json_object_set(devs_json, dev_name, vio_device);
+    }
+
+    size_t len       = strlen(dump_base) + 5;
+    char * dump_name = (char *)alloca(len);
+    snprintf(dump_name, len, "%s.dev", dump_base);
+    FILE *fd = fopen(dump_name, "w");
+    if (!fd) {
+        err(-3, "opening %s for serialization", dump_name);
+    }
+    json_write(devs_json, fd, 0);
+    fclose(fd);
+    json_free(devs_json);
+}
+
 void virt_machine_serialize(RISCVMachine *m, const char *dump_name) {
     RISCVCPUState *s = m->cpu_state[0];  // FIXME: MULTICORE
 
@@ -1419,6 +1466,71 @@ void virt_machine_serialize(RISCVMachine *m, const char *dump_name) {
 
     assert(m->ncpus == 1);  // FIXME: riscv_cpu_serialize must be patched for multicore
     riscv_cpu_serialize(s, dump_name, m->clint_base_addr);
+    serialize_devices(m, dump_name);
+}
+
+static inline void deserialize_plic(RISCVMachine *m, JSONValue plic_device) {
+    // PLIC priority
+    JSONValue val = json_object_get(plic_device, "plic_priority");
+    for (int irq = 0; irq < PLIC_NUM_SOURCES + 1; ++irq) {
+        JSONValue a           = json_array_get(val, irq);
+        JSONValue j           = json_object_get(a, "irq");
+        m->plic_priority[irq] = (uint32_t)json_get_int64(j);
+    }
+    // PLIC pending
+    val                 = json_object_get(plic_device, "plic_pending_irq");
+    m->plic_pending_irq = (uint32_t)json_get_int64(val);
+    // PLIC served
+    val                = json_object_get(plic_device, "plic_served_irq");
+    m->plic_served_irq = (uint32_t)json_get_int64(val);
+    // PLIC enable (NOTE: should probably be handled by the CPU)
+    val = json_object_get(plic_device, "plic_enable_irq");
+    for (int ctx = 0; ctx < 2; ++ctx) {
+        JSONValue a                           = json_array_get(val, ctx);
+        JSONValue j                           = json_object_get(a, "ctx");
+        m->cpu_state[0]->plic_enable_irq[ctx] = (uint32_t)json_get_int64(j);  // FIXME: update for multicore
+    }
+}
+
+static inline void deserialize_devices(RISCVMachine *m, const char *dump_base) {
+    // Form the required filename
+    size_t len       = strlen(dump_base) + 5;
+    char * dump_name = (char *)alloca(len);
+
+    // Open the dump file
+    snprintf(dump_name, len, "%s.dev", dump_base);
+    FILE *fd = fopen(dump_name, "r");
+    if (!fd) {
+        err(-3, "opening %s for deserialization", dump_name);
+    }
+    fseek(fd, 0, SEEK_END);
+    size_t size = ftell(fd);
+    fseek(fd, 0, SEEK_SET);
+    char *buf = (char *)malloc(size);
+    // Read the file to a buffer
+    if (fread(buf, 1, size, fd) != size) {
+        err(-3, "opening %s for deserialization", dump_name);
+    }
+    fclose(fd);
+    // Parse the JSON
+    JSONValue devs_json = json_parse_value_len(buf, size);
+    if (json_is_error(devs_json)) {
+        vm_error("JSON err: %s\n", json_get_error(devs_json));
+        json_free(devs_json);
+        err(-3, "Parsing %s as JSON", dump_name);
+    }
+    // Pass the config to the PLIC
+    JSONValue dev_cfg = json_object_get(devs_json, "plic");
+    deserialize_plic(m, dev_cfg);
+    // Pass the relevant config to each virtio device
+    for (int i = 0; i < m->virtio_count; ++i) {
+        char dev_name[5];
+        snprintf(dev_name, 5, "vio%d", i);
+        dev_cfg = json_object_get(devs_json, dev_name);
+        virtio_device_deserialize(m->virtio_devices[i], dev_cfg);
+    }
+    json_free(devs_json);
+    free(buf);
 }
 
 void virt_machine_deserialize(RISCVMachine *m, const char *dump_name) {
@@ -1426,6 +1538,7 @@ void virt_machine_deserialize(RISCVMachine *m, const char *dump_name) {
 
     assert(m->ncpus == 1);  // FIXME: riscv_cpu_serialize must be patched for multicore
     riscv_cpu_deserialize(s, dump_name);
+    deserialize_devices(m, dump_name);
 }
 
 int virt_machine_get_sleep_duration(RISCVMachine *m, int hartid, int ms_delay) {
