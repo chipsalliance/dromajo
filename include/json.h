@@ -41,6 +41,7 @@
 #define JSON_H
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include "cutils.h"
 
@@ -135,8 +136,11 @@ static inline JSONValue json_bool_new(BOOL v) {
 
 const char *json_get_str(JSONValue val);
 const char *json_get_error(JSONValue val);
+int64_t     json_get_int64(JSONValue val);
 
 JSONValue json_parse_value(const char *p);
 JSONValue json_parse_value_len(const char *p, int len);
+
+int json_write(JSONValue val, FILE *fd, int indent);
 
 #endif /* JSON_H */

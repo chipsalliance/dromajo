@@ -49,6 +49,7 @@
 #endif
 
 #define MAX_CPUS 8
+#define MAX_VIOS MAX_ETH_DEVICE + MAX_DRIVE_DEVICE + 3
 
 /* Hooks */
 typedef struct RISCVMachineHooks {
@@ -77,6 +78,7 @@ struct RISCVMachine {
     uint64_t ram_size;
     uint64_t ram_base_addr;
     /* PLIC */
+    uint32_t  plic_priority[PLIC_NUM_SOURCES + 1];
     uint32_t  plic_pending_irq;
     uint32_t  plic_served_irq;
     IRQSignal plic_irq[32]; /* IRQ 0 is not used */
@@ -84,6 +86,7 @@ struct RISCVMachine {
     /* HTIF */
     uint64_t htif_tohost_addr;
 
+    VIRTIODevice *virtio_devices[MAX_VIOS];
     VIRTIODevice *keyboard_dev;
     VIRTIODevice *mouse_dev;
 

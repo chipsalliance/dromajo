@@ -45,7 +45,6 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdarg.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -196,6 +195,12 @@ const char *json_get_error(JSONValue val) {
     if (val.type != JSON_EXCEPTION)
         return NULL;
     return val.u.str->data;
+}
+
+int64_t json_get_int64(JSONValue val) {
+    if (val.type != JSON_INT)
+        return 0;
+    return val.u.int64;
 }
 
 JSONValue json_string_new2(const char *str, int len) {
@@ -437,4 +442,54 @@ JSONValue json_parse_value_len(const char *p, int len) {
     free(str);
 
     return val;
+}
+
+// Dump the JSON tree to a file
+int json_write(JSONValue val, FILE *fd, int indent) {
+    switch (val.type) {
+        case JSON_STR: fprintf(fd, "%*s\"%s\"", indent * 2, "", val.u.str->data); break;
+        case JSON_EXCEPTION: break;
+        case JSON_INT: fprintf(fd, "%*s0x%lx", indent * 2, "", val.u.int64); break;
+        case JSON_BOOL:
+            if (val.u.b == true) {
+                fprintf(fd, "%*strue", indent * 2, "");
+            } else {
+                fprintf(fd, "%*sfalse", indent * 2, "");
+            }
+            break;
+        case JSON_NULL:
+        case JSON_UNDEFINED: break;
+        case JSON_ARRAY: {
+            JSONArray *array = val.u.array;
+            int        i;
+
+            fprintf(fd, "%*s[\n", indent * 2, "");
+            for (i = 0; i < array->len; ++i) {
+                json_write(array->tab[i], fd, indent + 1);
+                if (i != array->len - 1) {
+                    fprintf(fd, ",\n");
+                }
+            }
+            fprintf(fd, "\n%*s]", indent * 2, "");
+        } break;
+        case JSON_OBJ: {
+            JSONObject *  obj = val.u.obj;
+            JSONProperty *f;
+            int           i;
+
+            fprintf(fd, "%*s{\n", indent * 2, "");
+            for (i = 0; i < obj->len; ++i) {
+                f = &obj->props[i];
+                json_write(f->name, fd, indent + 1);
+                fprintf(fd, ":");
+                json_write(f->value, fd, indent + 1);
+                if (i != obj->len - 1) {
+                    fprintf(fd, ",\n");
+                }
+            }
+            fprintf(fd, "\n%*s}", indent * 2, "");
+        } break;
+        default: abort();
+    }
+    return 0;
 }
