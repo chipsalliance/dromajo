@@ -1,0 +1,19 @@
+name: pull-request-checks
+run-name: ${{ github.actor }} Pull request checklist
+on: [pull_request]
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        path:
+          - 'src'
+          - 'include'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run clang-format style check for C/C++.
+        uses: jidicula/clang-format-action@v4.11.0
+        with:
+          clang-format-version: '12'
+          check-path: ${{ matrix.path }}
