@@ -39,6 +39,7 @@
  */
 
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -53,7 +54,6 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
-#include <ctype.h>
 
 #include "dromajo.h"
 #ifndef __APPLE__
@@ -237,7 +237,7 @@ static int bf_read_async(BlockDevice *bs, uint64_t sector_num, uint8_t *buf, int
             if (!bf->sector_table[sector_num]) {
                 fseek(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
                 size_t got = fread(buf, 1, SECTOR_SIZE, bf->f);
-                (void) got; // Make GCC happy
+                (void)got;  // Make GCC happy
                 assert(got == SECTOR_SIZE);
             } else {
                 memcpy(buf, bf->sector_table[sector_num], SECTOR_SIZE);
@@ -248,7 +248,7 @@ static int bf_read_async(BlockDevice *bs, uint64_t sector_num, uint8_t *buf, int
     } else {
         fseek(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
         size_t got = fread(buf, 1, n * SECTOR_SIZE, bf->f);
-        (void) got; // Make GCC happy
+        (void)got;  // Make GCC happy
         assert(got == n * SECTOR_SIZE);
     }
     /* synchronous read */
@@ -335,7 +335,7 @@ typedef struct {
 static void tun_write_packet(EthernetDevice *net, const uint8_t *buf, int len) {
     TunState *s   = (TunState *)net->opaque;
     ssize_t   got = write(s->fd, buf, len);
-    (void) got; // Make GCC happy
+    (void)got;  // Make GCC happy
     assert(got == len);
 }
 
@@ -634,10 +634,10 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     const char *simpoint_file            = 0;
     bool        clear_ids                = false;
 #ifdef LIVECACHE
-    uint64_t    live_cache_size          = 8*1024*1024;
+    uint64_t live_cache_size = 8 * 1024 * 1024;
 #endif
-    bool        elf_based                = false;
-    bool        allow_ctrlc              = false;
+    bool elf_based   = false;
+    bool allow_ctrlc = false;
 
     dromajo_stdout = stdout;
     dromajo_stderr = stderr;
@@ -680,9 +680,7 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             break;
 
         switch (c) {
-            case 'X':
-                allow_ctrlc = true;
-                break;
+            case 'X': allow_ctrlc = true; break;
             case 'c':
                 if (cmdline)
                     usage(prog, "already had a kernel command line");
@@ -839,10 +837,10 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
     else
         path = argv[optind++];
 
-/*
-    if (optind < argc)
-        usage(prog, "too many arguments");
-*/
+    /*
+        if (optind < argc)
+            usage(prog, "too many arguments");
+    */
 
     assert(path);
     BlockDeviceModeEnum drive_mode = BF_MODE_SNAPSHOT;
@@ -1008,10 +1006,9 @@ RISCVMachine *virt_machine_main(int argc, char **argv) {
             } else
                 load_hex_image(s, buf, buf_len);
         }
-        for (int i = 0; i < (int)p->ncpus; ++i)
-            s->cpu_state[i]->debug_mode = true;
+        for (int i = 0; i < (int)p->ncpus; ++i) s->cpu_state[i]->debug_mode = true;
     } else {
-        s  = virt_machine_load(p, s);
+        s = virt_machine_load(p, s);
         if (!s)
             return NULL;
     }

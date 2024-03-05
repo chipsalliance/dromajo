@@ -117,13 +117,13 @@ static inline bool is_mmio_load(RISCVCPUState *s, int reg, int offset, size_t si
  *
  * Right now we handle just mcycle.
  */
-static inline void handle_dut_overrides(RISCVCPUState *s, int priv, uint64_t pc,
-                                        uint32_t insn, uint64_t emu_wdata, uint64_t dut_wdata) {
-    int opcode = insn & 0x7f;
-    int csrno  = insn >> 20;
-    int rd     = (insn >> 7) & 0x1f;
-    int rdc    = ((insn >> 2) & 7) + 8;
-    int reg, offset;
+static inline void handle_dut_overrides(RISCVCPUState *s, int priv, uint64_t pc, uint32_t insn, uint64_t emu_wdata,
+                                        uint64_t dut_wdata) {
+    int    opcode = insn & 0x7f;
+    int    csrno  = insn >> 20;
+    int    rd     = (insn >> 7) & 0x1f;
+    int    rdc    = ((insn >> 2) & 7) + 8;
+    int    reg, offset;
     size_t size = (insn >> 12) & 3;
     /* Catch reads from CSR mcycle, ucycle, instret, hpmcounters,
      * hpmoverflows, mip, and sip.
@@ -259,9 +259,14 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
                  * so we just exit from here */
 
                 log_buff_space = snprintf(log_buffer, 512, "%d 0x%016" PRIx64 " ", emu_priv, emu_pc);
-                log_buff_space += snprintf(log_buffer+log_buff_space, 512-log_buff_space, " (0x%08x) ", emu_insn);
-                log_buff_space += snprintf(log_buffer+log_buff_space, 512-log_buff_space, "[error] EMU %cCAUSE %d != DUT %cCAUSE %d\n",
-                                                                          priv, cause, priv, r->common.pending_exception);
+                log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, " (0x%08x) ", emu_insn);
+                log_buff_space += snprintf(log_buffer + log_buff_space,
+                                           512 - log_buff_space,
+                                           "[error] EMU %cCAUSE %d != DUT %cCAUSE %d\n",
+                                           priv,
+                                           cause,
+                                           priv,
+                                           r->common.pending_exception);
                 (m.error_log)(hartid, log_buffer);
 
                 return 0x1FFF;
@@ -270,7 +275,9 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
 
         if (r->common.pending_interrupt != -1) {
             riscv_cpu_set_mip(s, riscv_cpu_get_mip(s) | 1 << r->common.pending_interrupt);
-            (m.debug_log)(hartid, "[DEBUG] Interrupt: MIP <- %d: Now MIP = %x\n", r->common.pending_interrupt,
+            (m.debug_log)(hartid,
+                          "[DEBUG] Interrupt: MIP <- %d: Now MIP = %x\n",
+                          r->common.pending_interrupt,
                           riscv_cpu_get_mip(s));
         }
 
@@ -400,25 +407,25 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
 
     log_buff_space = 0;
     if (verbose) {
-        log_buff_space += snprintf(log_buffer+log_buff_space, 512-log_buff_space, "%d 0x%016" PRIx64 " ", emu_priv, emu_pc);
-        log_buff_space += snprintf(log_buffer+log_buff_space, 512-log_buff_space, "(0x%08x) ", emu_insn);
+        log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, "%d 0x%016" PRIx64 " ", emu_priv, emu_pc);
+        log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, "(0x%08x) ", emu_insn);
     }
 
     if (iregno > 0) {
         emu_wdata      = riscv_get_reg(s, iregno);
         emu_wrote_data = 1;
         if (verbose)
-            log_buff_space += snprintf(log_buffer+log_buff_space, 512-log_buff_space, "x%-2d 0x%016" PRIx64, iregno, emu_wdata);
+            log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, "x%-2d 0x%016" PRIx64, iregno, emu_wdata);
     } else if (fregno >= 0) {
         emu_wdata      = riscv_get_fpreg(s, fregno);
         emu_wrote_data = 1;
         if (verbose)
-            log_buff_space += snprintf(log_buffer+log_buff_space, 512-log_buff_space, "f%-2d 0x%016" PRIx64, fregno, emu_wdata);
+            log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, "f%-2d 0x%016" PRIx64, fregno, emu_wdata);
     } else if (verbose)
-        log_buff_space += snprintf(log_buffer+log_buff_space, 512-log_buff_space, "                      ");
+        log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, "                      ");
 
     if (verbose)
-        log_buff_space += snprintf(log_buffer+log_buff_space, 512-log_buff_space, " DASM(0x%08x)\n", emu_insn);
+        log_buff_space += snprintf(log_buffer + log_buff_space, 512 - log_buff_space, " DASM(0x%08x)\n", emu_insn);
     (m.debug_log)(hartid, log_buffer);
 
     if (!check)
@@ -438,8 +445,10 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
         if (emu_wrote_data)
             (m.error_log)(hartid, "[error] EMU WDATA %016" PRIx64 ", DUT WDATA %016" PRIx64 "\n", emu_wdata, dut_wdata);
         (m.error_log)(hartid, "[error] EMU MSTATUS %08" PRIx64 ", DUT MSTATUS %08" PRIx64 "\n", emu_mstatus, dut_mstatus);
-        (m.error_log)(hartid, "[error] DUT pending exception %d pending interrupt %d\n",
-                               r->common.pending_exception, r->common.pending_interrupt);
+        (m.error_log)(hartid,
+                      "[error] DUT pending exception %d pending interrupt %d\n",
+                      r->common.pending_exception,
+                      r->common.pending_interrupt);
         exit_code = 0x1FFF;
     }
 
@@ -459,7 +468,7 @@ int dromajo_cosim_step(dromajo_cosim_state_t *state, int hartid, uint64_t dut_pc
 int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, uint64_t dut_paddr, uint64_t dut_val, int size_log2) {
     RISCVMachine * r = (RISCVMachine *)state;
     RISCVCPUState *s = r->cpu_state[hartid];
-    VirtMachine m = r->common;
+    VirtMachine    m = r->common;
 
     uint8_t *        ptr;
     target_ulong     offset;
@@ -499,7 +508,9 @@ int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, uint64_
 #endif
         else {
 #ifdef DUMP_INVALID_MEM_ACCESS
-            (m.debug_log)(hartid, "unsupported device write access: addr=0x%016" PRIx64 "  width=%d bits\n", dut_paddr,
+            (m.debug_log)(hartid,
+                          "unsupported device write access: addr=0x%016" PRIx64 "  width=%d bits\n",
+                          dut_paddr,
                           1 << (3 + size_log2));
 #endif
         }
@@ -515,6 +526,6 @@ int dromajo_cosim_override_mem(dromajo_cosim_state_t *state, int hartid, uint64_
 void dromajo_install_new_loggers(dromajo_cosim_state_t *state, dromajo_logging_func_t *debug_log,
                                  dromajo_logging_func_t *error_log) {
     VirtMachine *m = (VirtMachine *)state;
-    m->debug_log = debug_log;
-    m->error_log = error_log;
+    m->debug_log   = debug_log;
+    m->error_log   = error_log;
 }

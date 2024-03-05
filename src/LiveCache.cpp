@@ -94,8 +94,8 @@ LiveCache::~LiveCache() {
 }
 
 void LiveCache::read(uint64_t addr) {
-    if (addr<mem_base || addr>mem_end)
-      return; // only track between mem_base and mem_end
+    if (addr < mem_base || addr > mem_end)
+        return;  // only track between mem_base and mem_end
 
     Line *l = cacheBank->findLine(addr);
     if (l) {
@@ -111,8 +111,8 @@ void LiveCache::read(uint64_t addr) {
 }
 
 void LiveCache::write(uint64_t addr) {
-    if (addr<mem_base || addr>mem_end)
-      return; // only track between mem_base and mem_end
+    if (addr < mem_base || addr > mem_end)
+        return;  // only track between mem_base and mem_end
 
     Line *l = cacheBank->findLine(addr);
     if (l) {

@@ -29,10 +29,8 @@ enum {
     uart_reg_spr = 7,
 };
 
-const char *reg_name_r[10] = {
-    "RHR", "IER", "ISR", "LCR", "MCR", "LSR", "MSR", "SPR", "DLL", "DLM"};
-const char *reg_name_w[10] = {
-    "THR", "IER", "FCR", "LCR", "MCR", "?ls", "?ms", "SPR", "DLL", "DLM"};
+const char *reg_name_r[10] = {"RHR", "IER", "ISR", "LCR", "MCR", "LSR", "MSR", "SPR", "DLL", "DLM"};
+const char *reg_name_w[10] = {"THR", "IER", "FCR", "LCR", "MCR", "?ls", "?ms", "SPR", "DLL", "DLM"};
 
 /* Configuration parameters at hardware instantiation time (only includes features relevant to sim) */
 #define FEATURE_FIFO_MODE                  64
@@ -278,7 +276,7 @@ uint32_t dw_apb_uart_read(void *opaque, uint32_t offset, int size_log2) {
         if (offset < 8) {
             int i = offset + ((offset < 2) && ((s->lcr >> 7) & 1)) * 8;
             (void)i;
-            //if (offset != uart_reg_lsr)
+            // if (offset != uart_reg_lsr)
             DEBUG("##%s->%02x\n", reg_name_r[i], res);
         } else {
             DEBUG("##0x%x->%02x\n", offset, res);
@@ -287,8 +285,6 @@ uint32_t dw_apb_uart_read(void *opaque, uint32_t offset, int size_log2) {
         last_offset = offset;
         last_res    = res;
     }
-
-
 
     return res;
 }

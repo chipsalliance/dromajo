@@ -214,8 +214,8 @@ typedef struct RISCVCPUState {
 #endif
 
 #if VLEN > 0
-    uint8_t  v_reg[32][VLEN / 8];
-    bool     most_recently_written_vregs[32];
+    uint8_t v_reg[32][VLEN / 8];
+    bool    most_recently_written_vregs[32];
 
     /* CSRs */
     uint16_t     vstart;

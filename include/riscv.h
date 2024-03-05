@@ -125,23 +125,23 @@
 #define MSTATUS_SXL_MASK ((uint64_t)3 << MSTATUS_SXL_SHIFT)
 
 // A few of Debug Trigger Match Control bits (there are many more)
-#define MCONTROL_TYPE_AD_MATCH           (2ULL << 60)
-#define MCONTROL_DMODE                   (1ULL << 59)
-#define MCONTROL_MAXMASK_4               (4ULL << 53)
-#define MCONTROL_ACTION                  (0x3f << 12)
-#define MCONTROL_MATCH                   (0xf << 7)
-#define MCONTROL_M                       (1 << 6)
-#define MCONTROL_S                       (1 << 4)
-#define MCONTROL_U                       (1 << 3)
-#define MCONTROL_EXECUTE                 (1 << 2)
-#define MCONTROL_STORE                   (1 << 1)
-#define MCONTROL_LOAD                    (1 << 0)
-#define MCONTROL_ACTION_DEBUG_EXCEPTION   0
-#define MCONTROL_ACTION_DEBUG_MODE        1
-#define MCONTROL_MATCH_EQUAL              0
-#define MCONTROL_MATCH_NAPOT              1
-#define MCONTROL_MATCH_GE                 2
-#define MCONTROL_MATCH_LT                 3
+#define MCONTROL_TYPE_AD_MATCH          (2ULL << 60)
+#define MCONTROL_DMODE                  (1ULL << 59)
+#define MCONTROL_MAXMASK_4              (4ULL << 53)
+#define MCONTROL_ACTION                 (0x3f << 12)
+#define MCONTROL_MATCH                  (0xf << 7)
+#define MCONTROL_M                      (1 << 6)
+#define MCONTROL_S                      (1 << 4)
+#define MCONTROL_U                      (1 << 3)
+#define MCONTROL_EXECUTE                (1 << 2)
+#define MCONTROL_STORE                  (1 << 1)
+#define MCONTROL_LOAD                   (1 << 0)
+#define MCONTROL_ACTION_DEBUG_EXCEPTION 0
+#define MCONTROL_ACTION_DEBUG_MODE      1
+#define MCONTROL_MATCH_EQUAL            0
+#define MCONTROL_MATCH_NAPOT            1
+#define MCONTROL_MATCH_GE               2
+#define MCONTROL_MATCH_LT               3
 
 #define PHYSICAL_ADDR_LEN_DEFAULT 40
 

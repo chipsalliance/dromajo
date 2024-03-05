@@ -139,11 +139,11 @@ static int iterate_core(RISCVMachine *m, int hartid, int n_cycles) {
     bool     do_trace = false;
 
     (void)riscv_read_insn(cpu, &insn_raw, last_pc);
-    if (m->common.trace < (unsigned) n_cycles) {
+    if (m->common.trace < (unsigned)n_cycles) {
         n_cycles = 1;
         do_trace = true;
     } else
-      m->common.trace -= n_cycles;
+        m->common.trace -= n_cycles;
 
     int keep_going = virt_machine_run(m, hartid, n_cycles);
 
@@ -179,19 +179,18 @@ static int iterate_core(RISCVMachine *m, int hartid, int n_cycles) {
                 }
             }
 
-
     putc('\n', dromajo_stderr);
 
     return keep_going;
 }
 
-static double execution_start_ts;
+static double    execution_start_ts;
 static uint64_t *execution_progress_meassure;
-
 
 static void sigintr_handler(int dummy) {
     double t = get_current_time_in_seconds();
-    fprintf(dromajo_stderr, "Simulation speed: %5.2f MIPS (single-core)\n",
+    fprintf(dromajo_stderr,
+            "Simulation speed: %5.2f MIPS (single-core)\n",
             1e-6 * *execution_progress_meassure / (t - execution_start_ts));
     exit(1);
 }
@@ -223,8 +222,8 @@ int main(int argc, char **argv) {
     if (!m)
         return 1;
 
-    int n_cycles = 10000;
-    execution_start_ts = get_current_time_in_seconds();
+    int n_cycles                = 10000;
+    execution_start_ts          = get_current_time_in_seconds();
     execution_progress_meassure = &m->cpu_state[0]->minstret;
     signal(SIGINT, sigintr_handler);
 
@@ -250,7 +249,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    fprintf(dromajo_stderr, "Simulation speed: %5.2f MIPS (single-core)\n",
+    fprintf(dromajo_stderr,
+            "Simulation speed: %5.2f MIPS (single-core)\n",
             1e-6 * *execution_progress_meassure / (t - execution_start_ts));
 
     fprintf(dromajo_stderr, "\nPower off.\n");

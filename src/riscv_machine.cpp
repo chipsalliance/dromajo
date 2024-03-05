@@ -41,6 +41,7 @@
 #include "riscv_machine.h"
 
 #include <assert.h>
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -50,7 +51,6 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <err.h>
 
 #include "cutils.h"
 #include "dromajo.h"
@@ -375,7 +375,7 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
         int hartid = addrid / 2;  // PLIC_HART_CONFIG is "MS"
         if (hartid < s->ncpus) {
             // uint32_t wordid = (offset & (PLIC_ENABLE_STRIDE - 1)) >> 2;
-            RISCVCPUState *cpu   = s->cpu_state[hartid];
+            RISCVCPUState *cpu               = s->cpu_state[hartid];
             cpu->plic_enable_irq[addrid % 2] = val;
         }
     } else if (PLIC_CONTEXT_BASE <= offset && offset < PLIC_CONTEXT_BASE + PLIC_CONTEXT_STRIDE * MAX_CPUS) {
@@ -384,7 +384,7 @@ static void plic_write(void *opaque, uint32_t offset, uint32_t val, int size_log
         if (wordid == 0) {
             plic_priority[wordid] = val;
         } else if (wordid == 1) {
-            int irq = val & 31;
+            int      irq  = val & 31;
             uint32_t mask = 1 << irq;
             s->plic_served_irq &= ~mask;
         } else {
@@ -900,9 +900,9 @@ void load_hex_image(RISCVMachine *s, uint8_t *image, size_t image_len) {
 
     for (;;) {
         long unsigned offset = 0;
-        unsigned data = 0;
+        unsigned      data   = 0;
         if (p[0] == '0' && p[1] == 'x')
-          p += 2;
+            p += 2;
         char *nl = strchr(p, '\n');
         if (nl)
             *nl = 0;
@@ -911,7 +911,7 @@ void load_hex_image(RISCVMachine *s, uint8_t *image, size_t image_len) {
             break;
         uint32_t *mem = (uint32_t *)get_ram_ptr(s, offset);
         if (!mem)
-          errx(1, "dromajo: can't load hex file, no memory at 0x%lx", offset);
+            errx(1, "dromajo: can't load hex file, no memory at 0x%lx", offset);
 
         *mem = data;
 

@@ -1567,7 +1567,7 @@ static int marshall(VIRTIO9PDevice *s, uint8_t *buf1, int max_len, const char *f
             default: abort();
         }
     }
-    (void) buf_end; // Stop GCC complaints in release builds
+    (void)buf_end;  // Stop GCC complaints in release builds
     va_end(ap);
     return buf - buf1;
 }

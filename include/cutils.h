@@ -150,8 +150,7 @@ static inline uint32_t cpu_to_be32(uint32_t v) { return v; }
 static inline uint32_t cpu_to_be32(uint32_t v) { return bswap_32(v); }
 #endif
 
-static inline int ctz32(uint32_t val)
-{
+static inline int ctz32(uint32_t val) {
 #if (defined(__GNUC__) && __GNUC__ >= 4) || defined(__clang__)
     return val ? __builtin_ctz(val) : 32;
 #else
@@ -201,7 +200,6 @@ void dbuf_write(DynBuf *s, size_t offset, const uint8_t *data, size_t len);
 void dbuf_putc(DynBuf *s, uint8_t c);
 void dbuf_putstr(DynBuf *s, const char *str);
 void dbuf_free(DynBuf *s);
-
 
 static inline double get_current_time_in_seconds(void) {
     struct timespec ts;

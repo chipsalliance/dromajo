@@ -73,9 +73,9 @@ struct RISCVMachine {
      */
     uint64_t memseqno;
 
-    int            ncpus;
-    uint64_t       ram_size;
-    uint64_t       ram_base_addr;
+    int      ncpus;
+    uint64_t ram_size;
+    uint64_t ram_base_addr;
     /* PLIC */
     uint32_t  plic_pending_irq;
     uint32_t  plic_served_irq;
@@ -141,6 +141,6 @@ struct RISCVMachine {
 #define UART0_BASE_ADDR 0x54000000
 #define UART0_SIZE      32
 #endif
-#define UART0_IRQ       3
+#define UART0_IRQ 3
 
 #endif

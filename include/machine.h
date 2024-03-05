@@ -232,8 +232,8 @@ int           virt_machine_get_sleep_duration(RISCVMachine *s, int hartid, int d
 BOOL          vm_mouse_is_absolute(RISCVMachine *s);
 void          vm_send_mouse_event(RISCVMachine *s1, int dx, int dy, int dz, unsigned int buttons);
 void          vm_send_key_event(RISCVMachine *s1, BOOL is_down, uint16_t key_code);
-void load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len);
-void load_hex_image(RISCVMachine *s, uint8_t *image, size_t image_len);
+void          load_elf_image(RISCVMachine *s, const uint8_t *image, size_t image_len);
+void          load_hex_image(RISCVMachine *s, uint8_t *image, size_t image_len);
 
 /* gui */
 void sdl_refresh(RISCVMachine *m);

@@ -19,7 +19,7 @@
 
 typedef struct DW_apb_uart_state {
     CharacterDevice *cs;
-    IRQSignal       *irq;
+    IRQSignal *      irq;
     uint8_t          rx_fifo[8];
     unsigned         rx_fifo_len;
     unsigned         last_irq_level;
