@@ -48,15 +48,6 @@
 #include <string.h>
 #include <sys/time.h>
 
-void *mallocz(size_t size) {
-    void *ptr;
-    ptr = malloc(size);
-    if (!ptr)
-        return NULL;
-    memset(ptr, 0, size);
-    return ptr;
-}
-
 void pstrcpy(char *buf, int buf_size, const char *str) {
     int   c;
     char *q = buf;
