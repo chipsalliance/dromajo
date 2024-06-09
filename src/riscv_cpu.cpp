@@ -2762,8 +2762,9 @@ void riscv_cpu_serialize(RISCVCPUState *s, const char *dump_name, const uint64_t
             assert(!main_ram_found);
             main_ram_found = 1;
 
-            char *f_name = (char *)alloca(strlen(dump_name) + 64);
-            sprintf(f_name, "%s.mainram", dump_name);
+            size_t f_name_len = strlen(dump_name) + 64;
+            char *f_name = (char *)alloca(f_name_len);
+            snprintf(f_name, f_name_len, "%s.mainram", dump_name);
 
             serialize_memory(pr->phys_mem, pr->size, f_name);
         }
