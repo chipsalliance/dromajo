@@ -449,7 +449,7 @@ int json_write(JSONValue val, FILE *fd, int indent) {
     switch (val.type) {
         case JSON_STR: fprintf(fd, "%*s\"%s\"", indent * 2, "", val.u.str->data); break;
         case JSON_EXCEPTION: break;
-        case JSON_INT: fprintf(fd, "%*s0x%lx", indent * 2, "", val.u.int64); break;
+        case JSON_INT: fprintf(fd, "%*s0x%" PRIx64, indent * 2, "", val.u.int64); break;
         case JSON_BOOL:
             if (val.u.b == true) {
                 fprintf(fd, "%*strue", indent * 2, "");
