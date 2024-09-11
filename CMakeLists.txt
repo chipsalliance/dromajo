@@ -1,3 +1,4 @@
+cmake_minimum_required(VERSION 3.5)
 #
 # Dromajo, a RISC-V Emulator (based on Fabrice Bellard's RISCVEMU/TinyEMU)
 #
@@ -38,7 +39,6 @@
 # THE SOFTWARE.
 #
 
-cmake_minimum_required(VERSION 2.8)
 set(CMAKE_CXX_STANDARD 11)
 project(dromajo)
 option(TRACEOS "TRACEOS" OFF)

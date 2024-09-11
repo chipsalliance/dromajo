@@ -38,7 +38,7 @@
  * THE SOFTWARE.
  */
 
-#include <cstdint>
+#include <stdint.h>
 
 /* FSQID.type */
 #define P9_QTDIR     0x80
