@@ -59,12 +59,6 @@ add_compile_options(
         -D_LARGEFILE_SOURCE
         -D_GNU_SOURCE
         -D__STDC_FORMAT_MACROS
-        -march=native -mtune=native
-        -flto
-)
-
-add_link_options(
-        -flto
 )
 
 add_compile_options($<$<CONFIG:Release>:-Ofast>)
