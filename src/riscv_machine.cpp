@@ -1107,7 +1107,7 @@ static void dump_dram(RISCVMachine *s, FILE *f[16], const char *region, uint64_t
 
     uint64_t end = start + len;
 
-    fprintf(stderr, "Dumping %-10s [%016lx; %016lx) %6.2f MiB\n", region, start, end, len / (1024 * 1024.0));
+    fprintf(stderr, "Dumping %-10s [%016" PRIx64 "; %016" PRIx64 ") %6.2f MiB\n", region, start, end, len / (1024 * 1024.0));
 
     /*
       Bytes
@@ -1133,7 +1133,7 @@ static void dump_dram(RISCVMachine *s, FILE *f[16], const char *region, uint64_t
         for (int bank = 0; bank < 16; ++bank) {
             for (int word = 0; word < 8; ++word) {
                 fprintf(f[bank],
-                        "@%08x %016lx\n",
+                        "@%08x %016" PRIx64 "\n",
                         // Yes, this is mental
                         (line % 8) * 0x01000000 + line / 8 * 8 + word,
                         *(uint64_t *)get_ram_ptr(s, start));
