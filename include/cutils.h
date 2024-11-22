@@ -96,7 +96,9 @@ static inline int min_int(int a, int b) {
         return b;
 }
 
-void *mallocz(size_t size);
+static inline void *mallocz(size_t size) {
+    return calloc(size, 1);
+}
 
 #if defined(__APPLE__)
 static inline uint32_t bswap_32(uint32_t v) {
